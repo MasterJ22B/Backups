@@ -1,0 +1,307 @@
+{
+  "updatedAt": "2026-04-14T09:00:56.121Z",
+  "createdAt": "2025-12-27T18:37:04.477Z",
+  "id": "4s7M1xKRFCSl7WEX",
+  "name": "Minusbestände - Bericht",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "188f25d2-1399-4c28-b381-00964ac6c7c8",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <workflows@buecherbuechse.de>",
+        "toEmail": "christoph@buecherbuechse.de,lisa@buecherbuechse.de,support-intern@buecherbuechse.de,exklusivausgaben@buecherbuechse.de, produktmanagement@buecherbuechse.de",
+        "subject": "=Bücherbüchse | Minusbestände zum {{ $now.toFormat('dd.MM.yyyy') }}",
+        "html": "={{ $json.table }}",
+        "options": {
+          "replyTo": "it@buecherbuechse.de"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        624,
+        0
+      ],
+      "id": "09b8f19f-9459-4994-a044-6f139a0c5c74",
+      "name": "Send email",
+      "webhookId": "1070c5da-44c3-4a16-8ff1-d18545119d91",
+      "retryOnFail": true,
+      "alwaysOutputData": false,
+      "credentials": {
+        "smtp": {
+          "id": "ZzNsJGHozTJiS4R6",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    a.cArtNr                               AS Artikelnummer,\n    abd.cName                              AS Artikelname,\n    wg.cName                               AS Warengruppe,\n    li.cFirma                              AS Standardlieferant,\n\n    -- Gesamt (artikelbezogen)\n    lb.fLagerbestand                       AS AufLager_Gesamt,\n    lb.fInAuftraegen                       AS Reserviert_InAuftraegen_Gesamt,\n    lb.fVerfuegbar                         AS Verfuegbar_Gesamt,\n    lb.fZulauf                             AS Zulauf_Gesamt,\n\n    -- Pro Lager (zur Einordnung)\n    wl.cName                               AS Lager,\n    v.fBestand                             AS AufLager_ProLager\n\nFROM dbo.tLagerbestand lb\nJOIN dbo.tArtikel a\n    ON a.kArtikel = lb.kArtikel\n\n-- Artikelname (typisch: Beschreibungstabelle)\nLEFT JOIN dbo.tArtikelBeschreibung abd\n    ON abd.kArtikel = a.kArtikel\n   AND abd.kPlattform = 1\n   AND abd.kShop = 0\n   AND abd.kSprache = 1\n\nLEFT JOIN dbo.tWarengruppe wg\n    ON wg.kWarengruppe = a.kWarengruppe\n\n-- Standardlieferant\nLEFT JOIN dbo.tLiefartikel la\n    ON la.tArtikel_kArtikel = a.kArtikel\n   AND la.nStandard = 1\nLEFT JOIN dbo.tLieferant li\n    ON li.kLieferant = la.tLieferant_kLieferant\n\n-- Lagerzeilen (alle Lager anzeigen)\nLEFT JOIN dbo.vLagerBestandProLagerAlle v\n    ON v.kArtikel = a.kArtikel\nLEFT JOIN dbo.tWarenLager wl\n    ON wl.kWarenLager = v.kWarenlager\n   AND wl.nAktiv = 1\n\nWHERE\n    a.cAktiv = 'Y'\n    AND a.nIstVater = 0\n    AND lb.fVerfuegbar < 0\n\tAND wl.kWarenLager IN (4) --4 = WMS Lager 26 = LKG Auslieferlager\n\tAND a.cArtNr NOT LIKE 'B2B-%'\n    AND a.cArtNr NOT LIKE 'BM-%'\n\nORDER BY\n    lb.fVerfuegbar ASC,\n    a.cArtNr,\n    wl.cName;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "70c842fe-3a7a-477f-9754-537520bd14bf",
+      "name": "JTL Minusbestände abfragen",
+      "retryOnFail": true,
+      "alwaysOutputData": false,
+      "credentials": {
+        "microsoftSql": {
+          "id": "FPNARNNGeU5o4IlA",
+          "name": "Microsoft SQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "convertToHtmlTable",
+        "options": {
+          "capitalize": false,
+          "headerAttributes": "style=\"background-color:black;text-color:white;\""
+        }
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "b3ca4875-c5f5-49ae-8819-92e7750fd410",
+      "name": "Generiere HTML-Datentabelle"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "JTL Minusbestände abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL Minusbestände abfragen": {
+      "main": [
+        [
+          {
+            "node": "Generiere HTML-Datentabelle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generiere HTML-Datentabelle": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 2,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "b0a6b36b-35b1-45df-9e53-51b8e4cf99ed",
+  "activeVersionId": "e3053fef-7c7d-4048-9ead-0616b84b2ff5",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-01-27T12:05:26.770Z",
+      "createdAt": "2026-01-27T12:05:26.770Z",
+      "role": "workflow:owner",
+      "workflowId": "4s7M1xKRFCSl7WEX",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-03-28T22:02:44.000Z",
+    "createdAt": "2026-03-28T22:02:40.568Z",
+    "versionId": "e3053fef-7c7d-4048-9ead-0616b84b2ff5",
+    "workflowId": "4s7M1xKRFCSl7WEX",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtHour": 6
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "id": "188f25d2-1399-4c28-b381-00964ac6c7c8",
+        "name": "Schedule Trigger"
+      },
+      {
+        "parameters": {
+          "fromEmail": "Bücherbüchse Automations <workflows@buecherbuechse.de>",
+          "toEmail": "christoph@buecherbuechse.de,lisa@buecherbuechse.de,support-intern@buecherbuechse.de,exklusivausgaben@buecherbuechse.de, produktmanagement@buecherbuechse.de",
+          "subject": "=Bücherbüchse | Minusbestände zum {{ $now.toFormat('dd.MM.yyyy') }}",
+          "html": "={{ $json.table }}",
+          "options": {
+            "replyTo": "it@buecherbuechse.de"
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          624,
+          0
+        ],
+        "id": "09b8f19f-9459-4994-a044-6f139a0c5c74",
+        "name": "Send email",
+        "webhookId": "1070c5da-44c3-4a16-8ff1-d18545119d91",
+        "retryOnFail": true,
+        "alwaysOutputData": false,
+        "credentials": {
+          "smtp": {
+            "id": "ZzNsJGHozTJiS4R6",
+            "name": "SMTP account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT\n    a.cArtNr                               AS Artikelnummer,\n    abd.cName                              AS Artikelname,\n    wg.cName                               AS Warengruppe,\n    li.cFirma                              AS Standardlieferant,\n\n    -- Gesamt (artikelbezogen)\n    lb.fLagerbestand                       AS AufLager_Gesamt,\n    lb.fInAuftraegen                       AS Reserviert_InAuftraegen_Gesamt,\n    lb.fVerfuegbar                         AS Verfuegbar_Gesamt,\n    lb.fZulauf                             AS Zulauf_Gesamt,\n\n    -- Pro Lager (zur Einordnung)\n    wl.cName                               AS Lager,\n    v.fBestand                             AS AufLager_ProLager\n\nFROM dbo.tLagerbestand lb\nJOIN dbo.tArtikel a\n    ON a.kArtikel = lb.kArtikel\n\n-- Artikelname (typisch: Beschreibungstabelle)\nLEFT JOIN dbo.tArtikelBeschreibung abd\n    ON abd.kArtikel = a.kArtikel\n   AND abd.kPlattform = 1\n   AND abd.kShop = 0\n   AND abd.kSprache = 1\n\nLEFT JOIN dbo.tWarengruppe wg\n    ON wg.kWarengruppe = a.kWarengruppe\n\n-- Standardlieferant\nLEFT JOIN dbo.tLiefartikel la\n    ON la.tArtikel_kArtikel = a.kArtikel\n   AND la.nStandard = 1\nLEFT JOIN dbo.tLieferant li\n    ON li.kLieferant = la.tLieferant_kLieferant\n\n-- Lagerzeilen (alle Lager anzeigen)\nLEFT JOIN dbo.vLagerBestandProLagerAlle v\n    ON v.kArtikel = a.kArtikel\nLEFT JOIN dbo.tWarenLager wl\n    ON wl.kWarenLager = v.kWarenlager\n   AND wl.nAktiv = 1\n\nWHERE\n    a.cAktiv = 'Y'\n    AND a.nIstVater = 0\n    AND lb.fVerfuegbar < 0\n\tAND wl.kWarenLager IN (4) --4 = WMS Lager 26 = LKG Auslieferlager\n\tAND a.cArtNr NOT LIKE 'B2B-%'\n    AND a.cArtNr NOT LIKE 'BM-%'\n\nORDER BY\n    lb.fVerfuegbar ASC,\n    a.cArtNr,\n    wl.cName;\n"
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          208,
+          0
+        ],
+        "id": "70c842fe-3a7a-477f-9754-537520bd14bf",
+        "name": "JTL Minusbestände abfragen",
+        "retryOnFail": true,
+        "alwaysOutputData": false,
+        "credentials": {
+          "microsoftSql": {
+            "id": "FPNARNNGeU5o4IlA",
+            "name": "Microsoft SQL account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "convertToHtmlTable",
+          "options": {
+            "capitalize": false,
+            "headerAttributes": "style=\"background-color:black;text-color:white;\""
+          }
+        },
+        "type": "n8n-nodes-base.html",
+        "typeVersion": 1.2,
+        "position": [
+          416,
+          0
+        ],
+        "id": "b3ca4875-c5f5-49ae-8819-92e7750fd410",
+        "name": "Generiere HTML-Datentabelle"
+      }
+    ],
+    "connections": {
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "JTL Minusbestände abfragen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "JTL Minusbestände abfragen": {
+        "main": [
+          [
+            {
+              "node": "Generiere HTML-Datentabelle",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generiere HTML-Datentabelle": {
+        "main": [
+          [
+            {
+              "node": "Send email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version e3053fef",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": []
+}

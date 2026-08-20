@@ -1,0 +1,1402 @@
+{
+  "updatedAt": "2026-06-10T13:15:46.657Z",
+  "createdAt": "2026-01-22T11:29:40.608Z",
+  "id": "cxWBO99ohKiXMJrone7zD",
+  "name": "Aktualisierung der Abo-Segmente in Klaviyo-WC",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3504,
+        224
+      ],
+      "id": "def789d0-57eb-4c70-ab31-e4ffb9c66627",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://a.klaviyo.com/api/segments/XAVn9X/profiles?",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            },
+            {
+              "name": "accpept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -3152,
+        224
+      ],
+      "id": "90ddfa3c-b1f7-4580-a9b0-76bb335e1da5",
+      "name": "Hole ALLE aus Segment",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) Wrapper aus dem HTTP-Node holen\nconst wrapper = $json;         // z.B. { data: \"...string...\" }\nlet response = wrapper.data;   // das ist aktuell ein String\n\n// 2) Falls das innere 'data' ein String ist: parsen\nif (typeof response === 'string') {\n  try {\n    response = JSON.parse(response);\n  } catch (error) {\n    // JSON fehlerhaft -> Debug als EIN Item zurückgeben\n    return [\n      {\n        json: {\n          found: false,\n          parseError: true,\n          errorMessage: String(error),\n          rawWrapper: wrapper,\n        },\n      },\n    ];\n  }\n}\n\n// 3) Jetzt ist 'response' das eigentliche Klaviyo-Objekt:\n//    { data: [ { type: 'profile', id: '...', attributes: {...} }, ... ], links: {...} }\n\nconst profiles = Array.isArray(response.data) ? response.data : [];\n\nif (profiles.length === 0) {\n  return [\n    {\n      json: {\n        found: false,\n        message: 'Keine Profile gefunden oder unerwartetes Format',\n        rawResponse: response,\n      },\n    },\n  ];\n}\n\n// 4) Über ALLE Profile iterieren und jeweils ein Item bauen\nconst items = profiles.map(profile => {\n  const attrs = profile.attributes || {};\n  const location = attrs.location || {};\n  const props = attrs.properties || {};\n\n  return {\n    json: {\n      found: true,\n\n      profileId: profile.id,\n      email: attrs.email,\n      phone: attrs.phone_number,\n      firstName: attrs.first_name,\n      lastName: attrs.last_name,\n\n      city: location.city,\n      zip: location.zip,\n      country: location.country,\n      timezone: location.timezone,\n\n      preferences: props.preference,\n      acceptsMarketing: props['Accepts Marketing'],\n    },\n  };\n});\n\n// 5) n8n erwartet ein Array von Items\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3152,
+        448
+      ],
+      "id": "3cc029e9-7d7d-45bb-8eda-0140448f1105",
+      "name": "Wandle Datensatz um "
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const kabo = false;\n\nconst kid = $json.profileId;\n\nreturn {\n  json: {\n    data: {\n      type: 'profile',\n      id: kid,\n      attributes: {\n        properties: {\n          zauberbuechse: kabo,\n        },\n      },\n    },\n  },\n};\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2736,
+        464
+      ],
+      "id": "478b6b86-5af4-4e38-a771-c0a79a65c31e",
+      "name": "Bereite vor für HTTP-Node"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -2672,
+        208
+      ],
+      "id": "af0dabec-91fb-4680-9eca-5155da8a7021",
+      "name": "Wait",
+      "webhookId": "5c222fd7-b94b-4131-8a72-3998d80b4b7e"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://a.klaviyo.com/api/profiles/{{ $json.data.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            },
+            {
+              "name": "Authorization",
+              "value": "Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -2592,
+        464
+      ],
+      "id": "4a07f51c-132c-485e-baee-2fe8ad3ca8a3",
+      "name": "Lösche alle Zauberbüchsen Tags (falls niemand im Segment zum Löschen ist, fahre mit Flow fort)",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "41d1d981-cd28-4b45-a8cb-894bcaec4df0",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2960,
+        224
+      ],
+      "id": "b596cc75-bb70-4347-878c-d3f423fc04d0",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "url": "https://a.klaviyo.com/api/segments/YtVxAG/profiles?",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            },
+            {
+              "name": "accpept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -2128,
+        64
+      ],
+      "id": "cec9e347-c64b-466d-9860-1f0295d675ab",
+      "name": "Hole ALLE aus Segment1",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) Wrapper aus dem HTTP-Node holen\nconst wrapper = $json;         // z.B. { data: \"...string...\" }\nlet response = wrapper.data;   // das ist aktuell ein String\n\n// 2) Falls das innere 'data' ein String ist: parsen\nif (typeof response === 'string') {\n  try {\n    response = JSON.parse(response);\n  } catch (error) {\n    // JSON fehlerhaft -> Debug als EIN Item zurückgeben\n    return [\n      {\n        json: {\n          found: false,\n          parseError: true,\n          errorMessage: String(error),\n          rawWrapper: wrapper,\n        },\n      },\n    ];\n  }\n}\n\n// 3) Jetzt ist 'response' das eigentliche Klaviyo-Objekt:\n//    { data: [ { type: 'profile', id: '...', attributes: {...} }, ... ], links: {...} }\n\nconst profiles = Array.isArray(response.data) ? response.data : [];\n\nif (profiles.length === 0) {\n  return [\n    {\n      json: {\n        found: false,\n        message: 'Keine Profile gefunden oder unerwartetes Format',\n        rawResponse: response,\n      },\n    },\n  ];\n}\n\n// 4) Über ALLE Profile iterieren und jeweils ein Item bauen\nconst items = profiles.map(profile => {\n  const attrs = profile.attributes || {};\n  const location = attrs.location || {};\n  const props = attrs.properties || {};\n\n  return {\n    json: {\n      found: true,\n\n      profileId: profile.id,\n      email: attrs.email,\n      phone: attrs.phone_number,\n      firstName: attrs.first_name,\n      lastName: attrs.last_name,\n\n      city: location.city,\n      zip: location.zip,\n      country: location.country,\n      timezone: location.timezone,\n\n      preferences: props.preference,\n      acceptsMarketing: props['Accepts Marketing'],\n    },\n  };\n});\n\n// 5) n8n erwartet ein Array von Items\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2128,
+        288
+      ],
+      "id": "e77b933a-a7c3-41e3-8cd4-444268213c6d",
+      "name": "Wandle Datensatz um 1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const kabo = false;\n\nconst kid = $json.profileId;\n\nreturn {\n  json: {\n    data: {\n      type: 'profile',\n      id: kid,\n      attributes: {\n        properties: {\n          liebesbuechse: kabo,\n        },\n      },\n    },\n  },\n};\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1776,
+        336
+      ],
+      "id": "3001aeb5-468b-4714-9fbe-324f9f4abefe",
+      "name": "Bereite vor für HTTP-Node1"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1648,
+        80
+      ],
+      "id": "d0e36ac7-fd98-4103-8dd7-32af2e2ff3b6",
+      "name": "Wait1",
+      "webhookId": "24b2c6e5-f88d-4fcd-94bc-57cc87a06609"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "41d1d981-cd28-4b45-a8cb-894bcaec4df0",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1936,
+        64
+      ],
+      "id": "d6837c30-2912-4560-b795-cbb67146946b",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "url": "https://a.klaviyo.com/api/segments/VtX54n/profiles?",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            },
+            {
+              "name": "accpept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1200,
+        240
+      ],
+      "id": "b9d6819c-f447-406c-be49-cf8cebab69ea",
+      "name": "Hole ALLE aus Segment2",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) Wrapper aus dem HTTP-Node holen\nconst wrapper = $json;         // z.B. { data: \"...string...\" }\nlet response = wrapper.data;   // das ist aktuell ein String\n\n// 2) Falls das innere 'data' ein String ist: parsen\nif (typeof response === 'string') {\n  try {\n    response = JSON.parse(response);\n  } catch (error) {\n    // JSON fehlerhaft -> Debug als EIN Item zurückgeben\n    return [\n      {\n        json: {\n          found: false,\n          parseError: true,\n          errorMessage: String(error),\n          rawWrapper: wrapper,\n        },\n      },\n    ];\n  }\n}\n\n// 3) Jetzt ist 'response' das eigentliche Klaviyo-Objekt:\n//    { data: [ { type: 'profile', id: '...', attributes: {...} }, ... ], links: {...} }\n\nconst profiles = Array.isArray(response.data) ? response.data : [];\n\nif (profiles.length === 0) {\n  return [\n    {\n      json: {\n        found: false,\n        message: 'Keine Profile gefunden oder unerwartetes Format',\n        rawResponse: response,\n      },\n    },\n  ];\n}\n\n// 4) Über ALLE Profile iterieren und jeweils ein Item bauen\nconst items = profiles.map(profile => {\n  const attrs = profile.attributes || {};\n  const location = attrs.location || {};\n  const props = attrs.properties || {};\n\n  return {\n    json: {\n      found: true,\n\n      profileId: profile.id,\n      email: attrs.email,\n      phone: attrs.phone_number,\n      firstName: attrs.first_name,\n      lastName: attrs.last_name,\n\n      city: location.city,\n      zip: location.zip,\n      country: location.country,\n      timezone: location.timezone,\n\n      preferences: props.preference,\n      acceptsMarketing: props['Accepts Marketing'],\n    },\n  };\n});\n\n// 5) n8n erwartet ein Array von Items\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1008,
+        240
+      ],
+      "id": "598802f1-befc-4162-a490-34ea40d79584",
+      "name": "Wandle Datensatz um 2"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const kabo = false;\n\nconst kid = $json.profileId;\n\nreturn {\n  json: {\n    data: {\n      type: 'profile',\n      id: kid,\n      attributes: {\n        properties: {\n          dunkelbuechse: kabo,\n        },\n      },\n    },\n  },\n};\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -912,
+        512
+      ],
+      "id": "63f219be-8730-4ad3-bfec-076d88e937a6",
+      "name": "Bereite vor für HTTP-Node2"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -560,
+        224
+      ],
+      "id": "a82e7cf8-cc5e-4b7f-81c3-012bf319d97f",
+      "name": "Wait2",
+      "webhookId": "c9bb679b-fc7b-4dc5-885f-a9f85743ed47"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://a.klaviyo.com/api/profiles/{{ $json.data.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            },
+            {
+              "name": "Authorization",
+              "value": "Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1648,
+        336
+      ],
+      "id": "b6cb3c66-e3e0-4803-be8d-f8aac80fab89",
+      "name": "Lösche alle Liebesbüchsen Tags (falls niemand im Segment zum Löschen ist, fahre mit Flow fort)1",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://a.klaviyo.com/api/profiles/{{ $json.data.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            },
+            {
+              "name": "Authorization",
+              "value": "Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -736,
+        512
+      ],
+      "id": "2348d3a6-e0cb-400e-9521-a60506b99096",
+      "name": "Lösche alle Dunkelbüchsen Tags (falls niemand im Segment zum Löschen ist, fahre mit Flow fort)2",
+      "executeOnce": false,
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    u.user_email,\n    GROUP_CONCAT(DISTINCT p.post_title ORDER BY p.post_title SEPARATOR ', ') AS aktive_abos\nFROM wp_users u\nINNER JOIN wp_posts s\n    ON s.post_type = 'shop_subscription'\n    AND s.post_status = 'wc-active'\nINNER JOIN wp_postmeta sm\n    ON sm.post_id = s.ID\n    AND sm.meta_key = '_customer_user'\n    AND sm.meta_value = u.ID\nINNER JOIN wp_woocommerce_order_items oi\n    ON oi.order_id = s.ID\nINNER JOIN wp_woocommerce_order_itemmeta oim\n    ON oim.order_item_id = oi.order_item_id\n    AND oim.meta_key = '_product_id'\nINNER JOIN wp_posts p\n    ON p.ID = oim.meta_value\n    AND (\n        p.post_title LIKE '%Liebesbüchse%'\n        OR p.post_title LIKE '%Zauberbüchse%'\n        OR p.post_title LIKE '%Dunkelbüchse%'\n    )\n    AND p.post_title NOT LIKE '%Goodie%'\nGROUP BY u.user_email\nORDER BY u.user_email\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        -304,
+        224
+      ],
+      "id": "006e8689-fc2e-43bf-8f57-2211971107cd",
+      "name": "Hole Adressen samt aktiven Abos",
+      "executeOnce": true,
+      "credentials": {
+        "mySql": {
+          "id": "XD6s1ttnipEf2yQq",
+          "name": "MySQL account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -96,
+        224
+      ],
+      "id": "562bc613-cc88-4bc6-a33f-5acd8f950c2e",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Eingehende Items haben:\n// item.json.user_email\n// item.json.aktive_abos (String, z.B. \"Liebesbüchse Buch, Zauberbüchse Buch\")\n\nreturn items.map(item => {\n  const email = item.json.user_email;\n  const aktiveAbosRaw = item.json.aktive_abos || '';\n\n  // Für robustere Suche alles in Kleinbuchstaben\n  const aktiveAbos = aktiveAbosRaw.toLowerCase();\n\n  const zauberbuechse =\n    aktiveAbos.includes('zauberbüchse') || aktiveAbos.includes('zauberbuechse');\n  const dunkelbuechse =\n    aktiveAbos.includes('dunkelbüchse') || aktiveAbos.includes('dunkelbuechse');\n  const liebesbuechse =\n    aktiveAbos.includes('liebesbüchse') || aktiveAbos.includes('liebesbuechse');\n\n  return {\n    json: {\n      email,\n      zauberbuechse,\n      dunkelbuechse,\n      liebesbuechse,\n    },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        240
+      ],
+      "id": "22626781-9bf4-4e2d-b903-8ddfd2821c96",
+      "name": "Wandelt DB Output um"
+    },
+    {
+      "parameters": {
+        "url": "https://a.klaviyo.com/api/profiles?",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter",
+              "value": "=equals(email,\"{{$json.email}}\")"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            },
+            {
+              "name": "accpept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        400,
+        240
+      ],
+      "id": "6aad9dcf-1749-485d-931f-ebf09088da5d",
+      "name": "Profil vorhanden JA/NEIN",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 0) Abo-Boolean-Werte aus dem Node \"Wandle DB Output um\" holen\n// n8n matched den Item-Index automatisch, d.h. du bekommst hier\n// die Werte des entsprechenden Items.\nconst aboSource = $node['Wandelt DB Output um'].json || {};\n\nconst zauberbuechse  = Boolean(aboSource.zauberbuechse);\nconst dunkelbuechse  = Boolean(aboSource.dunkelbuechse);\nconst liebesbuechse  = Boolean(aboSource.liebesbuechse);\n\n// 1) Wrapper aus dem HTTP-Node holen\nconst wrapper = $json;          // z.B. { data: \"...string...\" }\nlet response = wrapper.data;    // das ist aktuell ein String\n\n// Helper, um die E-Mail aus links.self zu holen (wenn nötig)\nfunction extractEmailFromSelfLink(selfLink) {\n  if (!selfLink) return undefined;\n  try {\n    const decoded = decodeURIComponent(selfLink);\n    // Erwartetes Muster: ...?filter=equals(email,\"EMAIL\")\n    const match = decoded.match(/filter=equals\\(email,\"([^\"]+)\"\\)/);\n    return match ? match[1] : undefined;\n  } catch (e) {\n    return undefined;\n  }\n}\n\n// 2) Falls das innere 'data' ein String ist: parsen\nif (typeof response === 'string') {\n  try {\n    response = JSON.parse(response);\n  } catch (error) {\n    const selfLink = wrapper.links?.self;\n    const emailFromSelf = extractEmailFromSelfLink(selfLink);\n\n    return {\n      json: {\n        found: false,\n        parseError: true,\n        errorMessage: String(error),\n        email: emailFromSelf,\n        zauberbuechse,\n        dunkelbuechse,\n        liebesbuechse,\n        rawWrapper: wrapper,\n      },\n    };\n  }\n}\n\n// 3) Jetzt ist 'response' das eigentliche Klaviyo-Objekt:\n//    { data: [ { type: 'profile', id: '...', attributes: {...} } ], links: {...} }\n\nconst profiles = Array.isArray(response?.data) ? response.data : [];\nconst profile = profiles[0]; // 0 oder undefined\n\nlet attrs = profile?.attributes || {};\nlet email = attrs.email;\n\n// Falls kein Profil oder keine E-Mail im Profil, Email aus links.self rekonstruieren\nif (!email && response?.links?.self) {\n  email = extractEmailFromSelfLink(response.links.self);\n}\n\n// 4) Wenn kein Profil gefunden wurde, trotzdem E-Mail + Abos zurückgeben\nif (!profile || typeof profile !== 'object') {\n  return {\n    json: {\n      found: false,\n      email,\n      zauberbuechse,\n      dunkelbuechse,\n      liebesbuechse,\n      message: 'Kein Profil gefunden oder leeres data[]',\n      rawResponse: response,\n    },\n  };\n}\n\n// 5) Profil vorhanden -> normale \"erfolgreiche\" Struktur inkl. Abo-Booleans\nreturn {\n  json: {\n    found: true,\n    profileId: profile.id,\n    email,\n    zauberbuechse,\n    dunkelbuechse,\n    liebesbuechse,\n    // Optional: falls du mehr brauchst\n    // attributes: attrs,\n  },\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        448
+      ],
+      "id": "ffb36a0b-2667-4fe5-ae9b-79bd259e21a2",
+      "name": "Datensatz Umwandlung"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        448
+      ],
+      "id": "65de4cd1-5f48-4997-8341-e134bf9849ba",
+      "name": "Delay",
+      "webhookId": "aaeaa9c5-ebe1-4de6-8df8-e56da19a49d6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "159b8441-ade2-4050-ae5f-0dc52a085d4b",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        448
+      ],
+      "id": "67a76211-64ed-42d7-b556-9b23858a9ab6",
+      "name": "If4"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const kzauberbuechse = $json.zauberbuechse;\nconst kliebesbuechse = $json.liebesbuechse;\nconst kdunkelbuechse = $json.dunkelbuechse;\n\nconst kid = $json.profileId;\n\nreturn {\n  json: {\n    data: {\n      type: 'profile',\n      id: kid,\n      attributes: {\n        properties: {\n          zauberbuechse: kzauberbuechse,\n          dunkelbuechse: kdunkelbuechse,\n          liebesbuechse: kliebesbuechse,\n        },\n      },\n    },\n  },\n};\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        672
+      ],
+      "id": "e7295fd7-ccad-4c35-a542-43e5b8f76a71",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const kemail = $json.email;\nconst kzauberbuechse = $json.zauberbuechse;\nconst kliebesbuechse = $json.liebesbuechse;\nconst kdunkelbuechse = $json.dunkelbuechse;\n\n\nreturn {\n  json: {\n    data: {\n      type: 'profile',\n      attributes: {\n        email: kemail,\n        properties: {\n          zauberbuechse: kzauberbuechse,\n          dunkelbuechse: kdunkelbuechse,\n          liebesbuechse: kliebesbuechse,\n        },\n      },\n    },\n  },\n};\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        832
+      ],
+      "id": "7431bf86-42bb-4d57-82ca-0c7949c6e17e",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://a.klaviyo.com/api/profiles/{{ $json.data.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            },
+            {
+              "name": "Authorization",
+              "value": "Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        624,
+        672
+      ],
+      "id": "f43306fd-df5f-415b-ac7a-4882510c3fae",
+      "name": "Füge Abos Profil hinzu",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/profiles",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        528,
+        832
+      ],
+      "id": "6e6a7256-c084-43ec-bfc3-a5afaa127739",
+      "name": "Erstelle Profil und füge Abo hinzu",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// items = eingehende Items\n// Jedes Item hat unter item.json.data einen JSON-String (Klaviyo-Response)\n\nlet countZauber = 0;\nlet countDunkel = 0;\nlet countLiebe = 0;\n\nlet createdProfiles = 0;\nlet updatedProfiles = 0;\nlet profilesWithoutTimestamps = 0;\n\nfor (const item of items) {\n  const raw = item.json.data;\n\n  let parsed;\n  try {\n    parsed = JSON.parse(raw);\n  } catch (error) {\n    // kaputtes JSON -> überspringen\n    continue;\n  }\n\n  const attrs = parsed?.data?.attributes || {};\n  const props = attrs.properties || {};\n\n  // Abo-Flags zählen\n  if (props.zauberbuechse === true) {\n    countZauber++;\n  }\n  if (props.dunkelbuechse === true) {\n    countDunkel++;\n  }\n  if (props.liebesbuechse === true) {\n    countLiebe++;\n  }\n\n  // erstellt vs. angepasst\n  const createdStr = attrs.created;\n  const updatedStr = attrs.updated;\n\n  if (createdStr && updatedStr) {\n    const created = new Date(createdStr);\n    const updated = new Date(updatedStr);\n\n    if (!Number.isNaN(created.getTime()) && !Number.isNaN(updated.getTime())) {\n      if (created.getTime() === updated.getTime()) {\n        // Profil in diesem Zustand angelegt (created == updated)\n        createdProfiles++;\n      } else {\n        // Profil wurde irgendwann nach Erstellung geändert\n        updatedProfiles++;\n      }\n    } else {\n      profilesWithoutTimestamps++;\n    }\n  } else {\n    profilesWithoutTimestamps++;\n  }\n}\n\n// Function-Node muss ein Array von Items zurückgeben\nreturn [\n  {\n    json: {\n      totalItems: items.length,\n      zauberbuechse_true: countZauber,\n      dunkelbuechse_true: countDunkel,\n      liebesbuechse_true: countLiebe,\n      created_profiles: createdProfiles,\n      updated_profiles: updatedProfiles,\n      profiles_without_valid_timestamps: profilesWithoutTimestamps,\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        0
+      ],
+      "id": "34eaa8c1-15e0-4cfd-b1e4-da37ad53ae3e",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2928,
+        448
+      ],
+      "id": "044bdcff-dd85-4777-adc8-ada5f2e6fe26",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "amount": 0.2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -2448,
+        464
+      ],
+      "id": "eab80668-af37-4594-9a01-933cf8fa1416",
+      "name": "Wait3",
+      "webhookId": "f5fc3217-2663-4a8a-b950-a76ebac11955"
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1936,
+        320
+      ],
+      "id": "10940248-a8fd-444a-860c-cf738d67cee0",
+      "name": "Loop Over Items2"
+    },
+    {
+      "parameters": {
+        "amount": 0.2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1520,
+        336
+      ],
+      "id": "68e0d449-86c5-4c77-b4e3-6cefdde1ead2",
+      "name": "Wait4",
+      "webhookId": "c93742a0-11c8-4e27-a558-92357e2f956c"
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1168,
+        496
+      ],
+      "id": "107e8d3f-e8ad-4333-84b4-c3fda323cf1b",
+      "name": "Loop Over Items3"
+    },
+    {
+      "parameters": {
+        "amount": 0.2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -576,
+        512
+      ],
+      "id": "9ccffd24-6da9-4641-835b-0626561fb6ee",
+      "name": "Wait5",
+      "webhookId": "66dd18c0-e35a-4769-9c28-6f219aaf1f9c"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de, it@buecherbuechse.de",
+        "subject": "Tägliche n8n Klaviyo-Segment Auswertung ",
+        "emailFormat": "text",
+        "text": "=Guten Tag,\n\nanbei folgt die Auswertung des n8n x Klaviyo Workflows bezüglich der Abonnent*innen-Segmente:\n\nInsgesamt wurden {{$json.totalItems}} Profile ausgewertet. Davon waren: \nZauberbüchse Abonnent*innen: {{$json.zauberbuechse_true}}\nDunkelbüchse Abonnent*innen: {{$json.dunkelbuechse_true}}\nLiebesbüchse Abonnent*innen: {{$json.liebesbuechse_true}}\n\nDarunter wurden {{$json.created_profiles}} Klaviyo-Profile neu angelegt und {{$json.updated_profiles}} Klaviyo-Profile geupdated.\n\n\nLiebe Grüße\nJesse's n8n-Flow",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        384,
+        0
+      ],
+      "id": "8c710272-011f-44cc-916b-4337c65d5c5b",
+      "name": "Send email",
+      "webhookId": "624b7bd3-c7b7-470a-b62d-8957c45b1c94",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Neuverteilung der Abo-Tags",
+        "height": 1200,
+        "width": 1376,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        -144
+      ],
+      "id": "140e1712-9ba6-4dd0-8afb-1c6ec6c66cbf",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Dunkelbüchsen Tags löschen \nHier sollte das \"nur 20 Profile werden auf einmal geholt\" behoben sein ",
+        "height": 1200,
+        "width": 880,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1264,
+        -144
+      ],
+      "id": "025d0bac-63f0-429c-9c4f-ca7a5db63766",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Liebesbüchsen Tags löschen \n",
+        "height": 1200,
+        "width": 896,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2208,
+        -144
+      ],
+      "id": "f8a7266a-73a6-4c1b-a8ae-206eeec51fb5",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Zauberbüchsen Tags löschen \n",
+        "height": 1200,
+        "width": 960,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -3232,
+        -144
+      ],
+      "id": "c4bd06a0-ae1e-4db4-a7e3-26ce0f40b4bc",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "41d1d981-cd28-4b45-a8cb-894bcaec4df0",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -768,
+        240
+      ],
+      "id": "9fa89730-4438-4e1c-a47a-781210ff10fb",
+      "name": "Abbruchbedingung"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Hole ALLE aus Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hole ALLE aus Segment": {
+      "main": [
+        [
+          {
+            "node": "Wandle Datensatz um ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wandle Datensatz um ": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bereite vor für HTTP-Node": {
+      "main": [
+        [
+          {
+            "node": "Lösche alle Zauberbüchsen Tags (falls niemand im Segment zum Löschen ist, fahre mit Flow fort)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Hole ALLE aus Segment1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lösche alle Zauberbüchsen Tags (falls niemand im Segment zum Löschen ist, fahre mit Flow fort)": {
+      "main": [
+        [
+          {
+            "node": "Wait3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hole ALLE aus Segment1": {
+      "main": [
+        [
+          {
+            "node": "Wandle Datensatz um 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wandle Datensatz um 1": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bereite vor für HTTP-Node1": {
+      "main": [
+        [
+          {
+            "node": "Lösche alle Liebesbüchsen Tags (falls niemand im Segment zum Löschen ist, fahre mit Flow fort)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hole ALLE aus Segment2": {
+      "main": [
+        [
+          {
+            "node": "Wandle Datensatz um 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wandle Datensatz um 2": {
+      "main": [
+        [
+          {
+            "node": "Abbruchbedingung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bereite vor für HTTP-Node2": {
+      "main": [
+        [
+          {
+            "node": "Lösche alle Dunkelbüchsen Tags (falls niemand im Segment zum Löschen ist, fahre mit Flow fort)2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait2": {
+      "main": [
+        [
+          {
+            "node": "Hole Adressen samt aktiven Abos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lösche alle Liebesbüchsen Tags (falls niemand im Segment zum Löschen ist, fahre mit Flow fort)1": {
+      "main": [
+        [
+          {
+            "node": "Wait4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lösche alle Dunkelbüchsen Tags (falls niemand im Segment zum Löschen ist, fahre mit Flow fort)2": {
+      "main": [
+        [
+          {
+            "node": "Wait5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "Hole ALLE aus Segment2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hole Adressen samt aktiven Abos": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wandelt DB Output um",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wandelt DB Output um": {
+      "main": [
+        [
+          {
+            "node": "Profil vorhanden JA/NEIN",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Profil vorhanden JA/NEIN": {
+      "main": [
+        [
+          {
+            "node": "Datensatz Umwandlung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datensatz Umwandlung": {
+      "main": [
+        [
+          {
+            "node": "Delay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delay": {
+      "main": [
+        [
+          {
+            "node": "If4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If4": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Füge Abos Profil hinzu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Erstelle Profil und füge Abo hinzu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Füge Abos Profil hinzu": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erstelle Profil und füge Abo hinzu": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bereite vor für HTTP-Node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait3": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items2": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bereite vor für HTTP-Node1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait4": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items3": {
+      "main": [
+        [
+          {
+            "node": "Hole ALLE aus Segment2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bereite vor für HTTP-Node2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait5": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abbruchbedingung": {
+      "main": [
+        [
+          {
+            "node": "Wait2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "0274893f-63e3-47dd-a417-eee7535ae89f",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-01-22T11:29:40.612Z",
+      "createdAt": "2026-01-22T11:29:40.612Z",
+      "role": "workflow:owner",
+      "workflowId": "cxWBO99ohKiXMJrone7zD",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

@@ -1,0 +1,504 @@
+{
+  "updatedAt": "2026-08-06T10:57:06.345Z",
+  "createdAt": "2026-08-06T10:20:27.242Z",
+  "id": "ijMVCXbEFY0iLyDJ",
+  "name": "Shopify-Suche-ZB-2026-08-02-mit-Gutschein",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -4208,
+        1360
+      ],
+      "id": "7f9959a9-5675-40a2-813a-d137f764af19",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === Zentrale Konfiguration – hier pflegen ===\nconst CONFIG = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  // Zeitraum in UTC. 01.08.2026 00:00 MESZ = 31.07.2026 22:00 UTC\n  createdAtMin: '2026-07-31T22:00:00Z',\n  createdAtMax: null,   // null = bis jetzt\n\n  // Gesuchte Position\n  zielSku: 'ZB-2026-08-02',\n\n  // true = Position zählt auch, wenn sie inzwischen entfernt/refundiert wurde\n  zielSkuAuchEntfernt: true,\n\n  // --- Rabatt-Erkennung ---\n  // Belegt durch den Roh-Dump: discount_codes ist bei Abo-Bestellungen LEER.\n  // Appstle-Abo-Rabatte melden sich in discount_applications als type \"manual\",\n  // der Codename steht nur in title/description. Kriterium ist deshalb die\n  // Rabatt-Allokation auf der Ziel-Position, nicht discount_codes.\n  nurRabattAufZielSku: true,      // true = Rabatt muss auf ZB-2026-08-02 gebucht sein\n  versandrabatteZaehlen: false,   // true = auch target_type \"shipping_line\" (Gratisversand)\n  mindestRabattBetrag: 0.01,      // 0 = auch 0,00-Rabatte\n\n  // fields-Whitelist. false = alle Order-Felder holen (wie im Roh-Dump verifiziert).\n  fieldsFilterNutzen: false,\n\n  // Optionaler Länderfilter, z.B. ['DE']. null = alle Länder.\n  nurLaender: null,\n\n  // Einzelne Bestellungen ausschließen ('BB-12345' oder orderId). [] = keine.\n  ausnahmen: []\n};\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.config = CONFIG;\nstaticData.found = [];\nstaticData.skipped = [];\nstaticData.scanned = 0;\nstaticData.stats = null;\n\nreturn [{ json: { config: CONFIG } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3984,
+        1360
+      ],
+      "id": "fd4cbc0b-12de-44d3-aa73-a5a64ae6696a",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3776,
+        1360
+      ],
+      "id": "c4822e5b-c565-463f-b6d1-ee052c43cc88",
+      "name": "Token holen",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst shop = config.shop;\n\nlet initUrl = `https://${shop}.myshopify.com/admin/api/${config.apiVersion}/orders.json`\n  + `?limit=250`\n  + `&status=any`\n  + `&order=${encodeURIComponent('created_at asc')}`\n  + `&created_at_min=${encodeURIComponent(config.createdAtMin)}`;\n\n// Ohne fields-Parameter liefert Shopify alle Order-Felder – im Roh-Dump verifiziert.\nif (config.fieldsFilterNutzen === true) {\n  initUrl += `&fields=id,name,created_at,currency,presentment_currency,financial_status,tags,total_price,total_discounts,discount_codes,discount_applications,line_items,shipping_address`;\n}\n\nif (config.createdAtMax) {\n  initUrl += `&created_at_max=${encodeURIComponent(config.createdAtMax)}`;\n}\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.found = [];\nstaticData.skipped = [];\nstaticData.scanned = 0;\nstaticData.stats = null;\n\nreturn [{\n  json: {\n    nextUrl: initUrl,\n    hasNext: true,\n    accessToken: $('Token holen').first().json.access_token\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3552,
+        1360
+      ],
+      "id": "d233bbd9-7cd4-4fb6-a86e-e16cc3142edb",
+      "name": "Start URL setzen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3328,
+        1360
+      ],
+      "id": "ba0615f7-edc4-44b5-bae6-4e762b8bcac1",
+      "name": "GET Bestellungen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst orders = response.body?.orders || response.orders || [];\nconst headers = response.headers || {};\n\nconst config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.found)) staticData.found = [];\nif (!Array.isArray(staticData.skipped)) staticData.skipped = [];\nstaticData.scanned = (staticData.scanned || 0) + orders.length;\n\nconst ZIEL_SKU = String(config.zielSku).trim().toLowerCase();\nconst num = (v) => Number(v || 0);\n\nconst stats = staticData.stats || (staticData.stats = {\n  bestellungenGeprueft: 0,\n  mitZielSku: 0,\n  mitRabattIrgendwo: 0,\n  mitRabattAufZielSku: 0,\n  nurVersandrabatt: 0,\n  ausgeschlossenDurchMindestbetrag: 0,\n  gutscheinNamen: {}\n});\nstats.bestellungenGeprueft += orders.length;\n\n// Ausnahmeliste normalisieren: 'BB-12345', '#BB-12345' und 12345 matchen gleich\nconst norm = (v) => String(v ?? '').trim().replace(/^#/, '').toLowerCase();\nconst AUSNAHMEN = (Array.isArray(config.ausnahmen) ? config.ausnahmen : []).map(norm);\n\n// Name eines Rabatts: bei \"manual\"/Abo steckt der Code nur in title/description\nconst appName = (a) => a?.code || a?.title || a?.description || '(ohne Titel)';\n\nfor (const order of orders) {\n  const lineItems = order.line_items || [];\n  const aktive = lineItems.filter(li => num(li.current_quantity) > 0);\n  const basis = config.zielSkuAuchEntfernt === true ? lineItems : aktive;\n  const zielPositionen = basis.filter(li => String(li.sku || '').trim().toLowerCase() === ZIEL_SKU);\n\n  // Bedingung 1: Ziel-SKU enthalten\n  if (!zielPositionen.length) continue;\n  stats.mitZielSku++;\n\n  const codes = Array.isArray(order.discount_codes) ? order.discount_codes : [];\n  const apps  = Array.isArray(order.discount_applications) ? order.discount_applications : [];\n\n  // Versandrabatte optional ausblenden\n  const relevanteApps = apps.filter(a =>\n    config.versandrabatteZaehlen === true || String(a.target_type || '') !== 'shipping_line');\n\n  // Rabattsumme, die konkret auf den Ziel-Positionen gebucht ist,\n  // plus Zuordnung Allokation -> discount_application (über den Index)\n  const zielAppIndizes = new Set();\n  let zielRabatt = 0;\n  for (const li of zielPositionen) {\n    for (const alloc of (li.discount_allocations || [])) {\n      const betrag = num(alloc.amount);\n      if (betrag <= 0) continue;\n      const idx = Number(alloc.discount_application_index);\n      if (!Number.isNaN(idx)) {\n        if (!config.versandrabatteZaehlen && String(apps[idx]?.target_type || '') === 'shipping_line') continue;\n        zielAppIndizes.add(idx);\n      }\n      zielRabatt += betrag;\n    }\n  }\n\n  const rabattIrgendwo = relevanteApps.length > 0 || num(order.total_discounts) > 0;\n  if (rabattIrgendwo) stats.mitRabattIrgendwo++;\n  if (apps.length && !relevanteApps.length) stats.nurVersandrabatt++;\n\n  // Bedingung 2: Rabatt vorhanden\n  const hatRabatt = config.nurRabattAufZielSku === true ? zielRabatt > 0 : rabattIrgendwo;\n  if (!hatRabatt) continue;\n  stats.mitRabattAufZielSku++;\n\n  // Bedingung 3: Mindestbetrag – bezogen auf das gewählte Kriterium\n  const pruefBetrag = config.nurRabattAufZielSku === true ? zielRabatt : num(order.total_discounts);\n  if (config.mindestRabattBetrag != null && pruefBetrag < Number(config.mindestRabattBetrag)) {\n    stats.ausgeschlossenDurchMindestbetrag++;\n    continue;\n  }\n\n  // Rabatte, die auf der Ziel-Position gelandet sind\n  const zielApps = [...zielAppIndizes].map(i => apps[i]).filter(Boolean);\n  for (const a of (zielApps.length ? zielApps : relevanteApps)) {\n    const n = appName(a);\n    stats.gutscheinNamen[n] = (stats.gutscheinNamen[n] || 0) + 1;\n  }\n\n  const fmtApp = (a) => `${appName(a)} (${a.value}${a.value_type === 'percentage' ? '%' : ''}, ${a.type})`;\n\n  const datensatz = {\n    orderId: order.id,\n    orderName: order.name,\n    createdAt: order.created_at,\n    currency: order.presentment_currency || order.currency,\n    financialStatus: order.financial_status || null,\n    quelle: order.source_name || null,\n    land: order.shipping_address?.country_code || order.billing_address?.country_code || null,\n    totalPrice: order.total_price,\n    totalDiscounts: order.total_discounts,\n\n    // Rabatt auf der Ziel-Position – das eigentliche Suchkriterium\n    rabattAufZielSku: zielRabatt.toFixed(2),\n    gutscheinAufZielSku: zielApps.map(appName).join(', '),\n    gutscheinAufZielSkuDetail: zielApps.map(fmtApp).join(' | '),\n    rabattTypen: zielApps.map(a => a.type).join(', '),\n\n    // Alle Rabatte der Bestellung (Kontext)\n    alleRabatte: relevanteApps.map(fmtApp).join(' | '),\n    echteGutscheincodes: codes.map(c => c.code).join(', '),\n\n    zielSkuMenge: zielPositionen.reduce((s, li) => s + num(li.current_quantity), 0),\n    zielSkuMengeBestellt: zielPositionen.reduce((s, li) => s + num(li.quantity), 0),\n    zielSkuEntfernt: zielPositionen.every(li => num(li.current_quantity) === 0),\n\n    rabatte: relevanteApps.map(a => ({\n      name: appName(a), typ: a.type, wert: a.value, wertTyp: a.value_type,\n      ziel: a.target_type, auswahl: a.target_selection, methode: a.allocation_method\n    })),\n    positionen: zielPositionen.map(li => ({\n      lineItemId: li.id,\n      title: li.title,\n      variantId: li.variant_id,\n      sku: li.sku,\n      preis: li.price,\n      quantity: li.quantity,\n      currentQuantity: li.current_quantity,\n      entfernt: num(li.current_quantity) === 0,\n      rabattAllokationen: (li.discount_allocations || []).map(a => a.amount)\n    })),\n    tags: order.tags || ''\n  };\n\n  if (AUSNAHMEN.length && (AUSNAHMEN.includes(norm(order.name)) || AUSNAHMEN.includes(norm(order.id)))) {\n    staticData.skipped.push({ ...datensatz, grund: 'Bestellung steht in Config.ausnahmen' });\n    continue;\n  }\n\n  if (Array.isArray(config.nurLaender) && !config.nurLaender.includes(datensatz.land)) {\n    staticData.skipped.push({ ...datensatz, grund: 'Land ' + datensatz.land + ' nicht in Config.nurLaender' });\n    continue;\n  }\n\n  staticData.found.push(datensatz);\n}\n\n// Cursor-Pagination über Link-Header (rel=\"next\")\nconst linkHeader = String(headers.link || headers.Link || '');\nlet nextUrl = null;\nconst nextPart = linkHeader.split(',').find(p => p.includes('rel=\"next\"'));\nif (nextPart) {\n  const m = nextPart.match(/<([^>]+)>/);\n  if (m) nextUrl = m[1];\n}\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    scannedCount: staticData.scanned,\n    foundCount: staticData.found.length,\n    skippedCount: staticData.skipped.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3104,
+        1360
+      ],
+      "id": "a7f53fd1-8e48-45d8-b68e-2eaa022fd57d",
+      "name": "NextURL weitergeben + Bestellung prüfen"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -2896,
+        1360
+      ],
+      "id": "083a5f0c-c3b7-43d8-8c3a-d42372d03811",
+      "name": "Wait",
+      "webhookId": "aaaa1111-2222-3333-4444-555566667777"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c4000000-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2672,
+        1360
+      ],
+      "id": "836ae156-def7-4f60-8e5e-17ce2b84d22e",
+      "name": "Gibt es NextURL?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2448,
+        1200
+      ],
+      "id": "161b596a-a07d-457d-b7f9-574a47388af7",
+      "name": "Token holen 1",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -2224,
+        1328
+      ],
+      "id": "2ec1b9bb-b16d-44d0-99d1-3b38fb795f71",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const tokenItem = $input.first().json;\nconst urlItem = $input.last().json;\n\nreturn [{\n  json: {\n    accessToken: tokenItem.access_token,\n    nextUrl: urlItem.nextUrl,\n    hasNext: urlItem.hasNext\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2016,
+        1328
+      ],
+      "id": "691fb410-1f75-46b9-b2d4-f607a8f6dc85",
+      "name": "Token + NextURL zusammenführen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst found = staticData.found || [];\n\nif (!found.length) {\n  return [{\n    json: {\n      hinweis: 'Keine Bestellung mit ' + config.zielSku + ' + Gutschein im Zeitraum gefunden',\n      zielSku: config.zielSku,\n      zeitraumVon: config.createdAtMin,\n      zeitraumBis: config.createdAtMax || 'jetzt',\n      geprüfteBestellungen: staticData.scanned || 0\n    }\n  }];\n}\n\n// nach Datum sortieren\nfound.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));\n\nreturn found.map(o => ({ json: o }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2448,
+        1520
+      ],
+      "id": "5fbecb1f-60c8-4473-a164-a7d99136f955",
+      "name": "Report: Treffer"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst skipped = staticData.skipped || [];\nif (!skipped.length) return [{ json: { hinweis: 'Keine übersprungenen Bestellungen' } }];\nreturn skipped.map(o => ({ json: o }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2448,
+        1712
+      ],
+      "id": "cd169c8c-0c78-4537-9b42-cbd7c97ac35d",
+      "name": "Report: Übersprungen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nur flache Felder für die CSV – verschachtelte Objekte würden [object Object] erzeugen\nconst items = $input.all();\n\nif (items.length === 1 && items[0].json.hinweis) {\n  return [{ json: { hinweis: items[0].json.hinweis, geprüfteBestellungen: items[0].json.geprüfteBestellungen } }];\n}\n\nconst datum = (iso) => {\n  if (!iso) return '';\n  return new Date(iso).toLocaleString('de-DE', {\n    timeZone: 'Europe/Berlin',\n    day: '2-digit', month: '2-digit', year: 'numeric',\n    hour: '2-digit', minute: '2-digit'\n  });\n};\n\nreturn items.map(i => {\n  const o = i.json;\n  return {\n    json: {\n      Bestellnummer: o.orderName,\n      OrderId: o.orderId,\n      Bestelldatum: datum(o.createdAt),\n      Quelle: o.quelle,\n      Land: o.land,\n      Waehrung: o.currency,\n      Zahlungsstatus: o.financialStatus,\n      Bestellwert: o.totalPrice,\n      RabattGesamt: o.totalDiscounts,\n      RabattAufZielSku: o.rabattAufZielSku,\n      Gutschein: o.gutscheinAufZielSku,\n      GutscheinDetail: o.gutscheinAufZielSkuDetail,\n      RabattTyp: o.rabattTypen,\n      AlleRabatte: o.alleRabatte,\n      EchteGutscheincodes: o.echteGutscheincodes,\n      MengeZielSku: o.zielSkuMenge,\n      MengeZielSkuBestellt: o.zielSkuMengeBestellt,\n      ZielSkuEntfernt: o.zielSkuEntfernt ? 'ja' : 'nein',\n      LineItemIds: (o.positionen || []).map(p => p.lineItemId).join(', '),\n      Tags: o.tags\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2224,
+        1520
+      ],
+      "id": "718d24e4-b788-4c65-9d25-e9d095e4e2e4",
+      "name": "Felder für CSV"
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";",
+          "fileName": "Bestellungen-ZB-2026-08-02-mit-Gutschein.csv",
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -2016,
+        1520
+      ],
+      "id": "d9c3f6f6-f605-4ff4-882b-4f10ee5a3fcd",
+      "name": "CSV erzeugen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst s = staticData.stats || {};\n\nconst namen = Object.entries(s.gutscheinNamen || {})\n  .sort((a, b) => b[1] - a[1])\n  .map(([n, c]) => `${n} (${c})`);\n\nreturn [{\n  json: {\n    zielSku: config.zielSku,\n    zeitraumVon: config.createdAtMin,\n    zeitraumBis: config.createdAtMax || 'jetzt',\n    kriterium: config.nurRabattAufZielSku ? 'Rabatt auf Ziel-Position gebucht' : 'Rabatt irgendwo in der Bestellung',\n    versandrabatteZaehlen: config.versandrabatteZaehlen,\n    mindestRabattBetrag: config.mindestRabattBetrag,\n    '---': '--- Ergebnis ---',\n    bestellungenGeprueft: s.bestellungenGeprueft || 0,\n    mitZielSku: s.mitZielSku || 0,\n    mitRabattIrgendwo: s.mitRabattIrgendwo || 0,\n    mitRabattNachKriterium: s.mitRabattAufZielSku || 0,\n    nurVersandrabatt: s.nurVersandrabatt || 0,\n    ausgeschlossenDurchMindestbetrag: s.ausgeschlossenDurchMindestbetrag || 0,\n    treffer: (staticData.found || []).length,\n    uebersprungen: (staticData.skipped || []).length,\n    '----': '--- Gutscheine ---',\n    gutscheinNamen: namen\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2448,
+        1888
+      ],
+      "id": "8b4b74ee-338b-4a10-b939-3d46a7af9137",
+      "name": "Diagnose"
+    },
+    {
+      "parameters": {
+        "content": "## Suche: ZB-2026-08-02 mit Rabatt\n\n**Zeitraum:** 01.08.2026 00:00 MESZ bis jetzt (Config)\n\n**Kein `fields`-Parameter** – Shopify liefert alle Order-Felder. Im Roh-Dump verifiziert.\n\n**Rabatt-Kriterium: `discount_applications`, nicht `discount_codes`.**\nAbo-Rabatte (Appstle, `source_name: subscription_contract_checkout_one`) kommen als `type: \"manual\"` mit leerem `discount_codes`. Der Codename steht in `title`/`description`.\n\nTreffer = Ziel-SKU vorhanden **und** `discount_allocations > 0` auf der Ziel-Position (`nurRabattAufZielSku`). Versandrabatte (`target_type: shipping_line`) sind über `versandrabatteZaehlen: false` ausgeschlossen.\n\nAusgaben: **CSV erzeugen** (flach) und **Diagnose** (Zähler pro Filterstufe).",
+        "height": 460,
+        "width": 520
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -4768,
+        1248
+      ],
+      "id": "39d72dfc-9cea-471f-9620-2b4dd1a9fc80",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Start URL setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start URL setzen": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Bestellungen": {
+      "main": [
+        [
+          {
+            "node": "NextURL weitergeben + Bestellung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextURL weitergeben + Bestellung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Gibt es NextURL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es NextURL?": {
+      "main": [
+        [
+          {
+            "node": "Token holen 1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Report: Treffer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Report: Übersprungen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Diagnose",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Token + NextURL zusammenführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token + NextURL zusammenführen": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report: Treffer": {
+      "main": [
+        [
+          {
+            "node": "Felder für CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Felder für CSV": {
+      "main": [
+        [
+          {
+            "node": "CSV erzeugen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "858be533-dcbf-47be-8949-648ebece8d4e",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-08-06T10:20:27.245Z",
+      "createdAt": "2026-08-06T10:20:27.245Z",
+      "role": "workflow:owner",
+      "workflowId": "ijMVCXbEFY0iLyDJ",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

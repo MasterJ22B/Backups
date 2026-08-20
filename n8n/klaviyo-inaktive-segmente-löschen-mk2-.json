@@ -1,0 +1,791 @@
+{
+  "updatedAt": "2026-04-08T13:00:52.838Z",
+  "createdAt": "2026-04-02T14:21:46.505Z",
+  "id": "FNDD5NCQHO3s2Wkz",
+  "name": "Klaviyo-Inaktive-Segmente-Löschen Mk2",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1008,
+        -1280
+      ],
+      "id": "792eb590-cb31-45ae-9a20-12e62dd40965",
+      "name": "Hole Profile aus \"inaktiv\" Segment "
+    },
+    {
+      "parameters": {
+        "jsCode": "// Äußere Response aus dem HTTP-Node\nconst wrapper = $json;\n\n// globale Workflow-Daten holen\nconst staticData = $getWorkflowStaticData('global');\n\nif (typeof staticData.deletedCount !== 'number') {\n  staticData.deletedCount = 0;\n}\nif (!Array.isArray(staticData.debugEmailsAll)) {\n  staticData.debugEmailsAll = [];\n}\nif (!Array.isArray(staticData.debugEmailsUnique)) {\n  staticData.debugEmailsUnique = [];\n}\nif (!Array.isArray(staticData.debugNextUrls)) {\n  staticData.debugNextUrls = [];\n}\nif (!Array.isArray(staticData.debugDuplicateEmails)) {\n  staticData.debugDuplicateEmails = [];\n}\n\n// Eigentliche API-Response bestimmen\nlet response = wrapper;\n\n// Falls die Response in wrapper.data als JSON-String steckt -> parsen\nif (typeof wrapper.data === 'string') {\n  try {\n    response = JSON.parse(wrapper.data);\n  } catch (error) {\n    staticData.nextUrl = null;\n\n    return [\n      {\n        json: {\n          found: false,\n          parseError: true,\n          message: 'Response konnte nicht geparst werden',\n          rawData: wrapper.data,\n          deletedCount: staticData.deletedCount,\n        },\n      },\n    ];\n  }\n}\n\n// Falls wrapper.data schon ein Objekt ist, dieses verwenden\nelse if (wrapper.data && typeof wrapper.data === 'object') {\n  response = wrapper.data;\n}\n\n// Jetzt normal auf Klaviyo-Struktur zugreifen\nconst profiles = Array.isArray(response.data) ? response.data : [];\nconst nextUrl = response.links?.next || null;\n\n// nextUrl global speichern\nstaticData.nextUrl = nextUrl;\n\n// verwendete nextUrl debuggen\nif (nextUrl) {\n  staticData.debugNextUrls.push(nextUrl);\n}\n\n// Keine Profile mehr gefunden\nif (profiles.length === 0) {\n  return [\n    {\n      json: {\n        found: false,\n        message: 'Keine Profile mehr gefunden',\n        deletedCount: staticData.deletedCount,\n      },\n    },\n  ];\n}\n\n// Counter erhöhen\nstaticData.deletedCount += profiles.length;\n\n// Debug: E-Mails sammeln und Dopplungen prüfen\nconst uniqueEmails = new Set(staticData.debugEmailsUnique);\nconst duplicateEmails = new Set(staticData.debugDuplicateEmails);\n\nfor (const profile of profiles) {\n  const attrs = profile.attributes || {};\n  const email = attrs.email || null;\n\n  if (!email) continue;\n\n  // alle E-Mails speichern\n  staticData.debugEmailsAll.push(email);\n\n  // Duplikate prüfen\n  if (uniqueEmails.has(email)) {\n    duplicateEmails.add(email);\n  } else {\n    uniqueEmails.add(email);\n  }\n}\n\n// Arrays zurückschreiben\nstaticData.debugEmailsUnique = Array.from(uniqueEmails);\nstaticData.debugDuplicateEmails = Array.from(duplicateEmails);\n\n// Profile als einzelne Items zurückgeben\nreturn profiles.map(profile => {\n  const attrs = profile.attributes || {};\n\n  return {\n    json: {\n      found: true,\n      profileId: profile.id,\n      email: attrs.email,\n      deletedCount: staticData.deletedCount,\n      isNewPage: true,\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -1280
+      ],
+      "id": "cc9e9954-23be-49cd-827a-b655bdf51c43",
+      "name": "Wandle Datensatz um"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        416,
+        -1280
+      ],
+      "id": "57af0804-5a49-479d-b5dc-5f8e180f8d57",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst deletedCount = staticData.deletedCount || 0;\n\nreturn [\n  {\n    json: {\n      success: true,\n      deletedCount,\n      deletedProfilesTotal: deletedCount,\n      mailText: `Insgesamt wurden ${deletedCount} inaktive Profile aus dem Zombie-Hygiene Segment gelöscht.`,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        -1552
+      ],
+      "id": "ade83b41-eb57-41e1-b17e-68fc73b2444f",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://a.klaviyo.com/api/data-privacy-deletion-jobs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            },
+            {
+              "name": "Authorization",
+              "value": "Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2288,
+        -1488
+      ],
+      "id": "15617d7e-2aa2-4833-95a3-13d41cf97605",
+      "name": "Löschen",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 5
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2f28579d-f8c4-42ce-bfbe-1d2e01032f44",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1536,
+        -1280
+      ],
+      "id": "1a123b03-acc1-49dc-bb21-d072a77705b1",
+      "name": "SEGMENT LEER?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Function node (Run Once for Each Item)\n// Erwartet pro Item: { profileId, email }\n\nconst profileId = $json.profileId?.trim();\nconst email = $json.email?.trim();\n\nif (!email && !profileId) {\n  throw new Error('Kein Identifier vorhanden: email oder profileId fehlt.');\n}\n\nreturn {\n  ...$json,\n  data: {\n    type: 'data-privacy-deletion-job',\n    attributes: {\n      profile: {\n        data: {\n          type: 'profile',\n          attributes: email ? { email } : { id: profileId },\n        },\n      },\n    },\n  },\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        -1264
+      ],
+      "id": "81b3191b-10b2-4ed5-b581-5a4ebcb6771b",
+      "name": "Bereite vor für HTTP-Node LÖSCHEN"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "66dc1c11-5748-4c8b-9582-5a23067375ea",
+              "leftValue": "={{$json.nextUrl}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2720,
+        -1168
+      ],
+      "id": "fdc4efba-f073-4eda-a092-ab0750808dc7",
+      "name": "GIBT ES NEXT PAGE?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f27f4f92-1b66-4e74-8b08-343f345716cd",
+              "leftValue": "={{$json.deletedCount}}",
+              "rightValue": 40000,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3232,
+        -1152
+      ],
+      "id": "5c438162-eba0-4521-8d57-8167c0c3b205",
+      "name": "MAX. ANZAHL LÖSCHUNG ERREICHT?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nreturn [\n  {\n    json: {\n      deletedCount: staticData.deletedCount || 0,\n      nextUrl: $json.nextUrl || null,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2896,
+        -1424
+      ],
+      "id": "196b3445-f337-4e31-a190-c0394ffdbb1c",
+      "name": "IF-VORBEREITUNG_2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nreturn [\n  {\n    json: {\n      nextUrl: staticData.nextUrl || null,\n      deletedCount: staticData.deletedCount || 0,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        -1472
+      ],
+      "id": "33a7f7c9-8021-4649-9093-17bb31853a8a",
+      "name": "IF-VORBEREITUNG"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst emailsAll = Array.isArray(staticData.debugEmailsAll) ? staticData.debugEmailsAll : [];\nconst nextUrls = Array.isArray(staticData.debugNextUrls) ? staticData.debugNextUrls : [];\nconst duplicateEmails = Array.isArray(staticData.debugDuplicateEmails) ? staticData.debugDuplicateEmails : [];\n\nreturn [\n  {\n    json: {\n      success: true,\n      stoppedByLimit: true,\n      message: 'Testlauf bei 400 Profilen gestoppt.',\n      deletedCount: staticData.deletedCount || 0,\n      totalProfilesSeen: emailsAll.length,\n      totalNextUrlsStored: nextUrls.length,\n      duplicateEmailCount: duplicateEmails.length,\n      usedNextUrls: nextUrls,\n      emailsAll,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3376,
+        -1424
+      ],
+      "id": "2ac68d29-e106-4b56-8b8a-abd43116a9b6",
+      "name": "DEBUG ABBRUCH BEDINGUNG"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.deletedCount = 0;\nstaticData.nextUrl = null;\n\n// Debug zurücksetzen\nstaticData.debugEmails = [];\nstaticData.debugNextUrls = [];\nstaticData.debugDuplicateEmails = [];\n\nreturn [\n  {\n    json: {\n      nextUrl: 'https://a.klaviyo.com/api/segments/WBAuE9/profiles?page[size]=100',\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        -1280
+      ],
+      "id": "efcdf3db-676b-466c-b281-16b9c9df8607",
+      "name": "SETZEN START URL "
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst deletedCount = staticData.deletedCount || 0;\n\nreturn [\n  {\n    json: {\n      success: true,\n      deletedCount,\n      deletedProfilesTotal: deletedCount,\n      mailText: `Insgesamt wurden ${deletedCount} inaktive Profile aus dem Zombie-Hygiene Segment gelöscht.`,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        -736
+      ],
+      "id": "22be923a-af32-4a0b-93aa-0f6854ef681a",
+      "name": "FINALE AUSWERTUNG"
+    },
+    {
+      "parameters": {
+        "content": "## Optionaler Debug \nMit \"GIBT ES NEXT PAGE\" TRUE verbinden -> nach X Profilen bricht der Flow ab ",
+        "height": 800,
+        "width": 480,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3120,
+        -1696
+      ],
+      "id": "6b02ad37-7c35-4050-860b-f061889dd9f2",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Trigger + Start URL\nTriggert den Flow täglich, setz die initiale URL für die Pagination und \"leert\" alle globalen Debug Variablen ",
+        "height": 720,
+        "width": 448,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        368,
+        -1696
+      ],
+      "id": "9ca25767-00af-4a18-a598-89f37ce37178",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Profil Fetch + Umwandlung in .json\n",
+        "height": 720,
+        "width": 432,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        928,
+        -1696
+      ],
+      "id": "00af3791-0613-468a-a2f5-329aed1095d7",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Segment leer?",
+        "height": 416,
+        "width": 432,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1392,
+        -1392
+      ],
+      "id": "08a089ec-8ca6-405e-885f-c1ee9f4c1c3c",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Ausgabe falls Segment leer",
+        "height": 288,
+        "width": 432,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1392,
+        -1696
+      ],
+      "id": "c6c782a5-872b-483d-9013-d28fb8a6ddc8",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Löschvorgang",
+        "height": 720,
+        "width": 576,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1856,
+        -1696
+      ],
+      "id": "9594b2a6-2c70-40af-aef1-48388b72f0b8",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Gibt es eine nächste Seite?\nFall kein Debug gewünscht ist: TRUE Path mit HTTP Node in \"Profil Fetch\" verbinden",
+        "height": 800,
+        "width": 628,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2464,
+        -1696
+      ],
+      "id": "fe087004-c4bc-4057-ae8d-f42e183930be",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## FInale Ausgabe\n",
+        "height": 288,
+        "width": 928,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2608,
+        -864
+      ],
+      "id": "301f9a2b-5f1d-4852-9e1b-58e915d690b7",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "## Pagination Loop\n \n",
+        "height": 1376,
+        "width": 2852,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        864,
+        -1856
+      ],
+      "id": "5876d6f0-df08-415d-b6bc-b357e0564a2a",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de",
+        "subject": "n8n X Klaviyo: Gelöschte Profile ",
+        "emailFormat": "text",
+        "text": "={{ $json.mailText }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2912,
+        -736
+      ],
+      "id": "3bfc3413-6210-47d3-8707-9495660bb906",
+      "name": "Send an Email",
+      "webhookId": "e82e4584-c0dd-437b-912d-0e1a932b5efc",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de",
+        "subject": "n8n X Klaviyo: Gelöschte Profile ",
+        "emailFormat": "text",
+        "text": "={{ $json.mailText }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1616,
+        -1552
+      ],
+      "id": "55f582a3-e63c-4769-a5c5-c32d44898168",
+      "name": "Send an Email1",
+      "webhookId": "d488c7c5-9009-4d62-a244-244f39e1e580",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2112,
+        -1296
+      ],
+      "id": "1b13cc05-5ae5-4784-a87e-53349968f49a",
+      "name": "Wait",
+      "webhookId": "05fedd29-05fe-4b7a-9863-f84dee57461d"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": "={{ $json.isNewPage === true }}"
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2032,
+        -1632
+      ],
+      "id": "99c0fc94-794f-40e2-99de-aa7ee2872baa",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    ...$json,\n    isNewPage: false,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2272,
+        -1296
+      ],
+      "id": "1fb4cd9a-3bfd-4ede-b6c7-bca278ac1034",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    data: $json.data\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -1488
+      ],
+      "id": "e836b7a0-3423-49a6-8b8a-64f89fc6ee14",
+      "name": "Code in JavaScript2"
+    }
+  ],
+  "connections": {
+    "Hole Profile aus \"inaktiv\" Segment ": {
+      "main": [
+        [
+          {
+            "node": "Wandle Datensatz um",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wandle Datensatz um": {
+      "main": [
+        [
+          {
+            "node": "SEGMENT LEER?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "SETZEN START URL ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SEGMENT LEER?": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bereite vor für HTTP-Node LÖSCHEN",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bereite vor für HTTP-Node LÖSCHEN": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIBT ES NEXT PAGE?": {
+      "main": [
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FINALE AUSWERTUNG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MAX. ANZAHL LÖSCHUNG ERREICHT?": {
+      "main": [
+        [
+          {
+            "node": "DEBUG ABBRUCH BEDINGUNG",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF-VORBEREITUNG_2": {
+      "main": [
+        [
+          {
+            "node": "MAX. ANZAHL LÖSCHUNG ERREICHT?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF-VORBEREITUNG": {
+      "main": [
+        [
+          {
+            "node": "GIBT ES NEXT PAGE?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SETZEN START URL ": {
+      "main": [
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FINALE AUSWERTUNG": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Send an Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "IF-VORBEREITUNG",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "3ee5f351-648e-44fa-bd4d-4dcca9849e80",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-04-02T14:21:46.510Z",
+      "createdAt": "2026-04-02T14:21:46.510Z",
+      "role": "workflow:owner",
+      "workflowId": "FNDD5NCQHO3s2Wkz",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

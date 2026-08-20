@@ -1,0 +1,1805 @@
+{
+  "updatedAt": "2026-07-30T21:02:46.169Z",
+  "createdAt": "2026-07-30T19:44:24.647Z",
+  "id": "aCg1KOZiVJ4vHEwY",
+  "name": "Appstle - Alle Selling Plans mit Anzahl pro Status",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars.BB_APPSTLE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "72c01580-d2cb-4134-bbf7-d822772ed1cc",
+      "name": "Selling Plans abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        0
+      ],
+      "notes": "GET /api/external/v2/subscription-groups/all-selling-plans - liefert alle Selling Plans flach, ohne Pagination"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---- Ausschlussliste hier pflegen ----\n// Numerische Selling Plan IDs, die NICHT abgefragt werden sollen\nconst EXCLUDE_SELLING_PLAN_IDS = [\n   '3156017267', // Update Payment Method\n   '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (Name muss exakt passen, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// ---------------------------------------\n\nconst statuses = ['ACTIVE', 'PAUSED', 'CANCELLED'];\nconst plans = $input.all().map(item => item.json);\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\n\nconst result = [];\nfor (const plan of plans) {\n  // Appstle liefert die Plan-ID als Shopify-GID zurueck (gid://shopify/SellingPlan/111111),\n  // der Contract-Endpoint erwartet aber die rein numerische ID\n  const numericId = String(plan.id).split('/').pop();\n\n  if (excludeIds.has(numericId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of statuses) {\n    result.push({\n      json: {\n        sellingPlanId: numericId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status\n      }\n    });\n  }\n}\n\nreturn result;"
+      },
+      "id": "ca7b78cd-6820-4593-8204-6010786b93fc",
+      "name": "Status-Kombinationen erzeugen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-contract-details",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sellingPlanId",
+              "value": "={{ $json.sellingPlanId }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ $json.status }}"
+            },
+            {
+              "name": "page",
+              "value": "0"
+            },
+            {
+              "name": "size",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars.BB_APPSTLE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "213aed3f-5e8a-497f-8ee7-f534f768716e",
+      "name": "Appstle Subscriptions abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        0
+      ],
+      "notes": "Laeuft einmal pro Item (= pro Plan x Status-Kombination). size=1 reicht, da nur der X-Total-Count Header ausgewertet wird."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const headers = $json.headers || {};\nconst totalCountHeader = headers['x-total-count'] ?? headers['X-Total-Count'] ?? '0';\nconst source = $('Status-Kombinationen erzeugen').item.json;\n\nreturn {\n  json: {\n    sellingPlanId: source.sellingPlanId,\n    sellingPlanName: source.sellingPlanName,\n    groupName: source.groupName,\n    status: source.status,\n    count: parseInt(totalCountHeader, 10) || 0,\n    httpStatus: $json.statusCode\n  }\n};"
+      },
+      "id": "e0a9aa6e-0cbf-4de2-84bb-a6ea13408001",
+      "name": "Anzahl extrahieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst byPlan = {};\n\nfor (const item of items) {\n  const j = item.json;\n  if (!byPlan[j.sellingPlanId]) {\n    byPlan[j.sellingPlanId] = {\n      sellingPlanId: j.sellingPlanId,\n      sellingPlanName: j.sellingPlanName,\n      groupName: j.groupName,\n      ACTIVE: 0,\n      PAUSED: 0,\n      CANCELLED: 0,\n      total: 0\n    };\n  }\n  byPlan[j.sellingPlanId][j.status] = j.count;\n  byPlan[j.sellingPlanId].total += j.count;\n}\n\nreturn Object.values(byPlan).map(row => ({ json: row }));"
+      },
+      "id": "2171753a-cb0a-4903-8b11-9336d974aece",
+      "name": "Pro Plan zusammenfassen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1312,
+        0
+      ],
+      "id": "5449c92a-1938-47ab-a523-f116eb89aeac",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "subscription_data",
+          "mode": "list",
+          "cachedResultName": "subscription_data"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "subscription",
+              "value": "={{ $json.groupName }}"
+            },
+            {
+              "column": "total",
+              "value": "={{ $json.total }}"
+            },
+            {
+              "column": "active",
+              "value": "={{ $json.ACTIVE }}"
+            },
+            {
+              "column": "paused",
+              "value": "={{ $json.PAUSED }}"
+            },
+            {
+              "column": "cancelled",
+              "value": "={{ $json.CANCELLED }}"
+            },
+            {
+              "column": "timestamp",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1568,
+        16
+      ],
+      "id": "c491e0bf-d448-41ad-adee-7e40ab55f221",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "33dd6471-a2c0-4bbf-9de9-d559f2352a50",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "content": "Bücherbüchse",
+        "height": 336,
+        "width": 1680,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        128,
+        -96
+      ],
+      "id": "c55d5b8f-dc41-4ba2-8f53-e1026793eb7f",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars.LEAF_APPSTLE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "09927649-748f-446d-a6e7-21d6b61c86c5",
+      "name": "Selling Plans abrufen1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        384
+      ],
+      "notes": "GET /api/external/v2/subscription-groups/all-selling-plans - liefert alle Selling Plans flach, ohne Pagination"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---- Ausschlussliste hier pflegen ----\n// Numerische Selling Plan IDs, die NICHT abgefragt werden sollen\nconst EXCLUDE_SELLING_PLAN_IDS = [\n   '3156017267', // Update Payment Method\n   '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (Name muss exakt passen, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// ---------------------------------------\n\nconst statuses = ['ACTIVE', 'PAUSED', 'CANCELLED'];\nconst plans = $input.all().map(item => item.json);\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\n\nconst result = [];\nfor (const plan of plans) {\n  // Appstle liefert die Plan-ID als Shopify-GID zurueck (gid://shopify/SellingPlan/111111),\n  // der Contract-Endpoint erwartet aber die rein numerische ID\n  const numericId = String(plan.id).split('/').pop();\n\n  if (excludeIds.has(numericId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of statuses) {\n    result.push({\n      json: {\n        sellingPlanId: numericId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status\n      }\n    });\n  }\n}\n\nreturn result;"
+      },
+      "id": "7ba99734-3cf9-4bd3-92c4-6ec323cf16c2",
+      "name": "Status-Kombinationen erzeugen1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-contract-details",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sellingPlanId",
+              "value": "={{ $json.sellingPlanId }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ $json.status }}"
+            },
+            {
+              "name": "page",
+              "value": "0"
+            },
+            {
+              "name": "size",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars.LEAF_APPSTLE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "97a50272-95a2-49e3-aa4a-71877f4cb885",
+      "name": "Appstle Subscriptions abrufen1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        384
+      ],
+      "notes": "Laeuft einmal pro Item (= pro Plan x Status-Kombination). size=1 reicht, da nur der X-Total-Count Header ausgewertet wird."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const headers = $json.headers || {};\nconst totalCountHeader = headers['x-total-count'] ?? headers['X-Total-Count'] ?? '0';\nconst source = $('Status-Kombinationen erzeugen1').item.json;\n\nreturn {\n  json: {\n    sellingPlanId: source.sellingPlanId,\n    sellingPlanName: source.sellingPlanName,\n    groupName: source.groupName,\n    status: source.status,\n    count: parseInt(totalCountHeader, 10) || 0,\n    httpStatus: $json.statusCode\n  }\n};"
+      },
+      "id": "76526d05-438e-47d2-b37d-9762e3bf2959",
+      "name": "Anzahl extrahieren1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst byPlan = {};\n\nfor (const item of items) {\n  const j = item.json;\n  if (!byPlan[j.sellingPlanId]) {\n    byPlan[j.sellingPlanId] = {\n      sellingPlanId: j.sellingPlanId,\n      sellingPlanName: j.sellingPlanName,\n      groupName: j.groupName,\n      ACTIVE: 0,\n      PAUSED: 0,\n      CANCELLED: 0,\n      total: 0\n    };\n  }\n  byPlan[j.sellingPlanId][j.status] = j.count;\n  byPlan[j.sellingPlanId].total += j.count;\n}\n\nreturn Object.values(byPlan).map(row => ({ json: row }));"
+      },
+      "id": "c1b7c663-7b99-4f35-aa72-0fb0c7905711",
+      "name": "Pro Plan zusammenfassen1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1312,
+        384
+      ],
+      "id": "5c314525-9991-4ec7-9e6c-c0accf26234b",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "subscription_data",
+          "mode": "list",
+          "cachedResultName": "subscription_data"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "subscription",
+              "value": "={{ $json.groupName }}"
+            },
+            {
+              "column": "total",
+              "value": "={{ $json.total }}"
+            },
+            {
+              "column": "active",
+              "value": "={{ $json.ACTIVE }}"
+            },
+            {
+              "column": "paused",
+              "value": "={{ $json.PAUSED }}"
+            },
+            {
+              "column": "cancelled",
+              "value": "={{ $json.CANCELLED }}"
+            },
+            {
+              "column": "timestamp",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1568,
+        400
+      ],
+      "id": "483ac8ab-9e2f-48da-a59b-2d6f73f6a755",
+      "name": "Insert rows in a table1",
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "LEAF",
+        "height": 336,
+        "width": 1680,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        128,
+        288
+      ],
+      "id": "6901cf8f-b63c-40a1-b41f-09e511d77c08",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars.CINNA_APPSTLE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d3cb5d2f-eadf-49b4-b0dd-5febf553d86f",
+      "name": "Selling Plans abrufen2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        768
+      ],
+      "notes": "GET /api/external/v2/subscription-groups/all-selling-plans - liefert alle Selling Plans flach, ohne Pagination"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---- Ausschlussliste hier pflegen ----\n// Numerische Selling Plan IDs, die NICHT abgefragt werden sollen\nconst EXCLUDE_SELLING_PLAN_IDS = [\n   '3156017267', // Update Payment Method\n   '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (Name muss exakt passen, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// ---------------------------------------\n\nconst statuses = ['ACTIVE', 'PAUSED', 'CANCELLED'];\nconst plans = $input.all().map(item => item.json);\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\n\nconst result = [];\nfor (const plan of plans) {\n  // Appstle liefert die Plan-ID als Shopify-GID zurueck (gid://shopify/SellingPlan/111111),\n  // der Contract-Endpoint erwartet aber die rein numerische ID\n  const numericId = String(plan.id).split('/').pop();\n\n  if (excludeIds.has(numericId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of statuses) {\n    result.push({\n      json: {\n        sellingPlanId: numericId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status\n      }\n    });\n  }\n}\n\nreturn result;"
+      },
+      "id": "1f29e9d8-5005-4fe3-a7b7-2c32c4d9b97e",
+      "name": "Status-Kombinationen erzeugen2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-contract-details",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sellingPlanId",
+              "value": "={{ $json.sellingPlanId }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ $json.status }}"
+            },
+            {
+              "name": "page",
+              "value": "0"
+            },
+            {
+              "name": "size",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars.CINNA_APPSTLE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "ce4fe241-0e0a-4339-b9e9-2e5f2d9079c7",
+      "name": "Appstle Subscriptions abrufen2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        768
+      ],
+      "notes": "Laeuft einmal pro Item (= pro Plan x Status-Kombination). size=1 reicht, da nur der X-Total-Count Header ausgewertet wird."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const headers = $json.headers || {};\nconst totalCountHeader = headers['x-total-count'] ?? headers['X-Total-Count'] ?? '0';\nconst source = $('Status-Kombinationen erzeugen2').item.json;\n\nreturn {\n  json: {\n    sellingPlanId: source.sellingPlanId,\n    sellingPlanName: source.sellingPlanName,\n    groupName: source.groupName,\n    status: source.status,\n    count: parseInt(totalCountHeader, 10) || 0,\n    httpStatus: $json.statusCode\n  }\n};"
+      },
+      "id": "18ffd512-9a07-4305-bfd8-58e064d48ba8",
+      "name": "Anzahl extrahieren2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst byPlan = {};\n\nfor (const item of items) {\n  const j = item.json;\n  if (!byPlan[j.sellingPlanId]) {\n    byPlan[j.sellingPlanId] = {\n      sellingPlanId: j.sellingPlanId,\n      sellingPlanName: j.sellingPlanName,\n      groupName: j.groupName,\n      ACTIVE: 0,\n      PAUSED: 0,\n      CANCELLED: 0,\n      total: 0\n    };\n  }\n  byPlan[j.sellingPlanId][j.status] = j.count;\n  byPlan[j.sellingPlanId].total += j.count;\n}\n\nreturn Object.values(byPlan).map(row => ({ json: row }));"
+      },
+      "id": "f62ba94a-f44e-473e-abaf-755068cc2fa0",
+      "name": "Pro Plan zusammenfassen2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1312,
+        768
+      ],
+      "id": "79d24bbc-a8b5-4e45-9cda-4466c6da4cd0",
+      "name": "Loop Over Items2"
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "subscription_data",
+          "mode": "list",
+          "cachedResultName": "subscription_data"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "subscription",
+              "value": "={{ $json.groupName }}"
+            },
+            {
+              "column": "total",
+              "value": "={{ $json.total }}"
+            },
+            {
+              "column": "active",
+              "value": "={{ $json.ACTIVE }}"
+            },
+            {
+              "column": "paused",
+              "value": "={{ $json.PAUSED }}"
+            },
+            {
+              "column": "cancelled",
+              "value": "={{ $json.CANCELLED }}"
+            },
+            {
+              "column": "timestamp",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1568,
+        784
+      ],
+      "id": "c0e625d3-b79c-4152-b62e-54ff8fafa5b0",
+      "name": "Insert rows in a table2",
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "CINNA",
+        "height": 336,
+        "width": 1680,
+        "color": "#CFCFCF"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        128,
+        672
+      ],
+      "id": "05647a4a-9438-487c-bca2-792147a67d9a",
+      "name": "Sticky Note2"
+    }
+  ],
+  "connections": {
+    "Selling Plans abrufen": {
+      "main": [
+        [
+          {
+            "node": "Status-Kombinationen erzeugen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status-Kombinationen erzeugen": {
+      "main": [
+        [
+          {
+            "node": "Appstle Subscriptions abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appstle Subscriptions abrufen": {
+      "main": [
+        [
+          {
+            "node": "Anzahl extrahieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anzahl extrahieren": {
+      "main": [
+        [
+          {
+            "node": "Pro Plan zusammenfassen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pro Plan zusammenfassen": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Selling Plans abrufen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Selling Plans abrufen1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Selling Plans abrufen2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selling Plans abrufen1": {
+      "main": [
+        [
+          {
+            "node": "Status-Kombinationen erzeugen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status-Kombinationen erzeugen1": {
+      "main": [
+        [
+          {
+            "node": "Appstle Subscriptions abrufen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appstle Subscriptions abrufen1": {
+      "main": [
+        [
+          {
+            "node": "Anzahl extrahieren1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anzahl extrahieren1": {
+      "main": [
+        [
+          {
+            "node": "Pro Plan zusammenfassen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pro Plan zusammenfassen1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Insert rows in a table1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selling Plans abrufen2": {
+      "main": [
+        [
+          {
+            "node": "Status-Kombinationen erzeugen2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status-Kombinationen erzeugen2": {
+      "main": [
+        [
+          {
+            "node": "Appstle Subscriptions abrufen2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appstle Subscriptions abrufen2": {
+      "main": [
+        [
+          {
+            "node": "Anzahl extrahieren2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anzahl extrahieren2": {
+      "main": [
+        [
+          {
+            "node": "Pro Plan zusammenfassen2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pro Plan zusammenfassen2": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items2": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Insert rows in a table2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table2": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "66e63564-ec49-42df-9b91-630906c57ed2",
+  "activeVersionId": "66e63564-ec49-42df-9b91-630906c57ed2",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-07-30T19:45:38.965Z",
+      "createdAt": "2026-07-30T19:45:38.965Z",
+      "role": "workflow:owner",
+      "workflowId": "aCg1KOZiVJ4vHEwY",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-07-31T03:43:44.000Z",
+    "createdAt": "2026-07-30T21:02:46.170Z",
+    "versionId": "66e63564-ec49-42df-9b91-630906c57ed2",
+    "workflowId": "aCg1KOZiVJ4vHEwY",
+    "nodes": [
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars.BB_APPSTLE_API_KEY }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "72c01580-d2cb-4134-bbf7-d822772ed1cc",
+        "name": "Selling Plans abrufen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          224,
+          0
+        ],
+        "notes": "GET /api/external/v2/subscription-groups/all-selling-plans - liefert alle Selling Plans flach, ohne Pagination"
+      },
+      {
+        "parameters": {
+          "jsCode": "// ---- Ausschlussliste hier pflegen ----\n// Numerische Selling Plan IDs, die NICHT abgefragt werden sollen\nconst EXCLUDE_SELLING_PLAN_IDS = [\n   '3156017267', // Update Payment Method\n   '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (Name muss exakt passen, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// ---------------------------------------\n\nconst statuses = ['ACTIVE', 'PAUSED', 'CANCELLED'];\nconst plans = $input.all().map(item => item.json);\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\n\nconst result = [];\nfor (const plan of plans) {\n  // Appstle liefert die Plan-ID als Shopify-GID zurueck (gid://shopify/SellingPlan/111111),\n  // der Contract-Endpoint erwartet aber die rein numerische ID\n  const numericId = String(plan.id).split('/').pop();\n\n  if (excludeIds.has(numericId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of statuses) {\n    result.push({\n      json: {\n        sellingPlanId: numericId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status\n      }\n    });\n  }\n}\n\nreturn result;"
+        },
+        "id": "ca7b78cd-6820-4593-8204-6010786b93fc",
+        "name": "Status-Kombinationen erzeugen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          448,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-contract-details",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "sellingPlanId",
+                "value": "={{ $json.sellingPlanId }}"
+              },
+              {
+                "name": "status",
+                "value": "={{ $json.status }}"
+              },
+              {
+                "name": "page",
+                "value": "0"
+              },
+              {
+                "name": "size",
+                "value": "1"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars.BB_APPSTLE_API_KEY }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "id": "213aed3f-5e8a-497f-8ee7-f534f768716e",
+        "name": "Appstle Subscriptions abrufen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          672,
+          0
+        ],
+        "notes": "Laeuft einmal pro Item (= pro Plan x Status-Kombination). size=1 reicht, da nur der X-Total-Count Header ausgewertet wird."
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "const headers = $json.headers || {};\nconst totalCountHeader = headers['x-total-count'] ?? headers['X-Total-Count'] ?? '0';\nconst source = $('Status-Kombinationen erzeugen').item.json;\n\nreturn {\n  json: {\n    sellingPlanId: source.sellingPlanId,\n    sellingPlanName: source.sellingPlanName,\n    groupName: source.groupName,\n    status: source.status,\n    count: parseInt(totalCountHeader, 10) || 0,\n    httpStatus: $json.statusCode\n  }\n};"
+        },
+        "id": "e0a9aa6e-0cbf-4de2-84bb-a6ea13408001",
+        "name": "Anzahl extrahieren",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          880,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\nconst byPlan = {};\n\nfor (const item of items) {\n  const j = item.json;\n  if (!byPlan[j.sellingPlanId]) {\n    byPlan[j.sellingPlanId] = {\n      sellingPlanId: j.sellingPlanId,\n      sellingPlanName: j.sellingPlanName,\n      groupName: j.groupName,\n      ACTIVE: 0,\n      PAUSED: 0,\n      CANCELLED: 0,\n      total: 0\n    };\n  }\n  byPlan[j.sellingPlanId][j.status] = j.count;\n  byPlan[j.sellingPlanId].total += j.count;\n}\n\nreturn Object.values(byPlan).map(row => ({ json: row }));"
+        },
+        "id": "2171753a-cb0a-4903-8b11-9336d974aece",
+        "name": "Pro Plan zusammenfassen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1104,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "options": {}
+        },
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          1312,
+          0
+        ],
+        "id": "5449c92a-1938-47ab-a523-f116eb89aeac",
+        "name": "Loop Over Items"
+      },
+      {
+        "parameters": {
+          "table": {
+            "__rl": true,
+            "value": "subscription_data",
+            "mode": "list",
+            "cachedResultName": "subscription_data"
+          },
+          "dataMode": "defineBelow",
+          "valuesToSend": {
+            "values": [
+              {
+                "column": "subscription",
+                "value": "={{ $json.groupName }}"
+              },
+              {
+                "column": "total",
+                "value": "={{ $json.total }}"
+              },
+              {
+                "column": "active",
+                "value": "={{ $json.ACTIVE }}"
+              },
+              {
+                "column": "paused",
+                "value": "={{ $json.PAUSED }}"
+              },
+              {
+                "column": "cancelled",
+                "value": "={{ $json.CANCELLED }}"
+              },
+              {
+                "column": "timestamp",
+                "value": "={{ $now.toISO() }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.5,
+        "position": [
+          1568,
+          16
+        ],
+        "id": "c491e0bf-d448-41ad-adee-7e40ab55f221",
+        "name": "Insert rows in a table",
+        "credentials": {
+          "mySql": {
+            "id": "yEG5MndvkRzkGkRo",
+            "name": "BB Data Warehouse"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "hours"
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          0,
+          0
+        ],
+        "id": "33dd6471-a2c0-4bbf-9de9-d559f2352a50",
+        "name": "Schedule Trigger"
+      },
+      {
+        "parameters": {
+          "content": "Bücherbüchse",
+          "height": 336,
+          "width": 1680,
+          "color": 3
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          128,
+          -96
+        ],
+        "id": "c55d5b8f-dc41-4ba2-8f53-e1026793eb7f",
+        "name": "Sticky Note"
+      },
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars.LEAF_APPSTLE_API_KEY }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "09927649-748f-446d-a6e7-21d6b61c86c5",
+        "name": "Selling Plans abrufen1",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          224,
+          384
+        ],
+        "notes": "GET /api/external/v2/subscription-groups/all-selling-plans - liefert alle Selling Plans flach, ohne Pagination"
+      },
+      {
+        "parameters": {
+          "jsCode": "// ---- Ausschlussliste hier pflegen ----\n// Numerische Selling Plan IDs, die NICHT abgefragt werden sollen\nconst EXCLUDE_SELLING_PLAN_IDS = [\n   '3156017267', // Update Payment Method\n   '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (Name muss exakt passen, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// ---------------------------------------\n\nconst statuses = ['ACTIVE', 'PAUSED', 'CANCELLED'];\nconst plans = $input.all().map(item => item.json);\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\n\nconst result = [];\nfor (const plan of plans) {\n  // Appstle liefert die Plan-ID als Shopify-GID zurueck (gid://shopify/SellingPlan/111111),\n  // der Contract-Endpoint erwartet aber die rein numerische ID\n  const numericId = String(plan.id).split('/').pop();\n\n  if (excludeIds.has(numericId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of statuses) {\n    result.push({\n      json: {\n        sellingPlanId: numericId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status\n      }\n    });\n  }\n}\n\nreturn result;"
+        },
+        "id": "7ba99734-3cf9-4bd3-92c4-6ec323cf16c2",
+        "name": "Status-Kombinationen erzeugen1",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          448,
+          384
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-contract-details",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "sellingPlanId",
+                "value": "={{ $json.sellingPlanId }}"
+              },
+              {
+                "name": "status",
+                "value": "={{ $json.status }}"
+              },
+              {
+                "name": "page",
+                "value": "0"
+              },
+              {
+                "name": "size",
+                "value": "1"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars.LEAF_APPSTLE_API_KEY }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "id": "97a50272-95a2-49e3-aa4a-71877f4cb885",
+        "name": "Appstle Subscriptions abrufen1",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          672,
+          384
+        ],
+        "notes": "Laeuft einmal pro Item (= pro Plan x Status-Kombination). size=1 reicht, da nur der X-Total-Count Header ausgewertet wird."
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "const headers = $json.headers || {};\nconst totalCountHeader = headers['x-total-count'] ?? headers['X-Total-Count'] ?? '0';\nconst source = $('Status-Kombinationen erzeugen1').item.json;\n\nreturn {\n  json: {\n    sellingPlanId: source.sellingPlanId,\n    sellingPlanName: source.sellingPlanName,\n    groupName: source.groupName,\n    status: source.status,\n    count: parseInt(totalCountHeader, 10) || 0,\n    httpStatus: $json.statusCode\n  }\n};"
+        },
+        "id": "76526d05-438e-47d2-b37d-9762e3bf2959",
+        "name": "Anzahl extrahieren1",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          880,
+          384
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\nconst byPlan = {};\n\nfor (const item of items) {\n  const j = item.json;\n  if (!byPlan[j.sellingPlanId]) {\n    byPlan[j.sellingPlanId] = {\n      sellingPlanId: j.sellingPlanId,\n      sellingPlanName: j.sellingPlanName,\n      groupName: j.groupName,\n      ACTIVE: 0,\n      PAUSED: 0,\n      CANCELLED: 0,\n      total: 0\n    };\n  }\n  byPlan[j.sellingPlanId][j.status] = j.count;\n  byPlan[j.sellingPlanId].total += j.count;\n}\n\nreturn Object.values(byPlan).map(row => ({ json: row }));"
+        },
+        "id": "c1b7c663-7b99-4f35-aa72-0fb0c7905711",
+        "name": "Pro Plan zusammenfassen1",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1104,
+          384
+        ]
+      },
+      {
+        "parameters": {
+          "options": {}
+        },
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          1312,
+          384
+        ],
+        "id": "5c314525-9991-4ec7-9e6c-c0accf26234b",
+        "name": "Loop Over Items1"
+      },
+      {
+        "parameters": {
+          "table": {
+            "__rl": true,
+            "value": "subscription_data",
+            "mode": "list",
+            "cachedResultName": "subscription_data"
+          },
+          "dataMode": "defineBelow",
+          "valuesToSend": {
+            "values": [
+              {
+                "column": "subscription",
+                "value": "={{ $json.groupName }}"
+              },
+              {
+                "column": "total",
+                "value": "={{ $json.total }}"
+              },
+              {
+                "column": "active",
+                "value": "={{ $json.ACTIVE }}"
+              },
+              {
+                "column": "paused",
+                "value": "={{ $json.PAUSED }}"
+              },
+              {
+                "column": "cancelled",
+                "value": "={{ $json.CANCELLED }}"
+              },
+              {
+                "column": "timestamp",
+                "value": "={{ $now.toISO() }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.5,
+        "position": [
+          1568,
+          400
+        ],
+        "id": "483ac8ab-9e2f-48da-a59b-2d6f73f6a755",
+        "name": "Insert rows in a table1",
+        "credentials": {
+          "mySql": {
+            "id": "yEG5MndvkRzkGkRo",
+            "name": "BB Data Warehouse"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "content": "LEAF",
+          "height": 336,
+          "width": 1680,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          128,
+          288
+        ],
+        "id": "6901cf8f-b63c-40a1-b41f-09e511d77c08",
+        "name": "Sticky Note1"
+      },
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars.CINNA_APPSTLE_API_KEY }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "d3cb5d2f-eadf-49b4-b0dd-5febf553d86f",
+        "name": "Selling Plans abrufen2",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          224,
+          768
+        ],
+        "notes": "GET /api/external/v2/subscription-groups/all-selling-plans - liefert alle Selling Plans flach, ohne Pagination"
+      },
+      {
+        "parameters": {
+          "jsCode": "// ---- Ausschlussliste hier pflegen ----\n// Numerische Selling Plan IDs, die NICHT abgefragt werden sollen\nconst EXCLUDE_SELLING_PLAN_IDS = [\n   '3156017267', // Update Payment Method\n   '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (Name muss exakt passen, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// ---------------------------------------\n\nconst statuses = ['ACTIVE', 'PAUSED', 'CANCELLED'];\nconst plans = $input.all().map(item => item.json);\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\n\nconst result = [];\nfor (const plan of plans) {\n  // Appstle liefert die Plan-ID als Shopify-GID zurueck (gid://shopify/SellingPlan/111111),\n  // der Contract-Endpoint erwartet aber die rein numerische ID\n  const numericId = String(plan.id).split('/').pop();\n\n  if (excludeIds.has(numericId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of statuses) {\n    result.push({\n      json: {\n        sellingPlanId: numericId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status\n      }\n    });\n  }\n}\n\nreturn result;"
+        },
+        "id": "1f29e9d8-5005-4fe3-a7b7-2c32c4d9b97e",
+        "name": "Status-Kombinationen erzeugen2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          448,
+          768
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-contract-details",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "sellingPlanId",
+                "value": "={{ $json.sellingPlanId }}"
+              },
+              {
+                "name": "status",
+                "value": "={{ $json.status }}"
+              },
+              {
+                "name": "page",
+                "value": "0"
+              },
+              {
+                "name": "size",
+                "value": "1"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars.CINNA_APPSTLE_API_KEY }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "id": "ce4fe241-0e0a-4339-b9e9-2e5f2d9079c7",
+        "name": "Appstle Subscriptions abrufen2",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          672,
+          768
+        ],
+        "notes": "Laeuft einmal pro Item (= pro Plan x Status-Kombination). size=1 reicht, da nur der X-Total-Count Header ausgewertet wird."
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "const headers = $json.headers || {};\nconst totalCountHeader = headers['x-total-count'] ?? headers['X-Total-Count'] ?? '0';\nconst source = $('Status-Kombinationen erzeugen2').item.json;\n\nreturn {\n  json: {\n    sellingPlanId: source.sellingPlanId,\n    sellingPlanName: source.sellingPlanName,\n    groupName: source.groupName,\n    status: source.status,\n    count: parseInt(totalCountHeader, 10) || 0,\n    httpStatus: $json.statusCode\n  }\n};"
+        },
+        "id": "18ffd512-9a07-4305-bfd8-58e064d48ba8",
+        "name": "Anzahl extrahieren2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          880,
+          768
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\nconst byPlan = {};\n\nfor (const item of items) {\n  const j = item.json;\n  if (!byPlan[j.sellingPlanId]) {\n    byPlan[j.sellingPlanId] = {\n      sellingPlanId: j.sellingPlanId,\n      sellingPlanName: j.sellingPlanName,\n      groupName: j.groupName,\n      ACTIVE: 0,\n      PAUSED: 0,\n      CANCELLED: 0,\n      total: 0\n    };\n  }\n  byPlan[j.sellingPlanId][j.status] = j.count;\n  byPlan[j.sellingPlanId].total += j.count;\n}\n\nreturn Object.values(byPlan).map(row => ({ json: row }));"
+        },
+        "id": "f62ba94a-f44e-473e-abaf-755068cc2fa0",
+        "name": "Pro Plan zusammenfassen2",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1104,
+          768
+        ]
+      },
+      {
+        "parameters": {
+          "options": {}
+        },
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          1312,
+          768
+        ],
+        "id": "79d24bbc-a8b5-4e45-9cda-4466c6da4cd0",
+        "name": "Loop Over Items2"
+      },
+      {
+        "parameters": {
+          "table": {
+            "__rl": true,
+            "value": "subscription_data",
+            "mode": "list",
+            "cachedResultName": "subscription_data"
+          },
+          "dataMode": "defineBelow",
+          "valuesToSend": {
+            "values": [
+              {
+                "column": "subscription",
+                "value": "={{ $json.groupName }}"
+              },
+              {
+                "column": "total",
+                "value": "={{ $json.total }}"
+              },
+              {
+                "column": "active",
+                "value": "={{ $json.ACTIVE }}"
+              },
+              {
+                "column": "paused",
+                "value": "={{ $json.PAUSED }}"
+              },
+              {
+                "column": "cancelled",
+                "value": "={{ $json.CANCELLED }}"
+              },
+              {
+                "column": "timestamp",
+                "value": "={{ $now.toISO() }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.5,
+        "position": [
+          1568,
+          784
+        ],
+        "id": "c0e625d3-b79c-4152-b62e-54ff8fafa5b0",
+        "name": "Insert rows in a table2",
+        "credentials": {
+          "mySql": {
+            "id": "yEG5MndvkRzkGkRo",
+            "name": "BB Data Warehouse"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "content": "CINNA",
+          "height": 336,
+          "width": 1680,
+          "color": "#CFCFCF"
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          128,
+          672
+        ],
+        "id": "05647a4a-9438-487c-bca2-792147a67d9a",
+        "name": "Sticky Note2"
+      }
+    ],
+    "connections": {
+      "Selling Plans abrufen": {
+        "main": [
+          [
+            {
+              "node": "Status-Kombinationen erzeugen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Status-Kombinationen erzeugen": {
+        "main": [
+          [
+            {
+              "node": "Appstle Subscriptions abrufen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Appstle Subscriptions abrufen": {
+        "main": [
+          [
+            {
+              "node": "Anzahl extrahieren",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Anzahl extrahieren": {
+        "main": [
+          [
+            {
+              "node": "Pro Plan zusammenfassen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pro Plan zusammenfassen": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Loop Over Items": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Insert rows in a table",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insert rows in a table": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "Selling Plans abrufen",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Selling Plans abrufen1",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Selling Plans abrufen2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Selling Plans abrufen1": {
+        "main": [
+          [
+            {
+              "node": "Status-Kombinationen erzeugen1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Status-Kombinationen erzeugen1": {
+        "main": [
+          [
+            {
+              "node": "Appstle Subscriptions abrufen1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Appstle Subscriptions abrufen1": {
+        "main": [
+          [
+            {
+              "node": "Anzahl extrahieren1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Anzahl extrahieren1": {
+        "main": [
+          [
+            {
+              "node": "Pro Plan zusammenfassen1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pro Plan zusammenfassen1": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Loop Over Items1": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Insert rows in a table1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insert rows in a table1": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Selling Plans abrufen2": {
+        "main": [
+          [
+            {
+              "node": "Status-Kombinationen erzeugen2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Status-Kombinationen erzeugen2": {
+        "main": [
+          [
+            {
+              "node": "Appstle Subscriptions abrufen2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Appstle Subscriptions abrufen2": {
+        "main": [
+          [
+            {
+              "node": "Anzahl extrahieren2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Anzahl extrahieren2": {
+        "main": [
+          [
+            {
+              "node": "Pro Plan zusammenfassen2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pro Plan zusammenfassen2": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Loop Over Items2": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Insert rows in a table2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insert rows in a table2": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version 66e63564",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": []
+}

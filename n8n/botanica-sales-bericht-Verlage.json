@@ -1,0 +1,420 @@
+{
+  "updatedAt": "2026-05-30T10:35:39.619Z",
+  "createdAt": "2026-04-29T23:19:16.678Z",
+  "id": "E9CBshBVKo5sT9cC",
+  "name": "BOTANICA Sales Bericht",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtMinute": 5
+            }
+          ]
+        }
+      },
+      "id": "f6523251-75ed-4c93-8e49-3272014031c7",
+      "name": "Schedule Trigger1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        320,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- ══════════════════════════════════════════════════════════════\n-- GET REVENUE: B2C (LEAF + CINNA) vs B2B (JTL-Wawi + L-/C-)\n-- ══════════════════════════════════════════════════════════════\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\nSELECT\n  -- B2C: Umsatz aus Shops LEAF Shopify + CINNA Shopify nach Rabatt\n  CAST(ROUND(COALESCE(SUM(\n    CASE WHEN sh.cName IN ('LEAF Shopify', 'CINNA Shopify')\n         THEN pos.fVkNetto * (1 - pos.fRabatt / 100.0) * pos.nAnzahl\n         ELSE 0 END\n  ), 0), 2) AS DECIMAL(10,2)) AS Umsatz_B2C,\n\n  -- B2B: Umsatz JTL-Wawi mit Artikeln L- oder C- nach Rabatt\n  CAST(ROUND(COALESCE(SUM(\n    CASE WHEN pl.cName = 'JTL-Wawi'\n          AND (pos.cArtNr LIKE 'L-%' OR pos.cArtNr LIKE 'C-%')\n         THEN pos.fVkNetto * (1 - pos.fRabatt / 100.0) * pos.nAnzahl\n         ELSE 0 END\n  ), 0), 2) AS DECIMAL(10,2)) AS Umsatz_B2B\n\nFROM      tBestellung  AS b\nJOIN      tPlattform   AS pl  ON b.nPlatform   = pl.nPlattform\nLEFT JOIN tShop        AS sh  ON b.kShop       = sh.kShop  -- LEFT: Wawi-Aufträge haben keinen Shop\nJOIN      tbestellpos  AS pos ON b.kBestellung = pos.tBestellung_kBestellung\nWHERE b.dErstellt BETWEEN DATEADD(DAY, -1, FORMAT(GETDATE(), 'yyyy-MM-dd')) AND GETDATE()\n  AND b.nStorno  = 0\n  AND b.cType   NOT IN ('U')\n  AND pos.nType  = 1;",
+        "options": {}
+      },
+      "id": "ad07de32-2d3c-488a-988a-ef148ed26cf7",
+      "name": "GET REVENUE1",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -144
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- ══════════════════════════════════════════════════════════════\n-- GET ORDERS COUNT: B2C (LEAF + CINNA) vs B2B (JTL-Wawi + L-/C-)\n-- ══════════════════════════════════════════════════════════════\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\nWITH OrderClassified AS (\n  SELECT\n    b.kBestellung,\n    sh.cName AS ShopName,\n    pl.cName AS PlattformName,\n    -- B2B-Flag pro Bestellung vorab berechnen (kein Aggregat nötig)\n    CASE WHEN EXISTS (\n           SELECT 1\n           FROM   tbestellpos bp\n           WHERE  bp.tBestellung_kBestellung = b.kBestellung\n             AND  (bp.cArtNr LIKE 'L-%' OR bp.cArtNr LIKE 'C-%')\n             AND  bp.nType = 1\n         )\n         THEN 1 ELSE 0\n    END AS hat_B2B_Artikel\n\n  FROM      tBestellung AS b\n  JOIN      tPlattform  AS pl ON b.nPlatform = pl.nPlattform\n  LEFT JOIN tShop       AS sh ON b.kShop     = sh.kShop\n  WHERE b.dErstellt BETWEEN DATEADD(DAY, -1, FORMAT(GETDATE(), 'yyyy-MM-dd')) AND GETDATE()\n    AND b.nStorno  = 0\n    AND b.cType   NOT IN ('U')\n)\nSELECT\n  SUM(CASE WHEN ShopName     IN ('LEAF Shopify', 'CINNA Shopify') THEN 1 ELSE 0 END) AS Anzahl_B2C,\n  SUM(CASE WHEN PlattformName = 'JTL-Wawi' AND hat_B2B_Artikel = 1 THEN 1 ELSE 0 END) AS Anzahl_B2B\nFROM OrderClassified;",
+        "options": {}
+      },
+      "id": "ee960fb4-5da5-4190-8074-71fe69f8daef",
+      "name": "GET ORDERS COUNT1",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [
+        800,
+        -144
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- ══════════════════════════════════════════════════════════════\n-- GET ORDER DETAILS: Produktstatistik B2C + B2B pro Artikel\n-- ══════════════════════════════════════════════════════════════\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\nSELECT\n  ta.cArtNr                        AS Artikelnummer,\n  MAX(tab.cName)                   AS Artikelname,\n\n  -- B2C Spalten\n  SUM(\n    CASE WHEN sh.cName IN ('LEAF Shopify', 'CINNA Shopify')\n         THEN CONVERT(INT, pos.nAnzahl) ELSE 0 END\n  )                                AS Menge_B2C,\n\n  CAST(ROUND(SUM(\n    CASE WHEN sh.cName IN ('LEAF Shopify', 'CINNA Shopify')\n         THEN pos.fVkNetto * (1 - pos.fRabatt / 100.0) * pos.nAnzahl ELSE 0 END\n  ), 2) AS DECIMAL(10,2))          AS Umsatz_B2C,\n\n  -- B2B Spalten\n  SUM(\n    CASE WHEN pl.cName = 'JTL-Wawi'\n          AND (ta.cArtNr LIKE 'L-%' OR ta.cArtNr LIKE 'C-%')\n         THEN CONVERT(INT, pos.nAnzahl) ELSE 0 END\n  )                                AS Menge_B2B,\n\n  CAST(ROUND(SUM(\n    CASE WHEN pl.cName = 'JTL-Wawi'\n          AND (ta.cArtNr LIKE 'L-%' OR ta.cArtNr LIKE 'C-%')\n         THEN pos.fVkNetto * (1 - pos.fRabatt / 100.0) * pos.nAnzahl ELSE 0 END\n  ), 2) AS DECIMAL(10,2))          AS Umsatz_B2B\n\nFROM      tArtikel             AS ta\nJOIN      tbestellpos          AS pos ON ta.cArtNr             = pos.cArtNr\nJOIN      tBestellung          AS b   ON b.kBestellung         = pos.tBestellung_kBestellung\nJOIN      tArtikelBeschreibung AS tab ON ta.kArtikel           = tab.kArtikel\nJOIN      tPlattform           AS pl  ON b.nPlatform           = pl.nPlattform  -- korrekter Join-Key\nLEFT JOIN tShop                AS sh  ON b.kShop               = sh.kShop       -- LEFT: Wawi hat keinen Shop\n\nWHERE b.dErstellt BETWEEN DATEADD(DAY, -1, FORMAT(GETDATE(), 'yyyy-MM-dd')) AND GETDATE()\n  AND b.nStorno  = 0\n  AND b.cType   NOT IN ('U')\n  AND pos.nType  = 1\n  -- Nur B2C- oder B2B-relevante Zeilen\n  AND (\n       sh.cName IN ('LEAF Shopify', 'CINNA Shopify')\n    OR (pl.cName = 'JTL-Wawi' AND (ta.cArtNr LIKE 'L-%' OR ta.cArtNr LIKE 'C-%'))\n  )\n\nGROUP BY ta.cArtNr, tab.cName\nORDER BY SUM(CONVERT(INT, pos.nAnzahl)) DESC;",
+        "options": {}
+      },
+      "id": "b1d234a3-bfee-4f57-b1fa-5b0536f9a4dd",
+      "name": "GET ORDER DETAILS1",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        -144
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Daten aus vorherigen Nodes holen ──────────────────────────────────────\nconst rev         = $('GET REVENUE1').first().json;\nconst cnt         = $('GET ORDERS COUNT1').first().json;\nconst orderDetails = $('GET ORDER DETAILS1').all();\n\nconst umsatzB2C   = rev.Umsatz_B2C   ?? '0.00';\nconst umsatzB2B   = rev.Umsatz_B2B   ?? '0.00';\nconst anzahlB2C   = cnt.Anzahl_B2C   ?? 0;\nconst anzahlB2B   = cnt.Anzahl_B2B   ?? 0;\n\n// ── Produkttabelle aufbauen ────────────────────────────────────────────────\nlet tableRows = '';\nfor (const item of orderDetails) {\n  const d = item.json;\n  // Zeile nur rendern wenn Werte > 0 vorhanden\n  const hasB2C = (d.Menge_B2C > 0 || d.Umsatz_B2C > 0);\n  const hasB2B = (d.Menge_B2B > 0 || d.Umsatz_B2B > 0);\n  if (!hasB2C && !hasB2B) continue;\n\n  tableRows += `\n  <tr bgcolor=\"#ffffff\">\n    <td>${d.Artikelnummer}</td>\n    <td>${d.Artikelname}</td>\n    <td style=\"text-align:right;\">${hasB2C ? d.Menge_B2C : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2C ? d.Umsatz_B2C + '&euro;' : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2B ? d.Menge_B2B : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2B ? d.Umsatz_B2B + '&euro;' : '-'}</td>\n  </tr>`;\n}\n\nconst productTable = `\n<table cellspacing=\"0\" cellpadding=\"5\" border=\"1\"\n       style=\"border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;\">\n  <tr bgcolor=\"#1a1a1a\" style=\"color:white;\">\n    <td colspan=\"2\"></td>\n    <td colspan=\"2\" style=\"text-align:center;background:#2e6da4;\"><b>B2C (LEAF / CINNA)</b></td>\n    <td colspan=\"2\" style=\"text-align:center;background:#276a3a;\"><b>B2B (JTL-Wawi)</b></td>\n  </tr>\n  <tr bgcolor=\"#333333\" style=\"color:white;\">\n    <td><b>Artikelnummer</b></td>\n    <td><b>Artikelname</b></td>\n    <td style=\"background:#3a7ec4;\"><b>Menge</b></td>\n    <td style=\"background:#3a7ec4;\"><b>Umsatz</b></td>\n    <td style=\"background:#328a4a;\"><b>Menge</b></td>\n    <td style=\"background:#328a4a;\"><b>Umsatz</b></td>\n  </tr>\n  ${tableRows}\n</table>`;\n\n// ── Datumsformatierung (de-DE) ─────────────────────────────────────────────\nconst yesterday = new Date();\nyesterday.setDate(yesterday.getDate() - 1);\n\nconst formatted = yesterday.toLocaleDateString('de-DE', {\n  day: '2-digit', month: '2-digit', year: 'numeric'\n});\n\n// ── E-Mail-Body ────────────────────────────────────────────────────────────\nconst emailHtml = `\n<html>\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n<body style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;\">\n  Hallo liebes BOTANICA-Team,<br><br>\n  folgend erhaltet ihr den neuen Bestell-Bericht:<br><br>\n\n  <table cellspacing=\"0\" cellpadding=\"6\" border=\"0\"\n         style=\"font-family:Arial,sans-serif;font-size:14px;\">\n    <tr>\n      <td></td>\n      <td style=\"background:#2e6da4;color:white;padding:4px 12px;\"><b>B2C</b><br><small>LEAF &amp; CINNA</small></td>\n      <td style=\"background:#276a3a;color:white;padding:4px 12px;\"><b>B2B</b><br><small>JTL-Wawi</small></td>\n    </tr>\n    <tr>\n      <td><b>Gesamtumsatz</b></td>\n      <td style=\"text-align:right;\">${umsatzB2C} EUR</td>\n      <td style=\"text-align:right;\">${umsatzB2B} EUR</td>\n    </tr>\n    <tr>\n      <td><b>Bestellungen</b></td>\n      <td style=\"text-align:right;\">${anzahlB2C}</td>\n      <td style=\"text-align:right;\">${anzahlB2B}</td>\n    </tr>\n  </table>\n\n  <br><b>PRODUKTSTATISTIK:</b><br><br>\n  ${productTable}\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    subject:     `BOTANICA | Sales Report vom ${formatted}`,\n    emailHtml,\n    umsatzB2C,\n    umsatzB2B,\n    anzahlB2C,\n    anzahlB2B\n  }\n}];"
+      },
+      "id": "a69ce0a2-fe18-4164-be21-52ebe3250a49",
+      "name": "Build Email Content1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "BOTANICA | Sales <automations@buecherbuechse.de>",
+        "toEmail": "christoph@buecherbuechse.de,lisa@buecherbuechse.de,Sales - Bücherbüchse <b5aec938.startyouridea.de@emea.teams.ms>,francis@botanica-verlagsgruppe.de",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.emailHtml }}",
+        "options": {}
+      },
+      "id": "b2d1b136-8b23-4a82-9532-a4059f85a24e",
+      "name": "Send Email1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1520,
+        -144
+      ],
+      "webhookId": "445ac5a0-d5f2-41ef-98a0-0663a9b721c0",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger1": {
+      "main": [
+        [
+          {
+            "node": "GET REVENUE1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET REVENUE1": {
+      "main": [
+        [
+          {
+            "node": "GET ORDERS COUNT1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET ORDERS COUNT1": {
+      "main": [
+        [
+          {
+            "node": "GET ORDER DETAILS1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET ORDER DETAILS1": {
+      "main": [
+        [
+          {
+            "node": "Build Email Content1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Email Content1": {
+      "main": [
+        [
+          {
+            "node": "Send Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 10
+  },
+  "staticData": {
+    "node:Schedule Trigger1": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "334b0112-5e83-4a64-93f4-9a10fcd70764",
+  "activeVersionId": "334b0112-5e83-4a64-93f4-9a10fcd70764",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-29T23:19:16.681Z",
+      "createdAt": "2026-04-29T23:19:16.681Z",
+      "role": "workflow:owner",
+      "workflowId": "E9CBshBVKo5sT9cC",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-05-30T10:36:15.000Z",
+    "createdAt": "2026-05-30T10:35:39.620Z",
+    "versionId": "334b0112-5e83-4a64-93f4-9a10fcd70764",
+    "workflowId": "E9CBshBVKo5sT9cC",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtMinute": 5
+              }
+            ]
+          }
+        },
+        "id": "f6523251-75ed-4c93-8e49-3272014031c7",
+        "name": "Schedule Trigger1",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          320,
+          -144
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "-- ══════════════════════════════════════════════════════════════\n-- GET REVENUE: B2C (LEAF + CINNA) vs B2B (JTL-Wawi + L-/C-)\n-- ══════════════════════════════════════════════════════════════\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\nSELECT\n  -- B2C: Umsatz aus Shops LEAF Shopify + CINNA Shopify nach Rabatt\n  CAST(ROUND(COALESCE(SUM(\n    CASE WHEN sh.cName IN ('LEAF Shopify', 'CINNA Shopify')\n         THEN pos.fVkNetto * (1 - pos.fRabatt / 100.0) * pos.nAnzahl\n         ELSE 0 END\n  ), 0), 2) AS DECIMAL(10,2)) AS Umsatz_B2C,\n\n  -- B2B: Umsatz JTL-Wawi mit Artikeln L- oder C- nach Rabatt\n  CAST(ROUND(COALESCE(SUM(\n    CASE WHEN pl.cName = 'JTL-Wawi'\n          AND (pos.cArtNr LIKE 'L-%' OR pos.cArtNr LIKE 'C-%')\n         THEN pos.fVkNetto * (1 - pos.fRabatt / 100.0) * pos.nAnzahl\n         ELSE 0 END\n  ), 0), 2) AS DECIMAL(10,2)) AS Umsatz_B2B\n\nFROM      tBestellung  AS b\nJOIN      tPlattform   AS pl  ON b.nPlatform   = pl.nPlattform\nLEFT JOIN tShop        AS sh  ON b.kShop       = sh.kShop  -- LEFT: Wawi-Aufträge haben keinen Shop\nJOIN      tbestellpos  AS pos ON b.kBestellung = pos.tBestellung_kBestellung\nWHERE b.dErstellt BETWEEN DATEADD(DAY, -1, FORMAT(GETDATE(), 'yyyy-MM-dd')) AND GETDATE()\n  AND b.nStorno  = 0\n  AND b.cType   NOT IN ('U')\n  AND pos.nType  = 1;",
+          "options": {}
+        },
+        "id": "ad07de32-2d3c-488a-988a-ef148ed26cf7",
+        "name": "GET REVENUE1",
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1,
+        "position": [
+          560,
+          -144
+        ],
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "-- ══════════════════════════════════════════════════════════════\n-- GET ORDERS COUNT: B2C (LEAF + CINNA) vs B2B (JTL-Wawi + L-/C-)\n-- ══════════════════════════════════════════════════════════════\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\nWITH OrderClassified AS (\n  SELECT\n    b.kBestellung,\n    sh.cName AS ShopName,\n    pl.cName AS PlattformName,\n    -- B2B-Flag pro Bestellung vorab berechnen (kein Aggregat nötig)\n    CASE WHEN EXISTS (\n           SELECT 1\n           FROM   tbestellpos bp\n           WHERE  bp.tBestellung_kBestellung = b.kBestellung\n             AND  (bp.cArtNr LIKE 'L-%' OR bp.cArtNr LIKE 'C-%')\n             AND  bp.nType = 1\n         )\n         THEN 1 ELSE 0\n    END AS hat_B2B_Artikel\n\n  FROM      tBestellung AS b\n  JOIN      tPlattform  AS pl ON b.nPlatform = pl.nPlattform\n  LEFT JOIN tShop       AS sh ON b.kShop     = sh.kShop\n  WHERE b.dErstellt BETWEEN DATEADD(DAY, -1, FORMAT(GETDATE(), 'yyyy-MM-dd')) AND GETDATE()\n    AND b.nStorno  = 0\n    AND b.cType   NOT IN ('U')\n)\nSELECT\n  SUM(CASE WHEN ShopName     IN ('LEAF Shopify', 'CINNA Shopify') THEN 1 ELSE 0 END) AS Anzahl_B2C,\n  SUM(CASE WHEN PlattformName = 'JTL-Wawi' AND hat_B2B_Artikel = 1 THEN 1 ELSE 0 END) AS Anzahl_B2B\nFROM OrderClassified;",
+          "options": {}
+        },
+        "id": "ee960fb4-5da5-4190-8074-71fe69f8daef",
+        "name": "GET ORDERS COUNT1",
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1,
+        "position": [
+          800,
+          -144
+        ],
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "-- ══════════════════════════════════════════════════════════════\n-- GET ORDER DETAILS: Produktstatistik B2C + B2B pro Artikel\n-- ══════════════════════════════════════════════════════════════\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\nSELECT\n  ta.cArtNr                        AS Artikelnummer,\n  MAX(tab.cName)                   AS Artikelname,\n\n  -- B2C Spalten\n  SUM(\n    CASE WHEN sh.cName IN ('LEAF Shopify', 'CINNA Shopify')\n         THEN CONVERT(INT, pos.nAnzahl) ELSE 0 END\n  )                                AS Menge_B2C,\n\n  CAST(ROUND(SUM(\n    CASE WHEN sh.cName IN ('LEAF Shopify', 'CINNA Shopify')\n         THEN pos.fVkNetto * (1 - pos.fRabatt / 100.0) * pos.nAnzahl ELSE 0 END\n  ), 2) AS DECIMAL(10,2))          AS Umsatz_B2C,\n\n  -- B2B Spalten\n  SUM(\n    CASE WHEN pl.cName = 'JTL-Wawi'\n          AND (ta.cArtNr LIKE 'L-%' OR ta.cArtNr LIKE 'C-%')\n         THEN CONVERT(INT, pos.nAnzahl) ELSE 0 END\n  )                                AS Menge_B2B,\n\n  CAST(ROUND(SUM(\n    CASE WHEN pl.cName = 'JTL-Wawi'\n          AND (ta.cArtNr LIKE 'L-%' OR ta.cArtNr LIKE 'C-%')\n         THEN pos.fVkNetto * (1 - pos.fRabatt / 100.0) * pos.nAnzahl ELSE 0 END\n  ), 2) AS DECIMAL(10,2))          AS Umsatz_B2B\n\nFROM      tArtikel             AS ta\nJOIN      tbestellpos          AS pos ON ta.cArtNr             = pos.cArtNr\nJOIN      tBestellung          AS b   ON b.kBestellung         = pos.tBestellung_kBestellung\nJOIN      tArtikelBeschreibung AS tab ON ta.kArtikel           = tab.kArtikel\nJOIN      tPlattform           AS pl  ON b.nPlatform           = pl.nPlattform  -- korrekter Join-Key\nLEFT JOIN tShop                AS sh  ON b.kShop               = sh.kShop       -- LEFT: Wawi hat keinen Shop\n\nWHERE b.dErstellt BETWEEN DATEADD(DAY, -1, FORMAT(GETDATE(), 'yyyy-MM-dd')) AND GETDATE()\n  AND b.nStorno  = 0\n  AND b.cType   NOT IN ('U')\n  AND pos.nType  = 1\n  -- Nur B2C- oder B2B-relevante Zeilen\n  AND (\n       sh.cName IN ('LEAF Shopify', 'CINNA Shopify')\n    OR (pl.cName = 'JTL-Wawi' AND (ta.cArtNr LIKE 'L-%' OR ta.cArtNr LIKE 'C-%'))\n  )\n\nGROUP BY ta.cArtNr, tab.cName\nORDER BY SUM(CONVERT(INT, pos.nAnzahl)) DESC;",
+          "options": {}
+        },
+        "id": "b1d234a3-bfee-4f57-b1fa-5b0536f9a4dd",
+        "name": "GET ORDER DETAILS1",
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1,
+        "position": [
+          1040,
+          -144
+        ],
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// ── Daten aus vorherigen Nodes holen ──────────────────────────────────────\nconst rev         = $('GET REVENUE1').first().json;\nconst cnt         = $('GET ORDERS COUNT1').first().json;\nconst orderDetails = $('GET ORDER DETAILS1').all();\n\nconst umsatzB2C   = rev.Umsatz_B2C   ?? '0.00';\nconst umsatzB2B   = rev.Umsatz_B2B   ?? '0.00';\nconst anzahlB2C   = cnt.Anzahl_B2C   ?? 0;\nconst anzahlB2B   = cnt.Anzahl_B2B   ?? 0;\n\n// ── Produkttabelle aufbauen ────────────────────────────────────────────────\nlet tableRows = '';\nfor (const item of orderDetails) {\n  const d = item.json;\n  // Zeile nur rendern wenn Werte > 0 vorhanden\n  const hasB2C = (d.Menge_B2C > 0 || d.Umsatz_B2C > 0);\n  const hasB2B = (d.Menge_B2B > 0 || d.Umsatz_B2B > 0);\n  if (!hasB2C && !hasB2B) continue;\n\n  tableRows += `\n  <tr bgcolor=\"#ffffff\">\n    <td>${d.Artikelnummer}</td>\n    <td>${d.Artikelname}</td>\n    <td style=\"text-align:right;\">${hasB2C ? d.Menge_B2C : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2C ? d.Umsatz_B2C + '&euro;' : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2B ? d.Menge_B2B : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2B ? d.Umsatz_B2B + '&euro;' : '-'}</td>\n  </tr>`;\n}\n\nconst productTable = `\n<table cellspacing=\"0\" cellpadding=\"5\" border=\"1\"\n       style=\"border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;\">\n  <tr bgcolor=\"#1a1a1a\" style=\"color:white;\">\n    <td colspan=\"2\"></td>\n    <td colspan=\"2\" style=\"text-align:center;background:#2e6da4;\"><b>B2C (LEAF / CINNA)</b></td>\n    <td colspan=\"2\" style=\"text-align:center;background:#276a3a;\"><b>B2B (JTL-Wawi)</b></td>\n  </tr>\n  <tr bgcolor=\"#333333\" style=\"color:white;\">\n    <td><b>Artikelnummer</b></td>\n    <td><b>Artikelname</b></td>\n    <td style=\"background:#3a7ec4;\"><b>Menge</b></td>\n    <td style=\"background:#3a7ec4;\"><b>Umsatz</b></td>\n    <td style=\"background:#328a4a;\"><b>Menge</b></td>\n    <td style=\"background:#328a4a;\"><b>Umsatz</b></td>\n  </tr>\n  ${tableRows}\n</table>`;\n\n// ── Datumsformatierung (de-DE) ─────────────────────────────────────────────\nconst yesterday = new Date();\nyesterday.setDate(yesterday.getDate() - 1);\n\nconst formatted = yesterday.toLocaleDateString('de-DE', {\n  day: '2-digit', month: '2-digit', year: 'numeric'\n});\n\n// ── E-Mail-Body ────────────────────────────────────────────────────────────\nconst emailHtml = `\n<html>\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n<body style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;\">\n  Hallo liebes BOTANICA-Team,<br><br>\n  folgend erhaltet ihr den neuen Bestell-Bericht:<br><br>\n\n  <table cellspacing=\"0\" cellpadding=\"6\" border=\"0\"\n         style=\"font-family:Arial,sans-serif;font-size:14px;\">\n    <tr>\n      <td></td>\n      <td style=\"background:#2e6da4;color:white;padding:4px 12px;\"><b>B2C</b><br><small>LEAF &amp; CINNA</small></td>\n      <td style=\"background:#276a3a;color:white;padding:4px 12px;\"><b>B2B</b><br><small>JTL-Wawi</small></td>\n    </tr>\n    <tr>\n      <td><b>Gesamtumsatz</b></td>\n      <td style=\"text-align:right;\">${umsatzB2C} EUR</td>\n      <td style=\"text-align:right;\">${umsatzB2B} EUR</td>\n    </tr>\n    <tr>\n      <td><b>Bestellungen</b></td>\n      <td style=\"text-align:right;\">${anzahlB2C}</td>\n      <td style=\"text-align:right;\">${anzahlB2B}</td>\n    </tr>\n  </table>\n\n  <br><b>PRODUKTSTATISTIK:</b><br><br>\n  ${productTable}\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    subject:     `BOTANICA | Sales Report vom ${formatted}`,\n    emailHtml,\n    umsatzB2C,\n    umsatzB2B,\n    anzahlB2C,\n    anzahlB2B\n  }\n}];"
+        },
+        "id": "a69ce0a2-fe18-4164-be21-52ebe3250a49",
+        "name": "Build Email Content1",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1280,
+          -144
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "BOTANICA | Sales <automations@buecherbuechse.de>",
+          "toEmail": "christoph@buecherbuechse.de,lisa@buecherbuechse.de,Sales - Bücherbüchse <b5aec938.startyouridea.de@emea.teams.ms>,francis@botanica-verlagsgruppe.de",
+          "subject": "={{ $json.subject }}",
+          "html": "={{ $json.emailHtml }}",
+          "options": {}
+        },
+        "id": "b2d1b136-8b23-4a82-9532-a4059f85a24e",
+        "name": "Send Email1",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1520,
+          -144
+        ],
+        "webhookId": "445ac5a0-d5f2-41ef-98a0-0663a9b721c0",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Schedule Trigger1": {
+        "main": [
+          [
+            {
+              "node": "GET REVENUE1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GET REVENUE1": {
+        "main": [
+          [
+            {
+              "node": "GET ORDERS COUNT1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GET ORDERS COUNT1": {
+        "main": [
+          [
+            {
+              "node": "GET ORDER DETAILS1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GET ORDER DETAILS1": {
+        "main": [
+          [
+            {
+              "node": "Build Email Content1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Email Content1": {
+        "main": [
+          [
+            {
+              "node": "Send Email1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version 334b0112",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": [
+    {
+      "updatedAt": "2026-03-08T13:05:09.107Z",
+      "createdAt": "2026-03-08T13:05:09.107Z",
+      "id": "7yj1m1x4xrHvUucU",
+      "name": "Verlage"
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "updatedAt": "2026-07-08T09:29:37.817Z",
+  "createdAt": "2026-06-02T18:44:01.805Z",
+  "id": "0kYTJ4DrRwxWRiv4",
+  "name": "DSGVO Update-Ticket an betroffene Kund-innen",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "551d124a-2c46-4af9-8a0d-672913ab1783",
+      "name": "When clicking Execute workflow",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "query": "dsgvo_löschanfragen_16_april-9_juni"
+        }
+      },
+      "id": "87160e30-6c78-4f84-9fe7-cb636917ba32",
+      "name": "Get Tickets with Tag",
+      "type": "n8n-nodes-base.zendesk",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "z4rtlKq5ATLdum23",
+          "name": "Zendesk account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "id": "={{ $json.id }}",
+        "updateFields": {
+          "publicReply": "=Hallo,   \n\nwir möchten dich über den aktuellen Bearbeitungsstand deiner Anfrage auf Account-Löschung bzw. die Entfernung deiner personenbezogenen Daten informieren.\n\nDie Umsetzung deiner Anfrage wurde bereits umfassend eingeleitet. Die Löschung deiner personenbezogenen Daten aus den für Kund:innen zugänglichen Hauptsystemen ist bereits erfolgt. Insbesondere wurde dein Account entfernt bzw. deaktiviert, sodass eine Anmeldung nicht mehr möglich ist.\n\nDarüber hinaus wurden die erforderlichen Löschmaßnahmen auch in weiteren zentralen Systemen umgesetzt.\n\nAufgrund der technischen Struktur unserer Systemlandschaft und der Vielzahl miteinander verbundener Systeme ist der Vorgang jedoch noch nicht vollständig abgeschlossen. Einzelne nachgelagerte Verarbeitungsschritte und Bereiche befinden sich derzeit noch in Bearbeitung.   Selbstverständlich werden wir auch diese verbleibenden Maßnahmen schnellstmöglich abschließen, um deiner Anfrage vollständig nachzukommen.\n\nSobald der gesamte Löschprozess abgeschlossen ist, erhältst du von uns eine gesonderte Bestätigung.\n\nWir bedanken uns für deine Geduld und dein Verständnis. Für Rückfragen stehen wir dir selbstverständlich gerne zur Verfügung.\n\nLiebe Grüße \nBücherbüchse Team",
+          "status": "pending"
+        }
+      },
+      "id": "e05bba3f-36a3-4114-a588-f88b0e28cffc",
+      "name": "Update Ticket",
+      "type": "n8n-nodes-base.zendesk",
+      "typeVersion": 1,
+      "position": [
+        912,
+        0
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "z4rtlKq5ATLdum23",
+          "name": "Zendesk account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "1043ae30-b1c4-4e0b-bf68-4335dc139288",
+      "name": "Loop Over Tickets",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        688,
+        0
+      ],
+      "executeOnce": false
+    }
+  ],
+  "connections": {
+    "When clicking Execute workflow": {
+      "main": [
+        [
+          {
+            "node": "Get Tickets with Tag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tickets with Tag": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Ticket": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Tickets": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Update Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "c7a01fbc-f80c-42dc-ab9d-1ee08e1ee4d1",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-06-02T18:44:01.810Z",
+      "createdAt": "2026-06-02T18:44:01.810Z",
+      "role": "workflow:owner",
+      "workflowId": "0kYTJ4DrRwxWRiv4",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": [
+    {
+      "updatedAt": "2026-01-08T10:25:20.418Z",
+      "createdAt": "2026-01-08T10:25:20.418Z",
+      "id": "x0qTp7A3NOgGXUae",
+      "name": "Support"
+    }
+  ]
+}

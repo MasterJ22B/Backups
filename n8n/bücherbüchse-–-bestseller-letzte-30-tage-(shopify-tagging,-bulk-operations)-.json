@@ -1,0 +1,646 @@
+{
+  "updatedAt": "2026-07-27T06:36:04.000Z",
+  "createdAt": "2026-07-25T14:33:01.314Z",
+  "id": "XkhgWQxmq51lbBnX",
+  "name": "Bücherbüchse – Bestseller letzte 30 Tage (Shopify Tagging, Bulk Operations)",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 3
+            }
+          ]
+        }
+      },
+      "id": "9bbb0096-aa70-4927-b169-ee7415ee595f",
+      "name": "Zeitplan täglich 03:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2752,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "shopDomain",
+              "value": "buecherbuechse.myshopify.com",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "topN",
+              "value": 20,
+              "type": "number"
+            },
+            {
+              "id": "3",
+              "name": "tagName",
+              "value": "Bestseller-30-Tage",
+              "type": "string"
+            },
+            {
+              "id": "4",
+              "name": "cutoffDate",
+              "value": "={{ $now.minus({days: 30}).toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "16fbf95e-a7fb-44c4-bb76-97ff7243c88a",
+      "name": "Konfiguration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2528,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.shopDomain }}/admin/api/2026-07/graphql.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation bulkOp($innerQuery: String!) { bulkOperationRunQuery(query: $innerQuery) { bulkOperation { id status } userErrors { field message } } }`, variables: { innerQuery: `{ orders(query: \"created_at:>=${$json.cutoffDate}\") { edges { node { id lineItems { edges { node { quantity product { id } } } } } } } }` } }) }}",
+        "options": {}
+      },
+      "id": "64981158-984c-4bf9-babf-b10636ba45ef",
+      "name": "Bulk Export starten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2304,
+        1072
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "rLcC3JWbdhzXOnvj",
+          "name": "LEAF Klaviyo Header Auth"
+        },
+        "shopifyAccessTokenApi": {
+          "id": "zxKNp58HJZZkXMJx",
+          "name": "BB AccessKey"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "id": "6c5fc6de-9173-440d-a074-4ed0a9e915b0",
+      "name": "Warten auf Bulk Export",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -2080,
+        1072
+      ],
+      "webhookId": "3741db59-ae14-40e8-8d2d-4f1fa7e6182e"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Konfiguration').first().json.shopDomain }}/admin/api/2026-07/graphql.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `query { currentBulkOperation(type: QUERY) { id status errorCode objectCount url partialDataUrl } }` }) }}",
+        "options": {}
+      },
+      "id": "44f76766-e90f-4e74-9b92-84748881f0f7",
+      "name": "Bulk-Status abfragen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1872,
+        1072
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "rLcC3JWbdhzXOnvj",
+          "name": "LEAF Klaviyo Header Auth"
+        },
+        "shopifyAccessTokenApi": {
+          "id": "zxKNp58HJZZkXMJx",
+          "name": "BB AccessKey"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const op = $input.first().json.data.currentBulkOperation;\nif (op.status === 'FAILED' || op.status === 'CANCELED' || op.status === 'EXPIRED') {\n  throw new Error('Bulk Operation fehlgeschlagen: ' + op.status + ' (' + (op.errorCode || 'kein Fehlercode') + ')');\n}\nreturn [{ json: op }];"
+      },
+      "id": "32269398-1e51-4e78-856b-dbd33db374d1",
+      "name": "Status prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1648,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "COMPLETED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "72a873fa-4b92-4425-8cc9-b9a87229dd87",
+      "name": "Bulk Export fertig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1424,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "3777011f-e435-4a5f-8a64-fd9d4ee5039b",
+      "name": "JSONL herunterladen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1200,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawItem = $input.first().json;\nconst raw = typeof rawItem === 'string' ? rawItem : (rawItem.data ?? JSON.stringify(rawItem));\nconst topN = $('Konfiguration').first().json.topN;\nconst productSales = {};\n\nconst lines = raw.split('\\n').filter(l => l.trim().length > 0);\nfor (const line of lines) {\n  let row;\n  try {\n    row = JSON.parse(line);\n  } catch (e) {\n    continue;\n  }\n  const productId = row.product?.id;\n  if (!productId || typeof row.quantity !== 'number') continue;\n  productSales[productId] = (productSales[productId] || 0) + row.quantity;\n}\n\nconst sorted = Object.entries(productSales)\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, topN)\n  .map(([productId, quantity]) => ({ json: { productId, quantity } }));\n\nreturn sorted;"
+      },
+      "id": "7f4f2808-6904-4e7d-91a4-e9e05f83de43",
+      "name": "JSONL parsen & Top N ermitteln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -992,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Konfiguration').first().json.shopDomain }}/admin/api/2026-07/graphql.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `query($tagQuery: String!) { products(first: 250, query: $tagQuery) { edges { node { id } } } }`, variables: { tagQuery: `tag:'${$('Konfiguration').first().json.tagName}'` } }) }}",
+        "options": {}
+      },
+      "id": "73c138e0-d50d-4381-b5b3-15377d45f262",
+      "name": "Aktuell getaggte Produkte abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -768,
+        976
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "rLcC3JWbdhzXOnvj",
+          "name": "LEAF Klaviyo Header Auth"
+        },
+        "shopifyAccessTokenApi": {
+          "id": "zxKNp58HJZZkXMJx",
+          "name": "BB AccessKey"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const topProducts = $('JSONL parsen & Top N ermitteln').all().map(i => i.json.productId);\nconst taggedResponse = $input.first().json;\nconst taggedEdges = taggedResponse?.data?.products?.edges || [];\nconst currentlyTagged = taggedEdges.map(e => e.node.id);\n\nconst toAdd = topProducts.filter(id => !currentlyTagged.includes(id));\nconst toRemove = currentlyTagged.filter(id => !topProducts.includes(id));\n\nconst output = [\n  ...toAdd.map(id => ({ json: { productId: id, action: 'add' } })),\n  ...toRemove.map(id => ({ json: { productId: id, action: 'remove' } })),\n];\n\nreturn output;"
+      },
+      "id": "7fd134e6-1269-4425-86a2-206763b3f486",
+      "name": "Diff berechnen (Hinzufügen/Entfernen)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "25f2c53c-31f9-4bc7-ab57-f0cab4be9ec3",
+      "name": "Änderungen einzeln verarbeiten",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -320,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 0.5
+      },
+      "id": "b093a07e-b6f5-4f4c-a0f1-17cf5e104480",
+      "name": "Kurze Pause (Rate Limit)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -112,
+        880
+      ],
+      "webhookId": "300a78a0-b3a9-4b29-83be-1b9abd8b2c55"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "add",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "57400ff8-66c8-4c53-ac3c-ba893f91d9ed",
+      "name": "Aktion: Hinzufügen oder Entfernen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        128,
+        880
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Konfiguration').first().json.shopDomain }}/admin/api/2026-07/graphql.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation addTags($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { node { id } userErrors { field message } } }`, variables: { id: $json.productId, tags: [ $('Konfiguration').first().json.tagName ] } }) }}",
+        "options": {}
+      },
+      "id": "b93beb4c-b6ec-4b63-9b8e-f39b62d99780",
+      "name": "Tag hinzufügen (tagsAdd)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        336,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Konfiguration').first().json.shopDomain }}/admin/api/2026-07/graphql.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation removeTags($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { node { id } userErrors { field message } } }`, variables: { id: $json.productId, tags: [ $('Konfiguration').first().json.tagName ] } }) }}",
+        "options": {}
+      },
+      "id": "023b5888-a717-4653-aa33-1a54bae7ab17",
+      "name": "Tag entfernen (tagsRemove)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        336,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst added = items.filter(i => i.json.action === 'add').length;\nconst removed = items.filter(i => i.json.action === 'remove').length;\nreturn [{ json: { status: 'Bestseller-Collection aktualisiert', hinzugefuegt: added, entfernt: removed, zeitpunkt: new Date().toISOString() } }];"
+      },
+      "id": "6ff0d4a2-3f44-45a2-8c8d-60ce5dc80aff",
+      "name": "Zusammenfassung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        1120
+      ]
+    }
+  ],
+  "connections": {
+    "Zeitplan täglich 03:00": {
+      "main": [
+        [
+          {
+            "node": "Konfiguration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Konfiguration": {
+      "main": [
+        [
+          {
+            "node": "Bulk Export starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bulk Export starten": {
+      "main": [
+        [
+          {
+            "node": "Warten auf Bulk Export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warten auf Bulk Export": {
+      "main": [
+        [
+          {
+            "node": "Bulk-Status abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bulk-Status abfragen": {
+      "main": [
+        [
+          {
+            "node": "Status prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status prüfen": {
+      "main": [
+        [
+          {
+            "node": "Bulk Export fertig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bulk Export fertig?": {
+      "main": [
+        [
+          {
+            "node": "JSONL herunterladen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Warten auf Bulk Export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSONL herunterladen": {
+      "main": [
+        [
+          {
+            "node": "JSONL parsen & Top N ermitteln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSONL parsen & Top N ermitteln": {
+      "main": [
+        [
+          {
+            "node": "Aktuell getaggte Produkte abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktuell getaggte Produkte abrufen": {
+      "main": [
+        [
+          {
+            "node": "Diff berechnen (Hinzufügen/Entfernen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diff berechnen (Hinzufügen/Entfernen)": {
+      "main": [
+        [
+          {
+            "node": "Änderungen einzeln verarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Änderungen einzeln verarbeiten": {
+      "main": [
+        [
+          {
+            "node": "Zusammenfassung",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kurze Pause (Rate Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kurze Pause (Rate Limit)": {
+      "main": [
+        [
+          {
+            "node": "Aktion: Hinzufügen oder Entfernen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion: Hinzufügen oder Entfernen?": {
+      "main": [
+        [
+          {
+            "node": "Tag hinzufügen (tagsAdd)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tag entfernen (tagsRemove)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag hinzufügen (tagsAdd)": {
+      "main": [
+        [
+          {
+            "node": "Änderungen einzeln verarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag entfernen (tagsRemove)": {
+      "main": [
+        [
+          {
+            "node": "Änderungen einzeln verarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "4d64da24-128c-4c93-b43f-1902811cf8df",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-07-27T06:36:04.368Z",
+      "createdAt": "2026-07-27T06:36:04.368Z",
+      "role": "workflow:owner",
+      "workflowId": "XkhgWQxmq51lbBnX",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

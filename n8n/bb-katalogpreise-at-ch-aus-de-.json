@@ -1,0 +1,698 @@
+{
+  "updatedAt": "2026-07-21T08:24:38.231Z",
+  "createdAt": "2026-07-09T10:29:14.945Z",
+  "id": "pm42xIduxJB2qz9V",
+  "name": "BB-Katalogpreise-AT-CH-aus-DE",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4416,
+        1488
+      ],
+      "id": "f1216bbf-2371-4c41-bae0-d5512741abb5",
+      "name": "Token holen ",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ====== ZENTRALE CONFIG ======\n// Hier alle IDs / Steuersätze pflegen.\n// -> priceListId je Land AT / CH aus Shopify Admin (Markets -> Preisliste) eintragen.\n// -> collectionId für \"Bücher\" und \"Merch\" eintragen (GID-Format: gid://shopify/Collection/1234567890).\n\nconst config = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  // Collections zur Unterscheidung Buch vs. Merch\n  collectionBuecher: 'gid://shopify/Collection/311681220723',\n  collectionMerch:   'gid://shopify/Collection/313480249459',\n  collectionBundles: 'gid://shopify/Collection/320880640115',\n\n  // Steuersätze (Dezimal). DE = Basis der Bruttopreise im DE-Katalog.\n  tax: {\n    DE: { buch: 0.07,  merch: 0.19 },\n    AT: { buch: 0.10,  merch: 0.20 },\n    CH: { buch: 0.026, merch: 0.081 }\n  },\n\n  // Zielpreislisten (Markets). IDs eintragen.\n  priceLists: {\n    AT: { id: 'gid://shopify/PriceList/18960056435', currency: 'EUR' },\n    CH: { id: 'gid://shopify/PriceList/18959958131', currency: 'EUR' }\n  }\n};\n\n// staticData vorbereiten / leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.produkte = [];\n\n// Start-Cursor null => erste Seite\nreturn [{\n  json: {\n    accessToken: $('Token holen ').item.json.access_token,\n    cursor: null,\n    hasNext: true,\n    config: config\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4576,
+        1488
+      ],
+      "id": "3d89b2d4-f12c-4a56-9ee9-0dfe7bd47728",
+      "name": "Config + Array leeren"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.config.shop }}.myshopify.com/admin/api/{{ $json.config.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `query($cursor: String, $cBuch: ID!, $cMerch: ID!, $cBundle: ID!) {\\n  products(first: 100, after: $cursor) {\\n    pageInfo { hasNextPage endCursor }\\n    edges {\\n      node {\\n        id\\n        title\\n        inBuecher: inCollection(id: $cBuch)\\n        inMerch: inCollection(id: $cMerch)\\n        inBundle: inCollection(id: $cBundle)\\n        variants(first: 100) {\\n          edges { node { id price sku } }\\n        }\\n      }\\n    }\\n  }\\n}`, variables: { cursor: $json.cursor, cBuch: $json.config.collectionBuecher, cMerch: $json.config.collectionMerch, cBundle: $json.config.collectionBundles } }) }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4912,
+        1488
+      ],
+      "id": "5b511b47-229d-4255-8331-69b8245698ec",
+      "name": "GET Produkte (GraphQL)",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Antwort auswerten, Produkte + Varianten in staticData sammeln,\n// Buch/Merch-Flag setzen, nächsten Cursor weitergeben.\nconst resp = $input.first().json;\nconst prev = $('Config + Array leeren').item.json;\nconst config = prev.config;\nconst productsConn = resp?.data?.products;\nconst edges = productsConn?.edges || [];\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.produkte)) staticData.produkte = [];\nfor (const e of edges) {\n  const node = e.node;\n  // Bundles NIE anfassen -> überspringen (werden händisch gepflegt)\n  if (node.inBundle) continue;\n\n  // Typ bestimmen: Buch hat Vorrang, sonst Merch. Alles andere -> Fallback = Merch-Rate.\n  let typ;\n  if (node.inBuecher) typ = 'buch';\n  else typ = 'merch'; // Merch UND Fallback (keiner der Collections)\n\n  for (const ve of (node.variants?.edges || [])) {\n    const v = ve.node;\n    const priceDE = parseFloat(v.price);\n    if (!isFinite(priceDE)) continue;\n    staticData.produkte.push({\n      variantId: v.id,\n      productId: node.id,\n      title: node.title,\n      sku: v.sku,\n      typ: typ,\n      priceDEBrutto: priceDE\n    });\n  }\n}\nconst hasNext = !!productsConn?.pageInfo?.hasNextPage;\nconst endCursor = productsConn?.pageInfo?.endCursor || null;\nreturn [{\n  json: {\n    accessToken: prev.accessToken,\n    config: config,\n    cursor: endCursor,\n    hasNext: hasNext,\n    gesammelt: staticData.produkte.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5072,
+        1488
+      ],
+      "id": "21c2440c-37d4-476b-9c58-3de921298745",
+      "name": "Produkte sammeln + Cursor"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5232,
+        1488
+      ],
+      "id": "c4699665-928c-4329-8a3e-6c7ffb52f6ef",
+      "name": "Wait",
+      "webhookId": "b2000000-0000-0000-0000-000000000006"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c2000000-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        5408,
+        1488
+      ],
+      "id": "7c7f640a-c097-401e-a717-02c365e7780a",
+      "name": "Gibt es NextPage?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Schleife: nächste Seite anfordern (Token bleibt gültig innerhalb Laufzeit).\nconst prev = $input.first().json;\nreturn [{\n  json: {\n    accessToken: prev.accessToken,\n    config: prev.config,\n    cursor: prev.cursor,\n    hasNext: prev.hasNext\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5584,
+        1472
+      ],
+      "id": "ce1ea883-63f1-419b-a670-f1d29aa25931",
+      "name": "Weiter zur nächsten Seite"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nach Pagination: alle gesammelten Produkte holen und AT/CH-Bruttopreise berechnen.\n// Weg: DE-Brutto -> Netto (÷ DE-Satz je Typ) -> Zielland-Brutto (× Zielsatz je Typ).\nconst config = $('Config + Array leeren').item.json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst produkte = staticData.produkte || [];\n\nconst round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;\n\nconst out = produkte.map((p) => {\n  const deSatz = config.tax.DE[p.typ];\n  const netto = p.priceDEBrutto / (1 + deSatz);\n\n  const atSatz = config.tax.AT[p.typ];\n  const chSatz = config.tax.CH[p.typ];\n\n  const priceAT = round2(netto * (1 + atSatz));\n  const priceCH = round2(netto * (1 + chSatz));\n\n  return {\n    json: {\n      variantId: p.variantId,\n      title: p.title,\n      sku: p.sku,\n      typ: p.typ,\n      priceDEBrutto: round2(p.priceDEBrutto),\n      netto: round2(netto),\n      priceAT: priceAT,\n      priceCH: priceCH\n    }\n  };\n});\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5856,
+        1504
+      ],
+      "id": "1e43c931-090a-4ba0-868f-3a6b02fc6f37",
+      "name": "Preise berechnen (AT + CH)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "content": "## Auslöser + Config\nToken holen, zentrale Config (IDs/Steuersätze) setzen, staticData leeren.\n\n",
+        "height": 448,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4192,
+        1296
+      ],
+      "id": "a367a67a-08a7-40a6-9d43-6adf36b663f2",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Produkt-Pagination (DE-Katalog)\nGraphQL products-Query mit cursor-basierter Pagination.\nJe Produkt: Buch/Merch über inCollection bestimmt, Varianten + DE-Bruttopreis in staticData gesammelt.",
+        "height": 448,
+        "width": 912,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4848,
+        1296
+      ],
+      "id": "85ef1171-ce8d-418f-8a92-6214a18b34da",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Berechnung\nDE-Brutto → Netto (÷ DE-Satz) → Zielland-Brutto (× Zielsatz).\nErgebnis: ein Item je Variante mit priceAT + priceCH.",
+        "height": 452,
+        "width": 320,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5776,
+        1296
+      ],
+      "id": "05e3f542-8d51-40e0-ad52-612cfa53e0b9",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flache Preis-Liste für AT bauen (Batching übernimmt Split in Batches)\nconst config = $('Config + Array leeren').item.json.config;\nconst items = $('Preise berechnen (AT + CH)').all();\n\nconst currency = config.priceLists.AT.currency;\nconst priceListId = config.priceLists.AT.id;\n\nreturn items.map(i => ({\n  json: {\n    accessToken: $('Config + Array leeren').item.json.accessToken,\n    config: config,\n    priceListId: priceListId,\n    variantId: i.json.variantId,\n    sku: i.json.sku,\n    price: { amount: i.json.priceAT.toFixed(2), currencyCode: currency }\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6176,
+        1424
+      ],
+      "id": "e6de8ff7-bc5a-4de9-aadf-08f6528aa840",
+      "name": "AT Batches bauen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.config.shop }}.myshopify.com/admin/api/{{ $json.config.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation($priceListId: ID!, $prices: [PriceListPriceInput!]!) {\\n  priceListFixedPricesUpdate(priceListId: $priceListId, pricesToAdd: $prices, variantIdsToDelete: []) {\\n    pricesAdded { variant { sku } price { amount currencyCode } }\\n    userErrors { field code message }\\n  }\\n}`, variables: { priceListId: $json.priceListId, prices: $json.prices } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6720,
+        1440
+      ],
+      "id": "e64924b7-fcc6-4b90-893d-88fc24ad32f3",
+      "name": "AT Preise schreiben",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        6864,
+        1440
+      ],
+      "id": "86fa6f7e-d55b-4ae3-a0a8-0fab93ced9b2",
+      "name": "Wait AT",
+      "webhookId": "b2000000-0000-0000-0000-000000000015"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flache Preis-Liste für CH bauen (Batching übernimmt Split in Batches)\nconst config = $('Config + Array leeren').item.json.config;\nconst items = $('Preise berechnen (AT + CH)').all();\n\nconst currency = config.priceLists.CH.currency;\nconst priceListId = config.priceLists.CH.id;\n\nreturn items.map(i => ({\n  json: {\n    accessToken: $('Config + Array leeren').item.json.accessToken,\n    config: config,\n    priceListId: priceListId,\n    variantId: i.json.variantId,\n    price: { amount: i.json.priceCH.toFixed(2), currencyCode: currency }\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6176,
+        1792
+      ],
+      "id": "66064d04-922b-4976-96e1-a4a6cb7ba6f1",
+      "name": "CH Batches bauen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.config.shop }}.myshopify.com/admin/api/{{ $json.config.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation($priceListId: ID!, $prices: [PriceListPriceInput!]!) {\\n  priceListFixedPricesUpdate(priceListId: $priceListId, pricesToAdd: $prices, variantIdsToDelete: []) {\\n    pricesAdded { variant { sku } price { amount currencyCode } }\\n    userErrors { field code message }\\n  }\\n}`, variables: { priceListId: $json.priceListId, prices: $json.prices } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6720,
+        1808
+      ],
+      "id": "7092346d-0997-41b8-9623-0acb59bd7abe",
+      "name": "CH Preise schreiben",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        6864,
+        1808
+      ],
+      "id": "ffe84f12-ce7a-44e4-95f8-70c48548de95",
+      "name": "Wait CH",
+      "webhookId": "b2000000-0000-0000-0000-000000000018"
+    },
+    {
+      "parameters": {
+        "content": "## Schreibsegment AT\nSplit in Batches (100er) -> Aggregieren -> priceListFixedPricesUpdate in AT-Preisliste (EUR). Wait 3s pro Batch. done-Ausgang startet CH.",
+        "height": 348,
+        "width": 976,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        6112,
+        1296
+      ],
+      "id": "1e4f9667-c588-450d-9d00-9f3a9e3570f3",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Schreibsegment CH\nStartet nach AT (seriell). Split in Batches (100er) -> Aggregieren -> priceListFixedPricesUpdate in CH-Preisliste (CHF). Wait 3s pro Batch.",
+        "height": 348,
+        "width": 976,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        6112,
+        1664
+      ],
+      "id": "5f53cca1-b273-48c2-aa65-0fd68d233e9c",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "batchSize": 100,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        6352,
+        1424
+      ],
+      "id": "159b0e33-33d5-4be4-ba28-272933e5ac10",
+      "name": "AT Split in Batches"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Items dieses Batches zu einem prices-Array zusammenfassen\nconst all = $input.all();\nreturn [{\n  json: {\n    accessToken: all[0].json.accessToken,\n    config: all[0].json.config,\n    priceListId: all[0].json.priceListId,\n    prices: all.map(i => i.json.price\n      ? { variantId: i.json.variantId, price: i.json.price }\n      : null).filter(Boolean)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6560,
+        1440
+      ],
+      "id": "09d64a93-1fd8-4c7c-be22-60a3d3ab4fae",
+      "name": "AT Aggregieren"
+    },
+    {
+      "parameters": {
+        "batchSize": 100,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        6352,
+        1792
+      ],
+      "id": "cec43cdd-cd90-48de-8fbf-855b8d39c614",
+      "name": "CH Split in Batches"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Items dieses Batches zu einem prices-Array zusammenfassen\nconst all = $input.all();\nreturn [{\n  json: {\n    accessToken: all[0].json.accessToken,\n    config: all[0].json.config,\n    priceListId: all[0].json.priceListId,\n    prices: all.map(i => i.json.price\n      ? { variantId: i.json.variantId, price: i.json.price }\n      : null).filter(Boolean)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6560,
+        1808
+      ],
+      "id": "006efc11-ebb0-4b1d-a761-3f36d4ee711a",
+      "name": "CH Aggregieren"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        4224,
+        1488
+      ],
+      "id": "d7a2253e-d4d2-4dea-82fd-06f54ead4e06",
+      "name": "When clicking ‘Execute workflow’"
+    }
+  ],
+  "connections": {
+    "Token holen ": {
+      "main": [
+        [
+          {
+            "node": "Config + Array leeren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config + Array leeren": {
+      "main": [
+        [
+          {
+            "node": "GET Produkte (GraphQL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Produkte (GraphQL)": {
+      "main": [
+        [
+          {
+            "node": "Produkte sammeln + Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Produkte sammeln + Cursor": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Gibt es NextPage?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es NextPage?": {
+      "main": [
+        [
+          {
+            "node": "Weiter zur nächsten Seite",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preise berechnen (AT + CH)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weiter zur nächsten Seite": {
+      "main": [
+        [
+          {
+            "node": "GET Produkte (GraphQL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preise berechnen (AT + CH)": {
+      "main": [
+        [
+          {
+            "node": "AT Batches bauen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CH Batches bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT Batches bauen": {
+      "main": [
+        [
+          {
+            "node": "AT Split in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT Split in Batches": {
+      "main": [
+        [],
+        [
+          {
+            "node": "AT Aggregieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT Aggregieren": {
+      "main": [
+        [
+          {
+            "node": "AT Preise schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT Preise schreiben": {
+      "main": [
+        [
+          {
+            "node": "Wait AT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait AT": {
+      "main": [
+        [
+          {
+            "node": "AT Split in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH Batches bauen": {
+      "main": [
+        [
+          {
+            "node": "CH Split in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH Split in Batches": {
+      "main": [
+        [],
+        [
+          {
+            "node": "CH Aggregieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH Aggregieren": {
+      "main": [
+        [
+          {
+            "node": "CH Preise schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH Preise schreiben": {
+      "main": [
+        [
+          {
+            "node": "Wait CH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait CH": {
+      "main": [
+        [
+          {
+            "node": "CH Split in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "b019b820-e24a-496d-b5bc-e525c7eee3f6",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-07-09T10:29:14.947Z",
+      "createdAt": "2026-07-09T10:29:14.947Z",
+      "role": "workflow:owner",
+      "workflowId": "pm42xIduxJB2qz9V",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

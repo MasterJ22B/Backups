@@ -1,0 +1,1385 @@
+{
+  "updatedAt": "2026-07-28T09:42:55.133Z",
+  "createdAt": "2026-06-02T09:16:26.397Z",
+  "id": "jg0JQuiQcZjL4VB2",
+  "name": "Tagesbericht-niedriger-Bestand-LEAF-CINNA",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hfmtrs-bh.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        32,
+        128
+      ],
+      "id": "c42f9cdd-bff5-422f-b7ad-53e5edf00904",
+      "name": "Token holen ",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "3fGkYz6ZrStnQPI9",
+          "name": "LEAF/CINNA-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const shop = 'hfmtrs-bh';\n\nconst initUrl = `https://${shop}.myshopify.com/admin/api/2024-10/products.json`\n  + `?limit=250`\n  + `&fields=id,title,variants`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.lowStock = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrl,\n    hasNext: true\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        128
+      ],
+      "id": "22e0b3d3-407c-426d-b02e-37776de4fcf4",
+      "name": "Array leeren + Start URL setzen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": []
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen ').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        368,
+        128
+      ],
+      "id": "d97f4607-281c-4129-893e-0f5269f1b768",
+      "name": "GET Produkte ",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst products = response.body?.products || response.products || [];\nconst linkHeader = response.headers?.link || '';\n\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.lowStock)) {\n  staticData.lowStock = [];\n}\n\n// Varianten mit Bestand <= 0 sammeln (Gutscheinkarte ausgenommen)\nfor (const product of products) {\n  if (product.title === 'Gutscheinkarte') {\n    continue;\n  }\n  const variants = product.variants || [];\n  for (const variant of variants) {\n    const qty = Number(variant.inventory_quantity ?? 0);\n    if (qty <= 0) {\n      staticData.lowStock.push({\n        produkt: product.title,\n        variante: variant.title,\n        sku: variant.sku || null,\n        bestand: qty,\n      });\n    }\n  }\n}\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.lowStock.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        128
+      ],
+      "id": "a906e2f9-ec0b-481a-80ba-da8ee42f8c38",
+      "name": "NextURL weitergeben + Bestand prüfen "
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        752,
+        128
+      ],
+      "id": "78f9d4ce-4dc3-4c87-968b-587621329e6c",
+      "name": "Wait",
+      "webhookId": "b1000000-0000-0000-0000-000000000006"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c1000000-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        928,
+        128
+      ],
+      "id": "e1e51ac8-cbfc-44e0-a3be-303e78c34b74",
+      "name": "GIbt es NextURL?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.lowStock || [];\n\nreturn collected.map(row => ({ json: row }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        144
+      ],
+      "id": "58d78a22-243c-4650-97d0-d6f41beaee94",
+      "name": "Ausgabe niedriger Bestand ",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://atwphh-7u.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        32,
+        496
+      ],
+      "id": "c1a3150e-1b41-4b5f-b34a-7f7ab9de666b",
+      "name": "Token holen 1",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "3fGkYz6ZrStnQPI9",
+          "name": "LEAF/CINNA-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const shop = 'atwphh-7u';\n\nconst initUrlB = `https://${shop}.myshopify.com/admin/api/2024-10/products.json`\n  + `?limit=250`\n  + `&fields=id,title,variants`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.lowStockB = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrlB,\n    hasNext: true\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        496
+      ],
+      "id": "104fee7a-0332-4712-8e07-de0cc2652562",
+      "name": "Array leeren + Start URL setzen1"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": []
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen 1').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        368,
+        496
+      ],
+      "id": "d76a6038-6ce2-4af4-b783-f1bb2bad3cdd",
+      "name": "GET Produkte 1",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst products = response.body?.products || response.products || [];\nconst linkHeader = response.headers?.link || '';\n\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.lowStockB)) {\n  staticData.lowStockB = [];\n}\n\n// Varianten mit Bestand <= 0 sammeln (Gutscheinkarte ausgenommen)\nfor (const product of products) {\n  if (product.title === 'Gutscheinkarte') {\n    continue;\n  }\n  const variants = product.variants || [];\n  for (const variant of variants) {\n    const qty = Number(variant.inventory_quantity ?? 0);\n    if (qty <= 0) {\n      staticData.lowStockB.push({\n        produkt: product.title,\n        variante: variant.title,\n        sku: variant.sku || null,\n        bestand: qty,\n      });\n    }\n  }\n}\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.lowStockB.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        496
+      ],
+      "id": "0ca4603d-5560-4091-bd62-cc3f0b679483",
+      "name": "NextURL weitergeben + Bestand prüfen 1"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        752,
+        496
+      ],
+      "id": "5ab82a97-b5f0-41bc-96e9-7c3a9dc82a9e",
+      "name": "Wait1",
+      "webhookId": "b1000000-0000-0000-0000-00000000000d"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c1000000-0000-0000-0000-000000000002",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        928,
+        496
+      ],
+      "id": "a8be8e86-df48-4ee3-803d-2307f98a6289",
+      "name": "GIbt es NextURL?1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.lowStockB || [];\n\nreturn collected.map(row => ({ json: row }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        512
+      ],
+      "id": "97ec3135-f2fa-43b4-86ba-5dc5265a8c45",
+      "name": "Ausgabe niedriger Bestand 1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1376,
+        336
+      ],
+      "id": "f9a74b29-9613-44ef-aef3-0b621d02a0f9",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// nur echte Bestands-Items (mit produkt-Feld)\nconst rows = items.filter(item => item.json && item.json.produkt !== undefined);\n\nif (rows.length === 0) {\n  return [{\n    json: {\n      mailText: `<p>Es wurden keine Produkte/Varianten mit einem Bestand unter 0 gefunden.</p>\n<p>Mit freundlichen Grüßen<br>Jesse's n8n-Workflow</p>`,\n    },\n  }];\n}\n\nconst escapeHtml = (value) => {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n};\n\nconst sortiert = rows\n  .map(item => item.json)\n  .sort((a, b) => Number(a.bestand) - Number(b.bestand));\n\nconst tabellenZeilen = sortiert.map(row => {\n  return `\n    <tr>\n      <td>${escapeHtml(row.produkt)}</td>\n      <td>${escapeHtml(row.variante)}</td>\n      <td>${escapeHtml(row.sku)}</td>\n      <td align=\"right\">${escapeHtml(row.bestand)}</td>\n    </tr>\n  `;\n}).join('');\n\nconst mailText = `\n<p>Folgende Produkt-Varianten sind ausverkauft/haben einen Bestand unter 0:</p>\n\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;\">\n  <thead>\n    <tr>\n      <th align=\"left\">Produkt</th>\n      <th align=\"left\">Variante</th>\n      <th align=\"left\">SKU</th>\n      <th align=\"right\">Bestand</th>\n    </tr>\n  </thead>\n  <tbody>\n    ${tabellenZeilen}\n  </tbody>\n</table>\n<br>\n<p>Die Daten dieser Auswertung beziehen sich nur auf Shopify!</p>\n<br>\n<p>Mit freundlichen Grüßen<br>Jesse's n8n-Workflow</p>\n`;\n\nreturn [{\n  json: {\n    mailText,\n    anzahl: sortiert.length,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        336
+      ],
+      "id": "3a41bc89-4b11-4269-9de1-189ec7d480b2",
+      "name": "E-Mail Vorbereitung"
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "jesse.balsam@buecherbuechse.de, christoph@buecherbuechse.de",
+        "subject": "BOTANICA Tagesbericht: ausverkaufte Produkte ",
+        "html": "={{ $json.mailText }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1760,
+        336
+      ],
+      "id": "fae2c216-7355-457a-ae7f-a261ee004727",
+      "name": "Send an Email",
+      "webhookId": "b1000000-0000-0000-0000-000000000012",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## LEAF-Pagination",
+        "height": 336,
+        "width": 1312,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        32
+      ],
+      "id": "78a68a74-d465-4658-afbf-26ab099240a1",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## CINNA Pagination\n",
+        "height": 336,
+        "width": 1312,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        384
+      ],
+      "id": "33bd21d4-cf01-456d-9e6d-8e242d4c2d5d",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Mailing\n",
+        "height": 416,
+        "width": 576,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        192
+      ],
+      "id": "4019236b-96b9-4c5f-995a-332538fed8f5",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtMinute": 5
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -208,
+        336
+      ],
+      "id": "d67b0930-572d-45d6-95ec-2503861787cc",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "connections": {
+    "Token holen ": {
+      "main": [
+        [
+          {
+            "node": "Array leeren + Start URL setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Array leeren + Start URL setzen": {
+      "main": [
+        [
+          {
+            "node": "GET Produkte ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Produkte ": {
+      "main": [
+        [
+          {
+            "node": "NextURL weitergeben + Bestand prüfen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextURL weitergeben + Bestand prüfen ": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "GIbt es NextURL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIbt es NextURL?": {
+      "main": [
+        [
+          {
+            "node": "GET Produkte ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ausgabe niedriger Bestand ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ausgabe niedriger Bestand ": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 1": {
+      "main": [
+        [
+          {
+            "node": "Array leeren + Start URL setzen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Array leeren + Start URL setzen1": {
+      "main": [
+        [
+          {
+            "node": "GET Produkte 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Produkte 1": {
+      "main": [
+        [
+          {
+            "node": "NextURL weitergeben + Bestand prüfen 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextURL weitergeben + Bestand prüfen 1": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "GIbt es NextURL?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIbt es NextURL?1": {
+      "main": [
+        [
+          {
+            "node": "GET Produkte 1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ausgabe niedriger Bestand 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ausgabe niedriger Bestand 1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "E-Mail Vorbereitung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail Vorbereitung": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Token holen 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "global": {
+      "lowStock": [
+        {
+          "produkt": "Bookish Murder Mystery Event Blood and Betrayals",
+          "variante": "Default Title",
+          "sku": "E-2026-03-53",
+          "bestand": 0
+        },
+        {
+          "produkt": "Kuscheltier \"Drizz\"",
+          "variante": "Default Title",
+          "sku": "L-SB-2025-02-01-01",
+          "bestand": 0
+        },
+        {
+          "produkt": "Spellbound Scandal",
+          "variante": "Mit Farbschnitt",
+          "sku": "L-2026-07-01-F",
+          "bestand": 0
+        },
+        {
+          "produkt": "Spellbound Scandal",
+          "variante": "Mit Farbschnitt und Signatur",
+          "sku": "L-2026-07-01-F-SIG",
+          "bestand": 0
+        },
+        {
+          "produkt": "Test Julia",
+          "variante": "Default Title",
+          "sku": null,
+          "bestand": 0
+        }
+      ],
+      "lowStockB": [
+        {
+          "produkt": "Lost Villains",
+          "variante": "mit Farbschnitt",
+          "sku": "C-2025-07-04-FS",
+          "bestand": -429
+        },
+        {
+          "produkt": "Smut Slut Socken",
+          "variante": "39 - 42",
+          "sku": "C-M-08-39  42",
+          "bestand": -2
+        },
+        {
+          "produkt": "The Darkness in Our Souls",
+          "variante": "mit Farbschnitt und Signatur",
+          "sku": "C-2025-07-07-FS-SIG",
+          "bestand": -24
+        }
+      ]
+    }
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "261bb987-c9d4-496b-b9bf-afacf84d4798",
+  "activeVersionId": "261bb987-c9d4-496b-b9bf-afacf84d4798",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-06-02T09:16:26.402Z",
+      "createdAt": "2026-06-02T09:16:26.402Z",
+      "role": "workflow:owner",
+      "workflowId": "jg0JQuiQcZjL4VB2",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-07-28T09:42:56.000Z",
+    "createdAt": "2026-07-28T09:42:55.135Z",
+    "versionId": "261bb987-c9d4-496b-b9bf-afacf84d4798",
+    "workflowId": "jg0JQuiQcZjL4VB2",
+    "nodes": [
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://hfmtrs-bh.myshopify.com/admin/oauth/access_token",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpCustomAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "content-type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          32,
+          128
+        ],
+        "id": "c42f9cdd-bff5-422f-b7ad-53e5edf00904",
+        "name": "Token holen ",
+        "credentials": {
+          "httpCustomAuth": {
+            "id": "3fGkYz6ZrStnQPI9",
+            "name": "LEAF/CINNA-Shopify-Credential"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const shop = 'hfmtrs-bh';\n\nconst initUrl = `https://${shop}.myshopify.com/admin/api/2024-10/products.json`\n  + `?limit=250`\n  + `&fields=id,title,variants`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.lowStock = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrl,\n    hasNext: true\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          192,
+          128
+        ],
+        "id": "22e0b3d3-407c-426d-b02e-37776de4fcf4",
+        "name": "Array leeren + Start URL setzen"
+      },
+      {
+        "parameters": {
+          "url": "={{ $json.nextUrl }}",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": []
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen ').item.json.access_token }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          368,
+          128
+        ],
+        "id": "d97f4607-281c-4129-893e-0f5269f1b768",
+        "name": "GET Produkte ",
+        "retryOnFail": true,
+        "maxTries": 5,
+        "waitBetweenTries": 5000
+      },
+      {
+        "parameters": {
+          "jsCode": "const response = $input.first().json;\nconst products = response.body?.products || response.products || [];\nconst linkHeader = response.headers?.link || '';\n\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.lowStock)) {\n  staticData.lowStock = [];\n}\n\n// Varianten mit Bestand <= 0 sammeln (Gutscheinkarte ausgenommen)\nfor (const product of products) {\n  if (product.title === 'Gutscheinkarte') {\n    continue;\n  }\n  const variants = product.variants || [];\n  for (const variant of variants) {\n    const qty = Number(variant.inventory_quantity ?? 0);\n    if (qty <= 0) {\n      staticData.lowStock.push({\n        produkt: product.title,\n        variante: variant.title,\n        sku: variant.sku || null,\n        bestand: qty,\n      });\n    }\n  }\n}\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.lowStock.length\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          560,
+          128
+        ],
+        "id": "a906e2f9-ec0b-481a-80ba-da8ee42f8c38",
+        "name": "NextURL weitergeben + Bestand prüfen "
+      },
+      {
+        "parameters": {
+          "amount": 1
+        },
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          752,
+          128
+        ],
+        "id": "78f9d4ce-4dc3-4c87-968b-587621329e6c",
+        "name": "Wait",
+        "webhookId": "b1000000-0000-0000-0000-000000000006"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "c1000000-0000-0000-0000-000000000001",
+                "leftValue": "={{ $json.hasNext }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          928,
+          128
+        ],
+        "id": "e1e51ac8-cbfc-44e0-a3be-303e78c34b74",
+        "name": "GIbt es NextURL?"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.lowStock || [];\n\nreturn collected.map(row => ({ json: row }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1136,
+          144
+        ],
+        "id": "58d78a22-243c-4650-97d0-d6f41beaee94",
+        "name": "Ausgabe niedriger Bestand ",
+        "alwaysOutputData": true
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://atwphh-7u.myshopify.com/admin/oauth/access_token",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpCustomAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "content-type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          32,
+          496
+        ],
+        "id": "c1a3150e-1b41-4b5f-b34a-7f7ab9de666b",
+        "name": "Token holen 1",
+        "credentials": {
+          "httpCustomAuth": {
+            "id": "3fGkYz6ZrStnQPI9",
+            "name": "LEAF/CINNA-Shopify-Credential"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const shop = 'atwphh-7u';\n\nconst initUrlB = `https://${shop}.myshopify.com/admin/api/2024-10/products.json`\n  + `?limit=250`\n  + `&fields=id,title,variants`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.lowStockB = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrlB,\n    hasNext: true\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          192,
+          496
+        ],
+        "id": "104fee7a-0332-4712-8e07-de0cc2652562",
+        "name": "Array leeren + Start URL setzen1"
+      },
+      {
+        "parameters": {
+          "url": "={{ $json.nextUrl }}",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": []
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen 1').item.json.access_token }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          368,
+          496
+        ],
+        "id": "d76a6038-6ce2-4af4-b783-f1bb2bad3cdd",
+        "name": "GET Produkte 1",
+        "retryOnFail": true,
+        "maxTries": 5,
+        "waitBetweenTries": 5000
+      },
+      {
+        "parameters": {
+          "jsCode": "const response = $input.first().json;\nconst products = response.body?.products || response.products || [];\nconst linkHeader = response.headers?.link || '';\n\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.lowStockB)) {\n  staticData.lowStockB = [];\n}\n\n// Varianten mit Bestand <= 0 sammeln (Gutscheinkarte ausgenommen)\nfor (const product of products) {\n  if (product.title === 'Gutscheinkarte') {\n    continue;\n  }\n  const variants = product.variants || [];\n  for (const variant of variants) {\n    const qty = Number(variant.inventory_quantity ?? 0);\n    if (qty <= 0) {\n      staticData.lowStockB.push({\n        produkt: product.title,\n        variante: variant.title,\n        sku: variant.sku || null,\n        bestand: qty,\n      });\n    }\n  }\n}\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.lowStockB.length\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          560,
+          496
+        ],
+        "id": "0ca4603d-5560-4091-bd62-cc3f0b679483",
+        "name": "NextURL weitergeben + Bestand prüfen 1"
+      },
+      {
+        "parameters": {
+          "amount": 1
+        },
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          752,
+          496
+        ],
+        "id": "5ab82a97-b5f0-41bc-96e9-7c3a9dc82a9e",
+        "name": "Wait1",
+        "webhookId": "b1000000-0000-0000-0000-00000000000d"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "c1000000-0000-0000-0000-000000000002",
+                "leftValue": "={{ $json.hasNext }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          928,
+          496
+        ],
+        "id": "a8be8e86-df48-4ee3-803d-2307f98a6289",
+        "name": "GIbt es NextURL?1"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.lowStockB || [];\n\nreturn collected.map(row => ({ json: row }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1152,
+          512
+        ],
+        "id": "97ec3135-f2fa-43b4-86ba-5dc5265a8c45",
+        "name": "Ausgabe niedriger Bestand 1",
+        "alwaysOutputData": true
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          1376,
+          336
+        ],
+        "id": "f9a74b29-9613-44ef-aef3-0b621d02a0f9",
+        "name": "Merge"
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\n\n// nur echte Bestands-Items (mit produkt-Feld)\nconst rows = items.filter(item => item.json && item.json.produkt !== undefined);\n\nif (rows.length === 0) {\n  return [{\n    json: {\n      mailText: `<p>Es wurden keine Produkte/Varianten mit einem Bestand unter 0 gefunden.</p>\n<p>Mit freundlichen Grüßen<br>Jesse's n8n-Workflow</p>`,\n    },\n  }];\n}\n\nconst escapeHtml = (value) => {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n};\n\nconst sortiert = rows\n  .map(item => item.json)\n  .sort((a, b) => Number(a.bestand) - Number(b.bestand));\n\nconst tabellenZeilen = sortiert.map(row => {\n  return `\n    <tr>\n      <td>${escapeHtml(row.produkt)}</td>\n      <td>${escapeHtml(row.variante)}</td>\n      <td>${escapeHtml(row.sku)}</td>\n      <td align=\"right\">${escapeHtml(row.bestand)}</td>\n    </tr>\n  `;\n}).join('');\n\nconst mailText = `\n<p>Folgende Produkt-Varianten sind ausverkauft/haben einen Bestand unter 0:</p>\n\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;\">\n  <thead>\n    <tr>\n      <th align=\"left\">Produkt</th>\n      <th align=\"left\">Variante</th>\n      <th align=\"left\">SKU</th>\n      <th align=\"right\">Bestand</th>\n    </tr>\n  </thead>\n  <tbody>\n    ${tabellenZeilen}\n  </tbody>\n</table>\n<br>\n<p>Die Daten dieser Auswertung beziehen sich nur auf Shopify!</p>\n<br>\n<p>Mit freundlichen Grüßen<br>Jesse's n8n-Workflow</p>\n`;\n\nreturn [{\n  json: {\n    mailText,\n    anzahl: sortiert.length,\n  },\n}];\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1536,
+          336
+        ],
+        "id": "3a41bc89-4b11-4269-9de1-189ec7d480b2",
+        "name": "E-Mail Vorbereitung"
+      },
+      {
+        "parameters": {
+          "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+          "toEmail": "jesse.balsam@buecherbuechse.de, christoph@buecherbuechse.de",
+          "subject": "BOTANICA Tagesbericht: ausverkaufte Produkte ",
+          "html": "={{ $json.mailText }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1760,
+          336
+        ],
+        "id": "fae2c216-7355-457a-ae7f-a261ee004727",
+        "name": "Send an Email",
+        "webhookId": "b1000000-0000-0000-0000-000000000012",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "content": "## LEAF-Pagination",
+          "height": 336,
+          "width": 1312,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          0,
+          32
+        ],
+        "id": "78a68a74-d465-4658-afbf-26ab099240a1",
+        "name": "Sticky Note"
+      },
+      {
+        "parameters": {
+          "content": "## CINNA Pagination\n",
+          "height": 336,
+          "width": 1312,
+          "color": 6
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          0,
+          384
+        ],
+        "id": "33bd21d4-cf01-456d-9e6d-8e242d4c2d5d",
+        "name": "Sticky Note1"
+      },
+      {
+        "parameters": {
+          "content": "## Mailing\n",
+          "height": 416,
+          "width": 576,
+          "color": 5
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1328,
+          192
+        ],
+        "id": "4019236b-96b9-4c5f-995a-332538fed8f5",
+        "name": "Sticky Note2"
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtMinute": 5
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          -208,
+          336
+        ],
+        "id": "d67b0930-572d-45d6-95ec-2503861787cc",
+        "name": "Schedule Trigger"
+      }
+    ],
+    "connections": {
+      "Token holen ": {
+        "main": [
+          [
+            {
+              "node": "Array leeren + Start URL setzen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Array leeren + Start URL setzen": {
+        "main": [
+          [
+            {
+              "node": "GET Produkte ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GET Produkte ": {
+        "main": [
+          [
+            {
+              "node": "NextURL weitergeben + Bestand prüfen ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "NextURL weitergeben + Bestand prüfen ": {
+        "main": [
+          [
+            {
+              "node": "Wait",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait": {
+        "main": [
+          [
+            {
+              "node": "GIbt es NextURL?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GIbt es NextURL?": {
+        "main": [
+          [
+            {
+              "node": "GET Produkte ",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Ausgabe niedriger Bestand ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ausgabe niedriger Bestand ": {
+        "main": [
+          [
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Token holen 1": {
+        "main": [
+          [
+            {
+              "node": "Array leeren + Start URL setzen1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Array leeren + Start URL setzen1": {
+        "main": [
+          [
+            {
+              "node": "GET Produkte 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GET Produkte 1": {
+        "main": [
+          [
+            {
+              "node": "NextURL weitergeben + Bestand prüfen 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "NextURL weitergeben + Bestand prüfen 1": {
+        "main": [
+          [
+            {
+              "node": "Wait1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait1": {
+        "main": [
+          [
+            {
+              "node": "GIbt es NextURL?1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GIbt es NextURL?1": {
+        "main": [
+          [
+            {
+              "node": "GET Produkte 1",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Ausgabe niedriger Bestand 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ausgabe niedriger Bestand 1": {
+        "main": [
+          [
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 1
+            }
+          ]
+        ]
+      },
+      "Merge": {
+        "main": [
+          [
+            {
+              "node": "E-Mail Vorbereitung",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "E-Mail Vorbereitung": {
+        "main": [
+          [
+            {
+              "node": "Send an Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "Token holen ",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Token holen 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version 261bb987",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": []
+}

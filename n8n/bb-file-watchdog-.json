@@ -1,0 +1,162 @@
+{
+  "updatedAt": "2026-06-23T13:07:07.002Z",
+  "createdAt": "2026-06-23T12:11:19.767Z",
+  "id": "f5ENOmtTkvADguGw",
+  "name": "BB File Watchdog",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "file-watchdog-bb",
+        "options": {
+          "noResponseBody": true
+        }
+      },
+      "id": "1166b68f-9e4f-4a3c-ba28-6474bd4a3fb9",
+      "name": "File Watchdog Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        1232,
+        224
+      ],
+      "webhookId": "e522d510-3a20-4631-8cb0-8f5e12345678"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nconst WATCHDOG_SECRET = '02194db639f32b2e643946d783fae76f74c1b49049efcbcb233c415b812e3f130c4db368b186f5fc2ce354e9e0f07ba7';\nconst REQUIRE_SIGNATURE = true;\nconst MAX_CLOCK_SKEW_SECONDS = 15 * 60;\nconst EXPECTED_SOURCE = 'file-watchdog-agent';\n\nfunction getHeader(headers, name) {\n  const target = String(name).toLowerCase();\n  for (const pair of Object.entries(headers || {})) {\n    const key = pair[0];\n    const value = pair[1];\n    if (String(key).toLowerCase() === target) {\n      return Array.isArray(value) ? String(value[0] || '') : String(value || '');\n    }\n  }\n  return '';\n}\n\nfunction getRawBody(input) {\n  if (typeof input.rawBody === 'string') return input.rawBody;\n  if (typeof input.raw_body === 'string') return input.raw_body;\n  if (typeof input.bodyRaw === 'string') return input.bodyRaw;\n  if (typeof input.body === 'string') return input.body;\n  if (input.body && typeof input.body.rawBody === 'string') return input.body.rawBody;\n  return JSON.stringify(input.body || {});\n}\n\nfunction parsePayload(input, rawBody) {\n  if (input.body && typeof input.body === 'object' && !Array.isArray(input.body)) return input.body;\n  if (typeof input.body === 'string' && input.body.trim() !== '') return JSON.parse(input.body);\n  if (typeof rawBody === 'string' && rawBody.trim() !== '') return JSON.parse(rawBody);\n  return input;\n}\n\nfunction safeTimingEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left));\n  const rightBuffer = Buffer.from(String(right));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\n\nconst input = items[0] && items[0].json ? items[0].json : {};\nconst headers = input.headers || {};\nconst signature = getHeader(headers, 'x-bb-watchdog-signature');\nconst timestampHeader = getHeader(headers, 'x-bb-watchdog-timestamp');\nconst rawBody = getRawBody(input);\nconst payload = parsePayload(input, rawBody);\n\nif (REQUIRE_SIGNATURE) {\n  if (!WATCHDOG_SECRET || WATCHDOG_SECRET.indexOf('CHANGE_ME') === 0) {\n    throw new Error('Watchdog secret is not configured in n8n.');\n  }\n  if (!signature) throw new Error('Missing X-BB-Watchdog-Signature header.');\n\n  const expected = 'sha256=' + crypto.createHmac('sha256', WATCHDOG_SECRET).update(rawBody).digest('hex');\n  if (!safeTimingEqual(signature, expected)) throw new Error('Invalid watchdog signature.');\n}\n\nif (EXPECTED_SOURCE && payload.source !== EXPECTED_SOURCE) {\n  throw new Error('Unexpected watchdog source: ' + String(payload.source || ''));\n}\n\nconst nowSeconds = Math.floor(Date.now() / 1000);\nconst payloadSeconds = Number(payload.timestamp_epoch || timestampHeader || 0);\nif (payloadSeconds > 0 && Math.abs(nowSeconds - payloadSeconds) > MAX_CLOCK_SKEW_SECONDS) {\n  throw new Error('Watchdog payload timestamp outside accepted clock skew.');\n}\n\nif (!Array.isArray(payload.records)) {\n  throw new Error('Watchdog payload does not contain records array.');\n}\n\nreturn [{\n  json: Object.assign({}, payload, {\n    received_at: new Date().toISOString(),\n    n8n_watchdog: {\n      signature_required: REQUIRE_SIGNATURE,\n      signature_valid: REQUIRE_SIGNATURE ? true : null,\n      workflow: EXPECTED_SOURCE\n    }\n  })\n}];"
+      },
+      "id": "ef135a05-474d-4096-8af8-f032bf577c3f",
+      "name": "Verify File Push",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const RESET_BASELINE = false;\nconst ALERT_ON_FIRST_RUN_FINDINGS = true;\nconst ALLOWED_MU_FILES = new Set([\n  'wp-content/mu-plugins/local-watchdog.php'\n]);\n\nconst state = $getWorkflowStaticData('global');\nconst payload = items[0] && items[0].json ? items[0].json : {};\nconst records = Array.isArray(payload.records) ? payload.records : [];\n\nfunction key(record) {\n  return String(record.kind || 'UNKNOWN') + '|' + String(record.path || '');\n}\n\nfunction summary(record) {\n  return {\n    kind: String(record.kind || 'UNKNOWN'),\n    path: String(record.path || ''),\n    size: String(record.size || ''),\n    mtime: String(record.mtime || ''),\n    hash: String(record.hash || '')\n  };\n}\n\nfunction severityFor(record, reason) {\n  if (record.kind === 'ERROR') return 'critical';\n  if (record.kind === 'IOC_FILE') return 'critical';\n  if (record.kind === 'UPLOAD_EXEC') return 'critical';\n  if (record.kind === 'MU_FILE' && !ALLOWED_MU_FILES.has(record.path)) return 'critical';\n  if (record.kind === 'PLUGIN_DIR' && reason === 'new_record') return 'critical';\n  if (record.kind === 'CRITICAL_FILE' && reason === 'changed') return 'critical';\n  return 'warning';\n}\n\nconst current = {};\nfor (const record of records) current[key(record)] = summary(record);\n\nconst firstRunFindings = [];\nfor (const record of records) {\n  if (record.kind === 'ERROR'\n    || record.kind === 'IOC_FILE'\n    || record.kind === 'UPLOAD_EXEC'\n    || (record.kind === 'MU_FILE' && !ALLOWED_MU_FILES.has(record.path))) {\n    firstRunFindings.push({\n      severity: severityFor(record, 'first_run'),\n      reason: 'first_run_sensitive_file',\n      record: summary(record)\n    });\n  }\n}\n\nif (RESET_BASELINE || !state.fileBaseline) {\n  state.fileBaseline = {\n    initialized_at: new Date().toISOString(),\n    records: current\n  };\n\n  if (ALERT_ON_FIRST_RUN_FINDINGS && firstRunFindings.length) {\n    return [{\n      json: {\n        source: 'file-watchdog',\n        severity: firstRunFindings.some(function(f) { return f.severity === 'critical'; }) ? 'critical' : 'warning',\n        reason: 'first_run_findings',\n        host_id: payload.host_id || '',\n        agent_timestamp_utc: payload.timestamp_utc || '',\n        findings: firstRunFindings,\n        record_count: records.length,\n        baseline_initialized: true,\n        checked_at: new Date().toISOString(),\n        payload: payload\n      }\n    }];\n  }\n\n  return [];\n}\n\nconst previous = state.fileBaseline.records || {};\nconst findings = [];\n\nfor (const recordKey of Object.keys(current)) {\n  const record = current[recordKey];\n  const old = previous[recordKey];\n  if (!old) {\n    findings.push({\n      severity: severityFor(record, 'new_record'),\n      reason: 'new_record',\n      record: record\n    });\n    continue;\n  }\n\n  if (record.kind === 'CRITICAL_FILE' && String(old.hash || '') !== String(record.hash || '')) {\n    findings.push({\n      severity: severityFor(record, 'changed'),\n      reason: 'critical_file_hash_changed',\n      old_record: old,\n      record: record\n    });\n  }\n}\n\nfor (const recordKey of Object.keys(previous)) {\n  if (!current[recordKey]) {\n    const old = previous[recordKey];\n    if (old.kind === 'CRITICAL_FILE' || old.kind === 'MU_FILE') {\n      findings.push({\n        severity: 'warning',\n        reason: 'sensitive_record_removed',\n        old_record: old\n      });\n    }\n  }\n}\n\nstate.fileBaseline = {\n  initialized_at: state.fileBaseline.initialized_at,\n  updated_at: new Date().toISOString(),\n  records: current\n};\n\nconst actionable = findings.filter(function(f) { return f.severity === 'critical' || f.severity === 'warning'; });\nif (!actionable.length) return [];\n\nreturn [{\n  json: {\n    source: 'file-watchdog',\n    severity: actionable.some(function(f) { return f.severity === 'critical'; }) ? 'critical' : 'warning',\n    reason: 'file_state_changed',\n    host_id: payload.host_id || '',\n    agent_timestamp_utc: payload.timestamp_utc || '',\n    findings: actionable,\n    record_count: records.length,\n    checked_at: new Date().toISOString(),\n    payload: payload\n  }\n}];"
+      },
+      "id": "deb83542-bdcc-47ec-b3ed-60a6fac476f6",
+      "name": "Analyze File State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0] && items[0].json ? items[0].json : {};\n\nfunction escapeHtml(value) {\n  return String(value === undefined || value === null ? '' : value)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n}\n\nfunction asJson(value) {\n  return escapeHtml(JSON.stringify(value || {}, null, 2));\n}\n\nconst severity = String(input.severity || 'warning').toLowerCase();\nconst color = severity === 'critical' ? '#b42318' : '#b54708';\nconst subject = '[BB Watchdog File] - ' + severity.toUpperCase() + ' - ' + (input.reason || 'file_state_changed');\nconst findings = Array.isArray(input.findings) ? input.findings : [];\nconst itemsHtml = findings.map(function(finding) {\n  const record = finding.record || finding.old_record || {};\n  return '<li><strong>' + escapeHtml(finding.severity || '') + '</strong> '\n    + escapeHtml(finding.reason || '')\n    + ' - <code>' + escapeHtml(record.kind || '') + ':' + escapeHtml(record.path || '') + '</code>'\n    + '<br><small>size=' + escapeHtml(record.size || '') + ' mtime=' + escapeHtml(record.mtime || '') + ' hash=' + escapeHtml(record.hash || '') + '</small></li>';\n}).join('');\n\nconst html = [\n  '<div style=\"font-family:Arial,Helvetica,sans-serif;color:#1d2939;line-height:1.45;\">',\n  '<h2 style=\"margin:0 0 8px;color:' + color + ';\">BB File Watchdog Alert</h2>',\n  '<p><strong>Severity:</strong> <span style=\"color:' + color + ';font-weight:bold;\">' + escapeHtml(severity.toUpperCase()) + '</span></p>',\n  '<p><strong>Host:</strong> ' + escapeHtml(input.host_id || '') + ' &nbsp; <strong>Agent time:</strong> ' + escapeHtml(input.agent_timestamp_utc || '') + '</p>',\n  '<p><strong>Checked at:</strong> ' + escapeHtml(input.checked_at || '') + '</p>',\n  '<h3>Findings</h3>',\n  '<ul>' + itemsHtml + '</ul>',\n  '<h3>Raw Data</h3>',\n  '<pre style=\"white-space:pre-wrap;background:#f6f8fa;padding:12px;border:1px solid #d0d7de;border-radius:6px;overflow:auto;\">' + asJson(input) + '</pre>',\n  '<p style=\"color:#667085;font-size:12px;margin-top:24px;\">Hinweis: Dieser Workflow empfaengt einen signierten Server-Push. n8n hat keinen SSH-Zugriff auf den Shop.</p>',\n  '</div>'\n].join('');\n\nreturn [{ json: { subject: subject, html: html, event: input } }];"
+      },
+      "id": "ab614bbe-b166-42da-92d5-10fd05c773a2",
+      "name": "Build File Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "patrick.schmitz@buecherbuechse.de, it@buecherbuechse.de",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "e64d8650-e34b-4185-bb57-6fc3c62e15bb",
+      "name": "Send Security Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2192,
+        224
+      ],
+      "webhookId": "998063c6-89f6-4918-8033-97b78c49d2e9",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "File Watchdog Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify File Push",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify File Push": {
+      "main": [
+        [
+          {
+            "node": "Analyze File State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze File State": {
+      "main": [
+        [
+          {
+            "node": "Build File Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build File Email": {
+      "main": [
+        [
+          {
+            "node": "Send Security Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "4ec65782-e86d-4f48-b5e2-0b3c96531b0c",
+  "activeVersionId": null,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-06-23T12:11:19.770Z",
+      "createdAt": "2026-06-23T12:11:19.770Z",
+      "role": "workflow:owner",
+      "workflowId": "f5ENOmtTkvADguGw",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

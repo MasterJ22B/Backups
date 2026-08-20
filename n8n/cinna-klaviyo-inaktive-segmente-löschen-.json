@@ -1,0 +1,3084 @@
+{
+  "updatedAt": "2026-07-09T09:35:50.939Z",
+  "createdAt": "2026-04-10T09:56:16.147Z",
+  "id": "tXJJs8DDBjiuaXYZ",
+  "name": "CINNA-Klaviyo-Inaktive-Segmente-Löschen",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        928,
+        -1280
+      ],
+      "id": "c3ff901d-ae4c-4492-a09d-e6bab59e10e9",
+      "name": "Hole Profile aus \"inaktiv\" Segment ",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CaqGzJdBD8m6u5ph",
+          "name": "CINNA Klaviyo Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Äußere Response aus dem HTTP-Node\nconst wrapper = $json;\n\n// globale Workflow-Daten holen\nconst staticData = $getWorkflowStaticData('global');\n\nif (typeof staticData.deletedCount !== 'number') {\n  staticData.deletedCount = 0;\n}\nif (!Array.isArray(staticData.debugEmailsAll)) {\n  staticData.debugEmailsAll = [];\n}\nif (!Array.isArray(staticData.debugEmailsUnique)) {\n  staticData.debugEmailsUnique = [];\n}\nif (!Array.isArray(staticData.debugNextUrls)) {\n  staticData.debugNextUrls = [];\n}\nif (!Array.isArray(staticData.debugDuplicateEmails)) {\n  staticData.debugDuplicateEmails = [];\n}\n\n// Eigentliche API-Response bestimmen\nlet response = wrapper;\n\n// Falls die Response in wrapper.data als JSON-String steckt -> parsen\nif (typeof wrapper.data === 'string') {\n  try {\n    response = JSON.parse(wrapper.data);\n  } catch (error) {\n    staticData.nextUrl = null;\n\n    return [\n      {\n        json: {\n          found: false,\n          parseError: true,\n          message: 'Response konnte nicht geparst werden',\n          rawData: wrapper.data,\n          deletedCount: staticData.deletedCount,\n        },\n      },\n    ];\n  }\n}\n\n// Falls wrapper.data schon ein Objekt ist, dieses verwenden\nelse if (wrapper.data && typeof wrapper.data === 'object') {\n  response = wrapper.data;\n}\n\n// Jetzt normal auf Klaviyo-Struktur zugreifen\nconst profiles = Array.isArray(response.data) ? response.data : [];\nconst nextUrl = response.links?.next || null;\n\n// nextUrl global speichern\nstaticData.nextUrl = nextUrl;\n\n// verwendete nextUrl debuggen\nif (nextUrl) {\n  staticData.debugNextUrls.push(nextUrl);\n}\n\n// Keine Profile mehr gefunden\nif (profiles.length === 0) {\n  return [\n    {\n      json: {\n        found: false,\n        message: 'Keine Profile mehr gefunden',\n        deletedCount: staticData.deletedCount,\n      },\n    },\n  ];\n}\n\n// Counter erhöhen\nstaticData.deletedCount += profiles.length;\n\n// Debug: E-Mails sammeln und Dopplungen prüfen\nconst uniqueEmails = new Set(staticData.debugEmailsUnique);\nconst duplicateEmails = new Set(staticData.debugDuplicateEmails);\n\nfor (const profile of profiles) {\n  const attrs = profile.attributes || {};\n  const email = attrs.email || null;\n\n  if (!email) continue;\n\n  // alle E-Mails speichern\n  staticData.debugEmailsAll.push(email);\n\n  // Duplikate prüfen\n  if (uniqueEmails.has(email)) {\n    duplicateEmails.add(email);\n  } else {\n    uniqueEmails.add(email);\n  }\n}\n\n// Arrays zurückschreiben\nstaticData.debugEmailsUnique = Array.from(uniqueEmails);\nstaticData.debugDuplicateEmails = Array.from(duplicateEmails);\n\n// Profile als einzelne Items zurückgeben\nreturn profiles.map(profile => {\n  const attrs = profile.attributes || {};\n\n  return {\n    json: {\n      found: true,\n      profileId: profile.id,\n      email: attrs.email,\n      deletedCount: staticData.deletedCount,\n      isNewPage: true,\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        -1280
+      ],
+      "id": "e9ed17eb-d25a-47d8-be5a-1f2ed02f2f75",
+      "name": "Wandle Datensatz um"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://a.klaviyo.com/api/data-privacy-deletion-jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2096,
+        -1488
+      ],
+      "id": "ff1c2988-d84a-49e3-9c7b-334484acdf13",
+      "name": "Löschen",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 5,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CaqGzJdBD8m6u5ph",
+          "name": "CINNA Klaviyo Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2f28579d-f8c4-42ce-bfbe-1d2e01032f44",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1360,
+        -1280
+      ],
+      "id": "368b328d-9c47-44c8-8a14-83f7169bb6e5",
+      "name": "SEGMENT LEER?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Function node (Run Once for Each Item)\n// Erwartet pro Item: { profileId, email }\n\nconst profileId = $json.profileId?.trim();\nconst email = $json.email?.trim();\n\nif (!email && !profileId) {\n  throw new Error('Kein Identifier vorhanden: email oder profileId fehlt.');\n}\n\nreturn {\n  ...$json,\n  data: {\n    type: 'data-privacy-deletion-job',\n    attributes: {\n      profile: {\n        data: {\n          type: 'profile',\n          attributes: email ? { email } : { id: profileId },\n        },\n      },\n    },\n  },\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        -1264
+      ],
+      "id": "61430151-7648-48f2-b463-31ea4d5bab62",
+      "name": "Bereite vor für HTTP-Node LÖSCHEN"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "66dc1c11-5748-4c8b-9582-5a23067375ea",
+              "leftValue": "={{$json.nextUrl}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2544,
+        -1168
+      ],
+      "id": "60e3d929-238c-416e-a30c-ff0c86ad617e",
+      "name": "GIBT ES NEXT PAGE?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f27f4f92-1b66-4e74-8b08-343f345716cd",
+              "leftValue": "={{$json.deletedCount}}",
+              "rightValue": 40000,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3200,
+        -1136
+      ],
+      "id": "1fdae848-db34-4f9e-b471-b43a004698c9",
+      "name": "MAX. ANZAHL LÖSCHUNG ERREICHT?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nreturn [\n  {\n    json: {\n      deletedCount: staticData.deletedCount || 0,\n      nextUrl: $json.nextUrl || null,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3056,
+        -1568
+      ],
+      "id": "906a3c5d-bd0f-471d-8f24-a5372460aa06",
+      "name": "IF-VORBEREITUNG_2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nreturn [\n  {\n    json: {\n      nextUrl: staticData.nextUrl || null,\n      deletedCount: staticData.deletedCount || 0,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -1584
+      ],
+      "id": "e81e8e11-011f-4ce0-a1b0-4b2c4202e099",
+      "name": "IF-VORBEREITUNG"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst emailsAll = Array.isArray(staticData.debugEmailsAll) ? staticData.debugEmailsAll : [];\nconst nextUrls = Array.isArray(staticData.debugNextUrls) ? staticData.debugNextUrls : [];\nconst duplicateEmails = Array.isArray(staticData.debugDuplicateEmails) ? staticData.debugDuplicateEmails : [];\n\nreturn [\n  {\n    json: {\n      success: true,\n      stoppedByLimit: true,\n      message: 'Testlauf bei 400 Profilen gestoppt.',\n      deletedCount: staticData.deletedCount || 0,\n      totalProfilesSeen: emailsAll.length,\n      totalNextUrlsStored: nextUrls.length,\n      duplicateEmailCount: duplicateEmails.length,\n      usedNextUrls: nextUrls,\n      emailsAll,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        -1552
+      ],
+      "id": "3b872b9f-811e-4300-a2bc-a2373934753e",
+      "name": "DEBUG ABBRUCH BEDINGUNG"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.deletedCount = 0;\nstaticData.nextUrl = null;\n\n// bestehende Debug-Felder\nstaticData.debugEmailsAll = [];\nstaticData.debugEmailsUnique = [];\nstaticData.debugNextUrls = [];\nstaticData.debugDuplicateEmails = [];\n\n// neue Backup-Felder\nstaticData.backupProfiles = [];\nstaticData.backupCount = 0;\nstaticData.backupNextUrl = 'https://a.klaviyo.com/api/segments/QQWKWp/profiles?page[size]=100';\n\nreturn [\n  {\n    json: {\n      nextUrl: staticData.backupNextUrl,\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        -1280
+      ],
+      "id": "1901c080-b04b-4fd3-a175-c93130d9d1cc",
+      "name": "SETZEN START URL "
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst deletedCount = staticData.deletedCount || 0;\n\nreturn [\n  {\n    json: {\n      success: true,\n      deletedCount,\n      deletedProfilesTotal: deletedCount,\n      mailText: `Jesse's CINNA-Zombie-Flow ging erfolgreich durch! Insgesamt wurden ${deletedCount} inaktive Profile aus dem Zombie-Hygiene Segment gelöscht.\n      \n      Liebe Grüße \n      \n      Jesse's Zombie-Flow`,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        -752
+      ],
+      "id": "2dac2117-ac21-4ae4-94e9-a2c3dafc0fa8",
+      "name": "FINALE AUSWERTUNG"
+    },
+    {
+      "parameters": {
+        "content": "## Optionaler Debug \nMit \"GIBT ES NEXT PAGE\" TRUE verbinden -> nach X Profilen bricht der Flow ab ",
+        "height": 800,
+        "width": 480,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3024,
+        -1696
+      ],
+      "id": "314fca27-fc9f-4bb8-b87f-cc591a902059",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Trigger + Start URL\nTriggert den Flow täglich, setz die initiale URL für die Pagination und \"leert\" alle globalen Debug Variablen ",
+        "height": 720,
+        "width": 352,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        -1696
+      ],
+      "id": "7cfd8ae8-8457-48c0-9453-9b3db67e7fe5",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Profil Fetch + Umwandlung in .json\n",
+        "height": 720,
+        "width": 544,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        -1696
+      ],
+      "id": "eaf067f1-a790-429b-9daa-3b21d2d75433",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Segment leer?",
+        "height": 416,
+        "width": 432,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        -1392
+      ],
+      "id": "2e33dc5d-125f-441d-b740-ef5b2fa685a7",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Ausgabe falls Segment leer [Unwichtig]\nWenn das Segment tatsächlich leer ist, schickt der Backup-Teil schon eine Mail",
+        "height": 288,
+        "width": 432,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        -1696
+      ],
+      "id": "ecdeb360-2aab-403e-b903-418805e5546e",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Löschvorgang",
+        "height": 720,
+        "width": 576,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        -1696
+      ],
+      "id": "02b2c5cb-6364-4361-bef1-4dfc81eec79f",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Gibt es eine nächste Seite?\nFall kein Debug gewünscht ist: TRUE Path mit HTTP Node in \"Profil Fetch\" verbinden",
+        "height": 800,
+        "width": 628,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2368,
+        -1696
+      ],
+      "id": "58f9f16e-c57d-40d6-b76b-bb2fb3960841",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## FInale Ausgabe\n",
+        "height": 288,
+        "width": 624,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2368,
+        -864
+      ],
+      "id": "be45a62c-3b22-4aa4-ad77-ee1c9fb5d97c",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "## Pagination Loop zur Löschung\n\n \n",
+        "height": 1376,
+        "width": 2868,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        672,
+        -1856
+      ],
+      "id": "211eced1-ab7b-4fbb-afb5-686883b404f4",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "marketing@buecherbuechse.de, it@buecherbuechse.de, jesse.balsam@buecherbuechse.de",
+        "subject": "n8n X Klaviyo: Gelöschte Profile ",
+        "emailFormat": "text",
+        "text": "={{ $json.mailText }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2640,
+        -752
+      ],
+      "id": "f143066d-2c12-498c-a439-32ee9c9af853",
+      "name": "Send an Email",
+      "webhookId": "283e79ad-86d7-49e2-aaa7-d712de2fcdd3",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1968,
+        -1280
+      ],
+      "id": "3d16cc33-927d-4357-9557-91402d33afe6",
+      "name": "Wait",
+      "webhookId": "14ff318e-7d39-4af0-a82a-56656492f87e"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": "={{ $json.isNewPage === true }}"
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1824,
+        -1632
+      ],
+      "id": "27c247b6-44fc-440e-90af-3070de15cfcb",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.deletedCount = 0;\nstaticData.nextUrl = null;\n\n// Debug zurücksetzen\nstaticData.debugEmails = [];\nstaticData.debugNextUrls = [];\nstaticData.debugDuplicateEmails = [];\n\nreturn [\n  {\n    json: {\n      nextUrl: 'https://a.klaviyo.com/api/segments/QQWKWp/profiles?page[size]=100',\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        -1280
+      ],
+      "id": "3c1d12f7-d0d6-4641-bcaf-7a89c4156dda",
+      "name": "Start-Fetch"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        208,
+        -1552
+      ],
+      "id": "26b4c562-fd11-4917-95cc-4635314eae15",
+      "name": "Hole Profile aus \"inaktiv\" Segment - BACKUP",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CaqGzJdBD8m6u5ph",
+          "name": "CINNA Klaviyo Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const wrapper = $json;\nconst staticData = $getWorkflowStaticData('global');\n\nif (!Array.isArray(staticData.backupProfiles)) {\n  staticData.backupProfiles = [];\n}\nif (typeof staticData.backupCount !== 'number') {\n  staticData.backupCount = 0;\n}\n\nlet response = wrapper;\n\nif (typeof wrapper.data === 'string') {\n  try {\n    response = JSON.parse(wrapper.data);\n  } catch (error) {\n    staticData.backupNextUrl = null;\n    return [{\n      json: {\n        found: false,\n        parseError: true,\n        message: 'Backup-Response konnte nicht geparst werden',\n      }\n    }];\n  }\n} else if (wrapper.data && typeof wrapper.data === 'object') {\n  response = wrapper.data;\n}\n\nconst profiles = Array.isArray(response.data) ? response.data : [];\nconst nextUrl = response.links?.next || null;\n\nstaticData.backupNextUrl = nextUrl;\n\nif (profiles.length === 0) {\n  return [{\n    json: {\n      found: false,\n      nextUrl: null,\n      backupCount: staticData.backupCount,\n      message: 'Keine Profile mehr im Backup-Pfad gefunden',\n    }\n  }];\n}\n\nfor (const profile of profiles) {\n  const a = profile.attributes || {};\n\n  staticData.backupProfiles.push({\n    profileId: profile.id || null,\n    email: a.email || null,\n    phone_number: a.phone_number || null,\n    external_id: a.external_id || null,\n    first_name: a.first_name || null,\n    last_name: a.last_name || null,\n    organization: a.organization || null,\n    title: a.title || null,\n    created: a.created || null,\n    updated: a.updated || null,\n    last_event_date: a.last_event_date || null,\n    location: a.location || null,\n    properties: a.properties || null,\n  });\n}\n\nstaticData.backupCount = staticData.backupProfiles.length;\n\nreturn [{\n  json: {\n    found: true,\n    nextUrl,\n    backupCount: staticData.backupCount,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        -1552
+      ],
+      "id": "42abe6cd-562b-4fc1-a6f8-20b6c2ed6f23",
+      "name": "Speichere Profile Global "
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ab572287-fed7-4838-b467-8bab57276d5b",
+              "leftValue": "={{$json.nextUrl}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        208,
+        -1328
+      ],
+      "id": "a675554c-247e-425f-af39-3ea354af9edf",
+      "name": "Naechste Seite?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst rows = Array.isArray(staticData.backupProfiles) ? staticData.backupProfiles : [];\n\nif (rows.length === 0) {\n  return [{\n    json: {\n      info: 'Keine Backup-Daten vorhanden',\n      backupCount: 0,\n    }\n  }];\n}\n\nreturn rows.map(row => ({ json: row }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        -1312
+      ],
+      "id": "b1868a1d-ec73-423a-bc1a-c7fbcbd4e0de",
+      "name": "Backup-File Vorbereitung"
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";",
+          "fileName": ""
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        -816
+      ],
+      "id": "645e0a30-6f12-40a4-83a2-c618917124f6",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "content": "## Versenden der Backup File\n",
+        "height": 288,
+        "width": 480,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        144,
+        -912
+      ],
+      "id": "3a2e9763-1a74-4c86-a308-cd144dea6338",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "content": "## Backup Pagination \nDer Flow geht das gesamte Segment einmal durch und speichert die Profile anhand folgender Eigenschaften: ",
+        "height": 544,
+        "width": 480,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        144,
+        -1696
+      ],
+      "id": "480a021f-8521-4c1e-81ef-637b8169be9c",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    ...$json,\n    isNewPage: false,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        -1280
+      ],
+      "id": "75313881-f191-48b4-8446-45002fa40f40",
+      "name": "Vorbereitung Inner-Loop Reset"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    data: $json.data\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        -1488
+      ],
+      "id": "3f1aa6ff-f718-402b-aed5-8d72e37a1a62",
+      "name": "Vorbereitung HTTP Node"
+    },
+    {
+      "parameters": {
+        "content": "## Segment leer?\n",
+        "height": 208,
+        "width": 480,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        144,
+        -1136
+      ],
+      "id": "e53aefa5-72bf-41c1-980d-25f82622b0ca",
+      "name": "Sticky Note12"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst deletedCount = staticData.deletedCount || 0;\n\nreturn [\n  {\n    json: {\n      success: true,\n      deletedCount,\n      deletedProfilesTotal: deletedCount,\n      mailText: `Insgesamt wurden ${deletedCount} inaktive Profile aus dem Zombie-Hygiene Segment gelöscht.`,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        -1552
+      ],
+      "id": "6e7f2aed-8ea8-4260-a49e-90b656f832d5",
+      "name": "Unwichtig: Wenn leer, kommt über Backup schon eine Mail "
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "klaviyo-hygiene-backups",
+        "fileName": "=zombie-cinna-klaviyo-backup-{{ $now.format('dd.MM.yyyy') }}.csv",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.awsS3",
+      "typeVersion": 2,
+      "position": [
+        352,
+        -816
+      ],
+      "id": "bc3ae386-916d-4407-a26f-f52d7de20c98",
+      "name": "Upload a file",
+      "credentials": {
+        "aws": {
+          "id": "jguNHNcadu2teFNr",
+          "name": "AWS (IAM) account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "862024c4-ccf7-4b27-9016-7c0420793806",
+              "leftValue": "={{ $('Speichere Profile Global ').item.json.backupCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        192,
+        -1072
+      ],
+      "id": "e244d6fa-cbe6-49ce-848d-9008774d455d",
+      "name": "IF-Segment-Leer?"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "marketing@buecherbuechse.de, it@buecherbuechse.de, jesse.balsam@buecherbuechse.de",
+        "subject": "Leeres Zombie-Segment CINNA",
+        "emailFormat": "text",
+        "text": "n8n hat versucht ein Backup des Zombie-Segmentes für CINNA durchzuführen, dieses war allerdings leer.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        448,
+        -1072
+      ],
+      "id": "4f0b388d-4b24-4633-be7d-7a87d347e0d4",
+      "name": "Segment-Ist-Leer-Flow-Abbruch",
+      "webhookId": "b8e35c1b-5059-4c3e-8059-eeefadf8dfb3",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "marketing@buecherbuechse.de, it@buecherbuechse.de, jesse.balsam@buecherbuechse.de",
+        "subject": "Zombie-Klaviyo-Backup geladen!",
+        "emailFormat": "text",
+        "text": "=Die CINNA-Klaviyo-Zombie-Backup-Datei wurde erfolgreich auf AWS unter dem Namen: \"zombie-cinna-klaviyo-backup-{{ $now.format('dd.MM.yyyy') }}\" hochgeladen. Der Löschvorgang der {{ $('Speichere Profile Global ').item.json.backupCount }} Profile wurde eingeleitet. \n\nLiebe Grüße \n\nJesse's Zombie-Flow",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        512,
+        -816
+      ],
+      "id": "1e250aa5-eae2-4c7d-9e37-902c5fd5bd49",
+      "name": "Backup-Hochgeladen",
+      "webhookId": "df5496e9-58e3-4def-9b0b-9acfbc3d3357",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 25,
+              "triggerAtHour": 1,
+              "triggerAtMinute": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -208,
+        -1280
+      ],
+      "id": "d3ea34e4-b1c3-4a6a-acde-6ef211aafe7e",
+      "name": "Schedule Trigger",
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Hole Profile aus \"inaktiv\" Segment ": {
+      "main": [
+        [
+          {
+            "node": "Wandle Datensatz um",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wandle Datensatz um": {
+      "main": [
+        [
+          {
+            "node": "SEGMENT LEER?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SEGMENT LEER?": {
+      "main": [
+        [
+          {
+            "node": "Unwichtig: Wenn leer, kommt über Backup schon eine Mail ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bereite vor für HTTP-Node LÖSCHEN",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bereite vor für HTTP-Node LÖSCHEN": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIBT ES NEXT PAGE?": {
+      "main": [
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FINALE AUSWERTUNG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MAX. ANZAHL LÖSCHUNG ERREICHT?": {
+      "main": [
+        [
+          {
+            "node": "DEBUG ABBRUCH BEDINGUNG",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF-VORBEREITUNG_2": {
+      "main": [
+        [
+          {
+            "node": "MAX. ANZAHL LÖSCHUNG ERREICHT?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF-VORBEREITUNG": {
+      "main": [
+        [
+          {
+            "node": "GIBT ES NEXT PAGE?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SETZEN START URL ": {
+      "main": [
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment - BACKUP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FINALE AUSWERTUNG": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Vorbereitung Inner-Loop Reset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "IF-VORBEREITUNG",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vorbereitung HTTP Node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start-Fetch": {
+      "main": [
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hole Profile aus \"inaktiv\" Segment - BACKUP": {
+      "main": [
+        [
+          {
+            "node": "Speichere Profile Global ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Speichere Profile Global ": {
+      "main": [
+        [
+          {
+            "node": "Naechste Seite?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Naechste Seite?": {
+      "main": [
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment - BACKUP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Backup-File Vorbereitung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup-File Vorbereitung": {
+      "main": [
+        [
+          {
+            "node": "IF-Segment-Leer?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Upload a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorbereitung Inner-Loop Reset": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorbereitung HTTP Node": {
+      "main": [
+        [
+          {
+            "node": "Löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unwichtig: Wenn leer, kommt über Backup schon eine Mail ": {
+      "main": [
+        []
+      ]
+    },
+    "Upload a file": {
+      "main": [
+        [
+          {
+            "node": "Backup-Hochgeladen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF-Segment-Leer?": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Segment-Ist-Leer-Flow-Abbruch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Segment-Ist-Leer-Flow-Abbruch": {
+      "main": [
+        []
+      ]
+    },
+    "Backup-Hochgeladen": {
+      "main": [
+        [
+          {
+            "node": "Start-Fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "SETZEN START URL ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "global": {
+      "deletedCount": 24,
+      "nextUrl": null,
+      "debugEmailsAll": [
+        "mrsrubi277@gmail.com",
+        "jessicalvarez246@gmail.com",
+        "testing@example.com",
+        "christine.dreyer01@googlemail.com",
+        "jenny1558@gmx.de",
+        "yasmine.bach1996@gmx.de",
+        "natascha.kotek@gmx.at",
+        "bujobyhina@gmail.com",
+        "laura.schulz.1996@outlook.de",
+        "buecherliebe_mit_katzenherz@web.de",
+        "maria.helmchen@gmx.de",
+        "pille3105@gmx.de",
+        "cinna-verlag-de-v3@inbound.godigitalpigeon.com",
+        "hagemann4@web.de",
+        "matthies.nadine@web.de",
+        "marie-anka@hotmail.de",
+        "franziska.schwarz@thalia.de",
+        "nadine.gailing@lehmanns.de",
+        "a.zeipper@thalia.at",
+        "l.doering@thalia.de",
+        "ariana.suppiger@orellfuessli.ch",
+        "trulla09@web.de",
+        "vampire-princess@msn.com",
+        "anna1.2@web.de"
+      ],
+      "debugEmailsUnique": [
+        "mrsrubi277@gmail.com",
+        "jessicalvarez246@gmail.com",
+        "testing@example.com",
+        "christine.dreyer01@googlemail.com",
+        "jenny1558@gmx.de",
+        "yasmine.bach1996@gmx.de",
+        "natascha.kotek@gmx.at",
+        "bujobyhina@gmail.com",
+        "laura.schulz.1996@outlook.de",
+        "buecherliebe_mit_katzenherz@web.de",
+        "maria.helmchen@gmx.de",
+        "pille3105@gmx.de",
+        "cinna-verlag-de-v3@inbound.godigitalpigeon.com",
+        "hagemann4@web.de",
+        "matthies.nadine@web.de",
+        "marie-anka@hotmail.de",
+        "franziska.schwarz@thalia.de",
+        "nadine.gailing@lehmanns.de",
+        "a.zeipper@thalia.at",
+        "l.doering@thalia.de",
+        "ariana.suppiger@orellfuessli.ch",
+        "trulla09@web.de",
+        "vampire-princess@msn.com",
+        "anna1.2@web.de"
+      ],
+      "debugNextUrls": [],
+      "debugDuplicateEmails": [],
+      "backupProfiles": [
+        {
+          "profileId": "01JQRKDM4141S2MEZ5PZ3JZM56",
+          "email": "mrsrubi277@gmail.com",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2025-04-01T11:57:36+00:00",
+          "updated": "2025-07-08T18:14:03+00:00",
+          "last_event_date": "2025-07-08T18:12:37+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": "Rome",
+            "country": "Italy",
+            "latitude": 41.8905,
+            "longitude": 12.5127,
+            "region": "Rome",
+            "zip": null,
+            "timezone": "Europe/Rome",
+            "ip": "93.44.125.1"
+          },
+          "properties": {
+            "Accepts Marketing": false,
+            "Shopify Tags": []
+          }
+        },
+        {
+          "profileId": "01JRX5SC7XTG893PQ8125QV36C",
+          "email": "jessicalvarez246@gmail.com",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "Jessica",
+          "last_name": "Alvarez",
+          "organization": null,
+          "title": null,
+          "created": "2025-04-15T16:51:15+00:00",
+          "updated": "2025-06-30T23:04:10+00:00",
+          "last_event_date": "2025-06-30T23:03:32+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": "Tijuana",
+            "country": "Mexico",
+            "latitude": 32.4336,
+            "longitude": -116.9607,
+            "region": "Baja California",
+            "zip": null,
+            "timezone": "America/Tijuana",
+            "ip": "177.239.36.174"
+          },
+          "properties": {
+            "Accepts Marketing": false,
+            "Shopify Tags": []
+          }
+        },
+        {
+          "profileId": "01JYSY3QT13QYWH6FEE4X11GYD",
+          "email": "testing@example.com",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "pHqghUme",
+          "last_name": "pHqghUme",
+          "organization": null,
+          "title": null,
+          "created": "2025-06-28T00:13:34+00:00",
+          "updated": "2025-06-28T04:11:05+00:00",
+          "last_event_date": "2025-06-28T04:10:23+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": "Helsinki",
+            "country": "Finland",
+            "latitude": 60.1719,
+            "longitude": 24.9347,
+            "region": "Uusimaa",
+            "zip": null,
+            "timezone": "Europe/Helsinki",
+            "ip": "95.164.55.144"
+          },
+          "properties": {
+            "Accepts Marketing": false,
+            "Shopify Tags": []
+          }
+        },
+        {
+          "profileId": "01JZFQ202ZZZKXTXQG089XVJ8P",
+          "email": "christine.dreyer01@googlemail.com",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "Christine",
+          "last_name": "Dreyer",
+          "organization": null,
+          "title": null,
+          "created": "2025-07-06T11:13:34+00:00",
+          "updated": "2025-07-06T11:14:03+00:00",
+          "last_event_date": "2025-07-06T11:13:55+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "Accepts Marketing": false,
+            "Shopify Tags": []
+          }
+        },
+        {
+          "profileId": "01JZK3R7PY6PA80VDY0DXH0CBZ",
+          "email": "jenny1558@gmx.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "Jennifer",
+          "last_name": "Steinhilber",
+          "organization": null,
+          "title": null,
+          "created": "2025-07-07T18:53:09+00:00",
+          "updated": "2025-07-07T18:53:25+00:00",
+          "last_event_date": "2025-07-07T18:53:11+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "Accepts Marketing": false,
+            "Shopify Tags": []
+          }
+        },
+        {
+          "profileId": "01K0BPSDVF42TAC7AEGG4DM8BK",
+          "email": "yasmine.bach1996@gmx.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "Yasmine",
+          "last_name": "Bach",
+          "organization": null,
+          "title": null,
+          "created": "2025-07-17T08:07:38+00:00",
+          "updated": "2025-07-17T08:22:05+00:00",
+          "last_event_date": "2025-07-17T08:07:35+00:00",
+          "location": {
+            "address1": "Josefstraße 59",
+            "address2": null,
+            "city": "Oberhausen",
+            "country": "Germany",
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": "46045",
+            "timezone": "Europe/Berlin",
+            "ip": null
+          },
+          "properties": {
+            "Accepts Marketing": false,
+            "Shopify Tags": []
+          }
+        },
+        {
+          "profileId": "01K0CPBDNKBVH09VWK8VF6VWP1",
+          "email": "natascha.kotek@gmx.at",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "Natascha",
+          "last_name": "Schweinberger",
+          "organization": null,
+          "title": null,
+          "created": "2025-07-17T17:19:13+00:00",
+          "updated": "2025-07-17T17:30:08+00:00",
+          "last_event_date": "2025-07-17T17:19:42+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "Accepts Marketing": false,
+            "Shopify Tags": []
+          }
+        },
+        {
+          "profileId": "01KM51NQXCK9NH7C26V10PC18T",
+          "email": "bujobyhina@gmail.com",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-03-20T07:17:07+00:00",
+          "updated": "2026-03-20T07:18:26+00:00",
+          "last_event_date": null,
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -154
+          }
+        },
+        {
+          "profileId": "01KM51NQXFQNZ2RDMACAT534DT",
+          "email": "laura.schulz.1996@outlook.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-03-20T07:17:07+00:00",
+          "updated": "2026-03-20T07:18:26+00:00",
+          "last_event_date": null,
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -154
+          }
+        },
+        {
+          "profileId": "01KM51NQZ3TYS0BJN1WXPRNX1W",
+          "email": "buecherliebe_mit_katzenherz@web.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-03-20T07:17:07+00:00",
+          "updated": "2026-03-20T07:18:26+00:00",
+          "last_event_date": null,
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -154
+          }
+        },
+        {
+          "profileId": "01KW4B9TSDGGZ4WX29EQDPD15N",
+          "email": "maria.helmchen@gmx.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "Maria",
+          "last_name": "Stahl",
+          "organization": null,
+          "title": null,
+          "created": "2026-06-27T10:51:42+00:00",
+          "updated": "2026-06-27T10:51:44+00:00",
+          "last_event_date": null,
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "Shopify Tags": [
+              "Login with Shop",
+              "Shop"
+            ]
+          }
+        },
+        {
+          "profileId": "01KWDRFX90605DW6VK0QMWQBFT",
+          "email": "pille3105@gmx.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-01T02:35:23+00:00",
+          "updated": "2026-07-01T03:12:04+00:00",
+          "last_event_date": "2026-07-01T02:35:22+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -130
+          }
+        },
+        {
+          "profileId": "01KWEVHZ0SB1ZYWFZ2E0GED3ZQ",
+          "email": "cinna-verlag-de-v3@inbound.godigitalpigeon.com",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-01T12:48:10+00:00",
+          "updated": "2026-07-01T13:12:10+00:00",
+          "last_event_date": "2026-07-01T12:48:10+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": "Leavenworth",
+            "country": "United States",
+            "latitude": 39.3037,
+            "longitude": -94.9322,
+            "region": "Kansas",
+            "zip": null,
+            "timezone": "America/Chicago",
+            "ip": "99.72.197.102"
+          },
+          "properties": {}
+        },
+        {
+          "profileId": "01KWFEXM8FQ83FKQNCRRE2843V",
+          "email": "hagemann4@web.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-01T18:26:35+00:00",
+          "updated": "2026-07-01T19:12:50+00:00",
+          "last_event_date": "2026-07-01T18:26:35+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -130
+          }
+        },
+        {
+          "profileId": "01KWKC4DCRKGG25T6JHWWK24SR",
+          "email": "matthies.nadine@web.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-03T06:54:50+00:00",
+          "updated": "2026-07-03T07:11:47+00:00",
+          "last_event_date": "2026-07-03T06:55:11+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -130
+          }
+        },
+        {
+          "profileId": "01KWWCXK80HA0R68X1PAZ046ZY",
+          "email": "marie-anka@hotmail.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "Sarina",
+          "last_name": "Kobelt",
+          "organization": null,
+          "title": null,
+          "created": "2026-07-06T19:01:45+00:00",
+          "updated": "2026-07-06T19:01:47+00:00",
+          "last_event_date": null,
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "Shopify Tags": [
+              "Shop",
+              "Login with Shop"
+            ]
+          }
+        },
+        {
+          "profileId": "01KX0V4T8FPT8CTPEM1DDRPYD3",
+          "email": "franziska.schwarz@thalia.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-08T12:27:19+00:00",
+          "updated": "2026-07-08T13:12:04+00:00",
+          "last_event_date": "2026-07-08T12:27:20+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$consent": [
+              "email"
+            ],
+            "$source": -6,
+            "$consent_timestamp": "2026-07-08T12:27:19.158Z",
+            "Accepts Marketing": true
+          }
+        },
+        {
+          "profileId": "01KX3CMRQ6JC1T24ARZTKS2M8H",
+          "email": "nadine.gailing@lehmanns.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-09T12:11:37+00:00",
+          "updated": "2026-07-09T13:13:24+00:00",
+          "last_event_date": "2026-07-09T12:11:37+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$consent": [
+              "email"
+            ],
+            "$source": -6,
+            "$consent_timestamp": "2026-07-09T12:11:36.524Z",
+            "Accepts Marketing": true
+          }
+        },
+        {
+          "profileId": "01KXDD6R823DCF3JFZSH6MWMM5",
+          "email": "a.zeipper@thalia.at",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-13T09:33:50+00:00",
+          "updated": "2026-07-13T09:33:56+00:00",
+          "last_event_date": null,
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -6
+          }
+        },
+        {
+          "profileId": "01KXDVRZ721AR9Y3MZ58WT9QGH",
+          "email": "l.doering@thalia.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-13T13:48:27+00:00",
+          "updated": "2026-07-13T13:50:59+00:00",
+          "last_event_date": null,
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -154
+          }
+        },
+        {
+          "profileId": "01KXDVRZ8QJFGDQK8YS2EPMXR1",
+          "email": "ariana.suppiger@orellfuessli.ch",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-13T13:48:27+00:00",
+          "updated": "2026-07-13T13:51:01+00:00",
+          "last_event_date": null,
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -154
+          }
+        },
+        {
+          "profileId": "01KXFVJ7JYJ50DQY72R2ZFT7A3",
+          "email": "trulla09@web.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": null,
+          "last_name": null,
+          "organization": null,
+          "title": null,
+          "created": "2026-07-14T08:23:15+00:00",
+          "updated": "2026-07-14T09:10:17+00:00",
+          "last_event_date": "2026-07-14T08:23:15+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$source": -130
+          }
+        },
+        {
+          "profileId": "01KXJ9EV9GH8TR4V6ETPCZ7QZX",
+          "email": "vampire-princess@msn.com",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "Jennifer",
+          "last_name": "Wittje",
+          "organization": null,
+          "title": null,
+          "created": "2026-07-15T07:04:33+00:00",
+          "updated": "2026-07-15T07:04:33+00:00",
+          "last_event_date": null,
+          "location": {
+            "address1": "Albert-einstein-str. 24",
+            "address2": null,
+            "city": "Bautzen",
+            "country": "Germany",
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": "02625",
+            "timezone": "Europe/Berlin",
+            "ip": null
+          },
+          "properties": {}
+        },
+        {
+          "profileId": "01KY1K6DTNZW4CGEP1YEZXHCYF",
+          "email": "anna1.2@web.de",
+          "phone_number": null,
+          "external_id": null,
+          "first_name": "Anna",
+          "last_name": "Böhm",
+          "organization": "Hugendubel",
+          "title": null,
+          "created": "2026-07-21T05:43:20+00:00",
+          "updated": "2026-07-21T06:10:41+00:00",
+          "last_event_date": "2026-07-21T05:43:20+00:00",
+          "location": {
+            "address1": null,
+            "address2": null,
+            "city": null,
+            "country": null,
+            "latitude": null,
+            "longitude": null,
+            "region": null,
+            "zip": null,
+            "timezone": null,
+            "ip": null
+          },
+          "properties": {
+            "$consent": [
+              "email"
+            ],
+            "$source": -6,
+            "$consent_timestamp": "2026-07-21T05:43:19.481Z",
+            "Accepts Marketing": true
+          }
+        }
+      ],
+      "backupCount": 24,
+      "backupNextUrl": null,
+      "debugEmails": []
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "737663c2-cf1f-43f1-ac46-4ff4200f0bc6",
+  "activeVersionId": "a0b1b837-e025-4fee-945e-eec45ebebb71",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-10T09:56:16.150Z",
+      "createdAt": "2026-04-10T09:56:16.150Z",
+      "role": "workflow:owner",
+      "workflowId": "tXJJs8DDBjiuaXYZ",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-06-15T10:30:11.000Z",
+    "createdAt": "2026-06-15T10:30:09.174Z",
+    "versionId": "a0b1b837-e025-4fee-945e-eec45ebebb71",
+    "workflowId": "tXJJs8DDBjiuaXYZ",
+    "nodes": [
+      {
+        "parameters": {
+          "url": "={{ $json.nextUrl }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Klaviyo-API-Key pk_ac3334a171187b813b45136bcb74d6a5f4"
+              },
+              {
+                "name": "accept",
+                "value": "application/vnd.api+json"
+              },
+              {
+                "name": "revision",
+                "value": "2025-10-15"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          928,
+          -1280
+        ],
+        "id": "c3ff901d-ae4c-4492-a09d-e6bab59e10e9",
+        "name": "Hole Profile aus \"inaktiv\" Segment "
+      },
+      {
+        "parameters": {
+          "jsCode": "// Äußere Response aus dem HTTP-Node\nconst wrapper = $json;\n\n// globale Workflow-Daten holen\nconst staticData = $getWorkflowStaticData('global');\n\nif (typeof staticData.deletedCount !== 'number') {\n  staticData.deletedCount = 0;\n}\nif (!Array.isArray(staticData.debugEmailsAll)) {\n  staticData.debugEmailsAll = [];\n}\nif (!Array.isArray(staticData.debugEmailsUnique)) {\n  staticData.debugEmailsUnique = [];\n}\nif (!Array.isArray(staticData.debugNextUrls)) {\n  staticData.debugNextUrls = [];\n}\nif (!Array.isArray(staticData.debugDuplicateEmails)) {\n  staticData.debugDuplicateEmails = [];\n}\n\n// Eigentliche API-Response bestimmen\nlet response = wrapper;\n\n// Falls die Response in wrapper.data als JSON-String steckt -> parsen\nif (typeof wrapper.data === 'string') {\n  try {\n    response = JSON.parse(wrapper.data);\n  } catch (error) {\n    staticData.nextUrl = null;\n\n    return [\n      {\n        json: {\n          found: false,\n          parseError: true,\n          message: 'Response konnte nicht geparst werden',\n          rawData: wrapper.data,\n          deletedCount: staticData.deletedCount,\n        },\n      },\n    ];\n  }\n}\n\n// Falls wrapper.data schon ein Objekt ist, dieses verwenden\nelse if (wrapper.data && typeof wrapper.data === 'object') {\n  response = wrapper.data;\n}\n\n// Jetzt normal auf Klaviyo-Struktur zugreifen\nconst profiles = Array.isArray(response.data) ? response.data : [];\nconst nextUrl = response.links?.next || null;\n\n// nextUrl global speichern\nstaticData.nextUrl = nextUrl;\n\n// verwendete nextUrl debuggen\nif (nextUrl) {\n  staticData.debugNextUrls.push(nextUrl);\n}\n\n// Keine Profile mehr gefunden\nif (profiles.length === 0) {\n  return [\n    {\n      json: {\n        found: false,\n        message: 'Keine Profile mehr gefunden',\n        deletedCount: staticData.deletedCount,\n      },\n    },\n  ];\n}\n\n// Counter erhöhen\nstaticData.deletedCount += profiles.length;\n\n// Debug: E-Mails sammeln und Dopplungen prüfen\nconst uniqueEmails = new Set(staticData.debugEmailsUnique);\nconst duplicateEmails = new Set(staticData.debugDuplicateEmails);\n\nfor (const profile of profiles) {\n  const attrs = profile.attributes || {};\n  const email = attrs.email || null;\n\n  if (!email) continue;\n\n  // alle E-Mails speichern\n  staticData.debugEmailsAll.push(email);\n\n  // Duplikate prüfen\n  if (uniqueEmails.has(email)) {\n    duplicateEmails.add(email);\n  } else {\n    uniqueEmails.add(email);\n  }\n}\n\n// Arrays zurückschreiben\nstaticData.debugEmailsUnique = Array.from(uniqueEmails);\nstaticData.debugDuplicateEmails = Array.from(duplicateEmails);\n\n// Profile als einzelne Items zurückgeben\nreturn profiles.map(profile => {\n  const attrs = profile.attributes || {};\n\n  return {\n    json: {\n      found: true,\n      profileId: profile.id,\n      email: attrs.email,\n      deletedCount: staticData.deletedCount,\n      isNewPage: true,\n    },\n  };\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          -1280
+        ],
+        "id": "e9ed17eb-d25a-47d8-be5a-1f2ed02f2f75",
+        "name": "Wandle Datensatz um"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://a.klaviyo.com/api/data-privacy-deletion-jobs",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "accept",
+                "value": "application/vnd.api+json"
+              },
+              {
+                "name": "content-type",
+                "value": "application/vnd.api+json"
+              },
+              {
+                "name": "revision",
+                "value": "2025-10-15"
+              },
+              {
+                "name": "Authorization",
+                "value": "Klaviyo-API-Key pk_ac3334a171187b813b45136bcb74d6a5f4"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          2096,
+          -1488
+        ],
+        "id": "ff1c2988-d84a-49e3-9c7b-334484acdf13",
+        "name": "Löschen",
+        "retryOnFail": true,
+        "waitBetweenTries": 5000,
+        "maxTries": 5
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "2f28579d-f8c4-42ce-bfbe-1d2e01032f44",
+                "leftValue": "={{ $json.found }}",
+                "rightValue": false,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1360,
+          -1280
+        ],
+        "id": "368b328d-9c47-44c8-8a14-83f7169bb6e5",
+        "name": "SEGMENT LEER?"
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "// n8n Function node (Run Once for Each Item)\n// Erwartet pro Item: { profileId, email }\n\nconst profileId = $json.profileId?.trim();\nconst email = $json.email?.trim();\n\nif (!email && !profileId) {\n  throw new Error('Kein Identifier vorhanden: email oder profileId fehlt.');\n}\n\nreturn {\n  ...$json,\n  data: {\n    type: 'data-privacy-deletion-job',\n    attributes: {\n      profile: {\n        data: {\n          type: 'profile',\n          attributes: email ? { email } : { id: profileId },\n        },\n      },\n    },\n  },\n};\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1792,
+          -1264
+        ],
+        "id": "61430151-7648-48f2-b463-31ea4d5bab62",
+        "name": "Bereite vor für HTTP-Node LÖSCHEN"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "66dc1c11-5748-4c8b-9582-5a23067375ea",
+                "leftValue": "={{$json.nextUrl}}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEmpty",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2544,
+          -1168
+        ],
+        "id": "60e3d929-238c-416e-a30c-ff0c86ad617e",
+        "name": "GIBT ES NEXT PAGE?"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "f27f4f92-1b66-4e74-8b08-343f345716cd",
+                "leftValue": "={{$json.deletedCount}}",
+                "rightValue": 40000,
+                "operator": {
+                  "type": "number",
+                  "operation": "gte"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          3200,
+          -1136
+        ],
+        "id": "1fdae848-db34-4f9e-b471-b43a004698c9",
+        "name": "MAX. ANZAHL LÖSCHUNG ERREICHT?"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nreturn [\n  {\n    json: {\n      deletedCount: staticData.deletedCount || 0,\n      nextUrl: $json.nextUrl || null,\n    },\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3056,
+          -1568
+        ],
+        "id": "906a3c5d-bd0f-471d-8f24-a5372460aa06",
+        "name": "IF-VORBEREITUNG_2"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nreturn [\n  {\n    json: {\n      nextUrl: staticData.nextUrl || null,\n      deletedCount: staticData.deletedCount || 0,\n    },\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2400,
+          -1584
+        ],
+        "id": "e81e8e11-011f-4ce0-a1b0-4b2c4202e099",
+        "name": "IF-VORBEREITUNG"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst emailsAll = Array.isArray(staticData.debugEmailsAll) ? staticData.debugEmailsAll : [];\nconst nextUrls = Array.isArray(staticData.debugNextUrls) ? staticData.debugNextUrls : [];\nconst duplicateEmails = Array.isArray(staticData.debugDuplicateEmails) ? staticData.debugDuplicateEmails : [];\n\nreturn [\n  {\n    json: {\n      success: true,\n      stoppedByLimit: true,\n      message: 'Testlauf bei 400 Profilen gestoppt.',\n      deletedCount: staticData.deletedCount || 0,\n      totalProfilesSeen: emailsAll.length,\n      totalNextUrlsStored: nextUrls.length,\n      duplicateEmailCount: duplicateEmails.length,\n      usedNextUrls: nextUrls,\n      emailsAll,\n    },\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3360,
+          -1552
+        ],
+        "id": "3b872b9f-811e-4300-a2bc-a2373934753e",
+        "name": "DEBUG ABBRUCH BEDINGUNG"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.deletedCount = 0;\nstaticData.nextUrl = null;\n\n// bestehende Debug-Felder\nstaticData.debugEmailsAll = [];\nstaticData.debugEmailsUnique = [];\nstaticData.debugNextUrls = [];\nstaticData.debugDuplicateEmails = [];\n\n// neue Backup-Felder\nstaticData.backupProfiles = [];\nstaticData.backupCount = 0;\nstaticData.backupNextUrl = 'https://a.klaviyo.com/api/segments/QQWKWp/profiles?page[size]=100';\n\nreturn [\n  {\n    json: {\n      nextUrl: staticData.backupNextUrl,\n    },\n  },\n];\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -16,
+          -1280
+        ],
+        "id": "1901c080-b04b-4fd3-a175-c93130d9d1cc",
+        "name": "SETZEN START URL "
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst deletedCount = staticData.deletedCount || 0;\n\nreturn [\n  {\n    json: {\n      success: true,\n      deletedCount,\n      deletedProfilesTotal: deletedCount,\n      mailText: `Jesse's CINNA-Zombie-Flow ging erfolgreich durch! Insgesamt wurden ${deletedCount} inaktive Profile aus dem Zombie-Hygiene Segment gelöscht.\n      \n      Liebe Grüße \n      \n      Jesse's Zombie-Flow`,\n    },\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2416,
+          -752
+        ],
+        "id": "2dac2117-ac21-4ae4-94e9-a2c3dafc0fa8",
+        "name": "FINALE AUSWERTUNG"
+      },
+      {
+        "parameters": {
+          "content": "## Optionaler Debug \nMit \"GIBT ES NEXT PAGE\" TRUE verbinden -> nach X Profilen bricht der Flow ab ",
+          "height": 800,
+          "width": 480,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          3024,
+          -1696
+        ],
+        "id": "314fca27-fc9f-4bb8-b87f-cc591a902059",
+        "name": "Sticky Note"
+      },
+      {
+        "parameters": {
+          "content": "## Trigger + Start URL\nTriggert den Flow täglich, setz die initiale URL für die Pagination und \"leert\" alle globalen Debug Variablen ",
+          "height": 720,
+          "width": 352,
+          "color": 3
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -240,
+          -1696
+        ],
+        "id": "7cfd8ae8-8457-48c0-9453-9b3db67e7fe5",
+        "name": "Sticky Note1"
+      },
+      {
+        "parameters": {
+          "content": "## Profil Fetch + Umwandlung in .json\n",
+          "height": 720,
+          "width": 544,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          720,
+          -1696
+        ],
+        "id": "eaf067f1-a790-429b-9daa-3b21d2d75433",
+        "name": "Sticky Note2"
+      },
+      {
+        "parameters": {
+          "content": "## Segment leer?",
+          "height": 416,
+          "width": 432,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1296,
+          -1392
+        ],
+        "id": "2e33dc5d-125f-441d-b740-ef5b2fa685a7",
+        "name": "Sticky Note3"
+      },
+      {
+        "parameters": {
+          "content": "## Ausgabe falls Segment leer [Unwichtig]\nWenn das Segment tatsächlich leer ist, schickt der Backup-Teil schon eine Mail",
+          "height": 288,
+          "width": 432,
+          "color": 6
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1296,
+          -1696
+        ],
+        "id": "ecdeb360-2aab-403e-b903-418805e5546e",
+        "name": "Sticky Note4"
+      },
+      {
+        "parameters": {
+          "content": "## Löschvorgang",
+          "height": 720,
+          "width": 576,
+          "color": 3
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1760,
+          -1696
+        ],
+        "id": "02b2c5cb-6364-4361-bef1-4dfc81eec79f",
+        "name": "Sticky Note5"
+      },
+      {
+        "parameters": {
+          "content": "## Gibt es eine nächste Seite?\nFall kein Debug gewünscht ist: TRUE Path mit HTTP Node in \"Profil Fetch\" verbinden",
+          "height": 800,
+          "width": 628,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          2368,
+          -1696
+        ],
+        "id": "58f9f16e-c57d-40d6-b76b-bb2fb3960841",
+        "name": "Sticky Note6"
+      },
+      {
+        "parameters": {
+          "content": "## FInale Ausgabe\n",
+          "height": 288,
+          "width": 624,
+          "color": 6
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          2368,
+          -864
+        ],
+        "id": "be45a62c-3b22-4aa4-ad77-ee1c9fb5d97c",
+        "name": "Sticky Note7"
+      },
+      {
+        "parameters": {
+          "content": "## Pagination Loop zur Löschung\n\n \n",
+          "height": 1376,
+          "width": 2868,
+          "color": 5
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          672,
+          -1856
+        ],
+        "id": "211eced1-ab7b-4fbb-afb5-686883b404f4",
+        "name": "Sticky Note8"
+      },
+      {
+        "parameters": {
+          "fromEmail": "n8n@mail.buecherbuechse.de",
+          "toEmail": "marketing@buecherbuechse.de, it@buecherbuechse.de, jesse.balsam@buecherbuechse.de",
+          "subject": "n8n X Klaviyo: Gelöschte Profile ",
+          "emailFormat": "text",
+          "text": "={{ $json.mailText }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          2640,
+          -752
+        ],
+        "id": "f143066d-2c12-498c-a439-32ee9c9af853",
+        "name": "Send an Email",
+        "webhookId": "283e79ad-86d7-49e2-aaa7-d712de2fcdd3",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "amount": 1
+        },
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          1968,
+          -1280
+        ],
+        "id": "3d16cc33-927d-4357-9557-91402d33afe6",
+        "name": "Wait",
+        "webhookId": "14ff318e-7d39-4af0-a82a-56656492f87e"
+      },
+      {
+        "parameters": {
+          "options": {
+            "reset": "={{ $json.isNewPage === true }}"
+          }
+        },
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          1824,
+          -1632
+        ],
+        "id": "27c247b6-44fc-440e-90af-3070de15cfcb",
+        "name": "Loop Over Items"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.deletedCount = 0;\nstaticData.nextUrl = null;\n\n// Debug zurücksetzen\nstaticData.debugEmails = [];\nstaticData.debugNextUrls = [];\nstaticData.debugDuplicateEmails = [];\n\nreturn [\n  {\n    json: {\n      nextUrl: 'https://a.klaviyo.com/api/segments/QQWKWp/profiles?page[size]=100',\n    },\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          752,
+          -1280
+        ],
+        "id": "3c1d12f7-d0d6-4641-bcaf-7a89c4156dda",
+        "name": "Start-Fetch"
+      },
+      {
+        "parameters": {
+          "url": "={{ $json.nextUrl }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Klaviyo-API-Key pk_ac3334a171187b813b45136bcb74d6a5f4"
+              },
+              {
+                "name": "accept",
+                "value": "application/vnd.api+json"
+              },
+              {
+                "name": "revision",
+                "value": "2025-10-15"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          208,
+          -1552
+        ],
+        "id": "26b4c562-fd11-4917-95cc-4635314eae15",
+        "name": "Hole Profile aus \"inaktiv\" Segment - BACKUP"
+      },
+      {
+        "parameters": {
+          "jsCode": "const wrapper = $json;\nconst staticData = $getWorkflowStaticData('global');\n\nif (!Array.isArray(staticData.backupProfiles)) {\n  staticData.backupProfiles = [];\n}\nif (typeof staticData.backupCount !== 'number') {\n  staticData.backupCount = 0;\n}\n\nlet response = wrapper;\n\nif (typeof wrapper.data === 'string') {\n  try {\n    response = JSON.parse(wrapper.data);\n  } catch (error) {\n    staticData.backupNextUrl = null;\n    return [{\n      json: {\n        found: false,\n        parseError: true,\n        message: 'Backup-Response konnte nicht geparst werden',\n      }\n    }];\n  }\n} else if (wrapper.data && typeof wrapper.data === 'object') {\n  response = wrapper.data;\n}\n\nconst profiles = Array.isArray(response.data) ? response.data : [];\nconst nextUrl = response.links?.next || null;\n\nstaticData.backupNextUrl = nextUrl;\n\nif (profiles.length === 0) {\n  return [{\n    json: {\n      found: false,\n      nextUrl: null,\n      backupCount: staticData.backupCount,\n      message: 'Keine Profile mehr im Backup-Pfad gefunden',\n    }\n  }];\n}\n\nfor (const profile of profiles) {\n  const a = profile.attributes || {};\n\n  staticData.backupProfiles.push({\n    profileId: profile.id || null,\n    email: a.email || null,\n    phone_number: a.phone_number || null,\n    external_id: a.external_id || null,\n    first_name: a.first_name || null,\n    last_name: a.last_name || null,\n    organization: a.organization || null,\n    title: a.title || null,\n    created: a.created || null,\n    updated: a.updated || null,\n    last_event_date: a.last_event_date || null,\n    location: a.location || null,\n    properties: a.properties || null,\n  });\n}\n\nstaticData.backupCount = staticData.backupProfiles.length;\n\nreturn [{\n  json: {\n    found: true,\n    nextUrl,\n    backupCount: staticData.backupCount,\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          432,
+          -1552
+        ],
+        "id": "42abe6cd-562b-4fc1-a6f8-20b6c2ed6f23",
+        "name": "Speichere Profile Global "
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "ab572287-fed7-4838-b467-8bab57276d5b",
+                "leftValue": "={{$json.nextUrl}}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEmpty",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          208,
+          -1328
+        ],
+        "id": "a675554c-247e-425f-af39-3ea354af9edf",
+        "name": "Naechste Seite?"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst rows = Array.isArray(staticData.backupProfiles) ? staticData.backupProfiles : [];\n\nif (rows.length === 0) {\n  return [{\n    json: {\n      info: 'Keine Backup-Daten vorhanden',\n      backupCount: 0,\n    }\n  }];\n}\n\nreturn rows.map(row => ({ json: row }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          432,
+          -1312
+        ],
+        "id": "b1868a1d-ec73-423a-bc1a-c7fbcbd4e0de",
+        "name": "Backup-File Vorbereitung"
+      },
+      {
+        "parameters": {
+          "options": {
+            "delimiter": ";",
+            "fileName": ""
+          }
+        },
+        "type": "n8n-nodes-base.convertToFile",
+        "typeVersion": 1.1,
+        "position": [
+          208,
+          -816
+        ],
+        "id": "645e0a30-6f12-40a4-83a2-c618917124f6",
+        "name": "Convert to File"
+      },
+      {
+        "parameters": {
+          "content": "## Versenden der Backup File\n",
+          "height": 288,
+          "width": 480,
+          "color": 6
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          144,
+          -912
+        ],
+        "id": "3a2e9763-1a74-4c86-a308-cd144dea6338",
+        "name": "Sticky Note10"
+      },
+      {
+        "parameters": {
+          "content": "## Backup Pagination \nDer Flow geht das gesamte Segment einmal durch und speichert die Profile anhand folgender Eigenschaften: ",
+          "height": 544,
+          "width": 480,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          144,
+          -1696
+        ],
+        "id": "480a021f-8521-4c1e-81ef-637b8169be9c",
+        "name": "Sticky Note9"
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "return {\n  json: {\n    ...$json,\n    isNewPage: false,\n  },\n};"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2144,
+          -1280
+        ],
+        "id": "75313881-f191-48b4-8446-45002fa40f40",
+        "name": "Vorbereitung Inner-Loop Reset"
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "return {\n  json: {\n    data: $json.data\n  }\n};"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1968,
+          -1488
+        ],
+        "id": "3f1aa6ff-f718-402b-aed5-8d72e37a1a62",
+        "name": "Vorbereitung HTTP Node"
+      },
+      {
+        "parameters": {
+          "content": "## Segment leer?\n",
+          "height": 208,
+          "width": 480,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          144,
+          -1136
+        ],
+        "id": "e53aefa5-72bf-41c1-980d-25f82622b0ca",
+        "name": "Sticky Note12"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst deletedCount = staticData.deletedCount || 0;\n\nreturn [\n  {\n    json: {\n      success: true,\n      deletedCount,\n      deletedProfilesTotal: deletedCount,\n      mailText: `Insgesamt wurden ${deletedCount} inaktive Profile aus dem Zombie-Hygiene Segment gelöscht.`,\n    },\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1360,
+          -1552
+        ],
+        "id": "6e7f2aed-8ea8-4260-a49e-90b656f832d5",
+        "name": "Unwichtig: Wenn leer, kommt über Backup schon eine Mail "
+      },
+      {
+        "parameters": {
+          "operation": "upload",
+          "bucketName": "klaviyo-hygiene-backups",
+          "fileName": "=zombie-cinna-klaviyo-backup-{{ $now.format('dd.MM.yyyy') }}.csv",
+          "additionalFields": {}
+        },
+        "type": "n8n-nodes-base.awsS3",
+        "typeVersion": 2,
+        "position": [
+          352,
+          -816
+        ],
+        "id": "bc3ae386-916d-4407-a26f-f52d7de20c98",
+        "name": "Upload a file",
+        "credentials": {
+          "aws": {
+            "id": "jguNHNcadu2teFNr",
+            "name": "AWS (IAM) account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "862024c4-ccf7-4b27-9016-7c0420793806",
+                "leftValue": "={{ $('Speichere Profile Global ').item.json.backupCount }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          192,
+          -1072
+        ],
+        "id": "e244d6fa-cbe6-49ce-848d-9008774d455d",
+        "name": "IF-Segment-Leer?"
+      },
+      {
+        "parameters": {
+          "fromEmail": "n8n@mail.buecherbuechse.de",
+          "toEmail": "marketing@buecherbuechse.de, it@buecherbuechse.de, jesse.balsam@buecherbuechse.de",
+          "subject": "Leeres Zombie-Segment CINNA",
+          "emailFormat": "text",
+          "text": "n8n hat versucht ein Backup des Zombie-Segmentes für CINNA durchzuführen, dieses war allerdings leer.",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          448,
+          -1072
+        ],
+        "id": "4f0b388d-4b24-4633-be7d-7a87d347e0d4",
+        "name": "Segment-Ist-Leer-Flow-Abbruch",
+        "webhookId": "b8e35c1b-5059-4c3e-8059-eeefadf8dfb3",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "fromEmail": "n8n@mail.buecherbuechse.de",
+          "toEmail": "marketing@buecherbuechse.de, it@buecherbuechse.de, jesse.balsam@buecherbuechse.de",
+          "subject": "Zombie-Klaviyo-Backup geladen!",
+          "emailFormat": "text",
+          "text": "=Die CINNA-Klaviyo-Zombie-Backup-Datei wurde erfolgreich auf AWS unter dem Namen: \"zombie-cinna-klaviyo-backup-{{ $now.format('dd.MM.yyyy') }}\" hochgeladen. Der Löschvorgang der {{ $('Speichere Profile Global ').item.json.backupCount }} Profile wurde eingeleitet. \n\nLiebe Grüße \n\nJesse's Zombie-Flow",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          512,
+          -816
+        ],
+        "id": "1e250aa5-eae2-4c7d-9e37-902c5fd5bd49",
+        "name": "Backup-Hochgeladen",
+        "webhookId": "df5496e9-58e3-4def-9b0b-9acfbc3d3357",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "months",
+                "triggerAtDayOfMonth": 25,
+                "triggerAtHour": 1,
+                "triggerAtMinute": 1
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          -208,
+          -1280
+        ],
+        "id": "d3ea34e4-b1c3-4a6a-acde-6ef211aafe7e",
+        "name": "Schedule Trigger"
+      }
+    ],
+    "connections": {
+      "Hole Profile aus \"inaktiv\" Segment ": {
+        "main": [
+          [
+            {
+              "node": "Wandle Datensatz um",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wandle Datensatz um": {
+        "main": [
+          [
+            {
+              "node": "SEGMENT LEER?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Löschen": {
+        "main": [
+          [
+            {
+              "node": "Wait",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SEGMENT LEER?": {
+        "main": [
+          [
+            {
+              "node": "Unwichtig: Wenn leer, kommt über Backup schon eine Mail ",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Bereite vor für HTTP-Node LÖSCHEN",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Bereite vor für HTTP-Node LÖSCHEN": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GIBT ES NEXT PAGE?": {
+        "main": [
+          [
+            {
+              "node": "Hole Profile aus \"inaktiv\" Segment ",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "FINALE AUSWERTUNG",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "MAX. ANZAHL LÖSCHUNG ERREICHT?": {
+        "main": [
+          [
+            {
+              "node": "DEBUG ABBRUCH BEDINGUNG",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Hole Profile aus \"inaktiv\" Segment ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF-VORBEREITUNG_2": {
+        "main": [
+          [
+            {
+              "node": "MAX. ANZAHL LÖSCHUNG ERREICHT?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF-VORBEREITUNG": {
+        "main": [
+          [
+            {
+              "node": "GIBT ES NEXT PAGE?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SETZEN START URL ": {
+        "main": [
+          [
+            {
+              "node": "Hole Profile aus \"inaktiv\" Segment - BACKUP",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "FINALE AUSWERTUNG": {
+        "main": [
+          [
+            {
+              "node": "Send an Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait": {
+        "main": [
+          [
+            {
+              "node": "Vorbereitung Inner-Loop Reset",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Loop Over Items": {
+        "main": [
+          [
+            {
+              "node": "IF-VORBEREITUNG",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Vorbereitung HTTP Node",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Start-Fetch": {
+        "main": [
+          [
+            {
+              "node": "Hole Profile aus \"inaktiv\" Segment ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Hole Profile aus \"inaktiv\" Segment - BACKUP": {
+        "main": [
+          [
+            {
+              "node": "Speichere Profile Global ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Speichere Profile Global ": {
+        "main": [
+          [
+            {
+              "node": "Naechste Seite?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Naechste Seite?": {
+        "main": [
+          [
+            {
+              "node": "Hole Profile aus \"inaktiv\" Segment - BACKUP",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Backup-File Vorbereitung",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Backup-File Vorbereitung": {
+        "main": [
+          [
+            {
+              "node": "IF-Segment-Leer?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Convert to File": {
+        "main": [
+          [
+            {
+              "node": "Upload a file",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Vorbereitung Inner-Loop Reset": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Vorbereitung HTTP Node": {
+        "main": [
+          [
+            {
+              "node": "Löschen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Unwichtig: Wenn leer, kommt über Backup schon eine Mail ": {
+        "main": [
+          []
+        ]
+      },
+      "Upload a file": {
+        "main": [
+          [
+            {
+              "node": "Backup-Hochgeladen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF-Segment-Leer?": {
+        "main": [
+          [
+            {
+              "node": "Convert to File",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Segment-Ist-Leer-Flow-Abbruch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Segment-Ist-Leer-Flow-Abbruch": {
+        "main": [
+          []
+        ]
+      },
+      "Backup-Hochgeladen": {
+        "main": [
+          [
+            {
+              "node": "Start-Fetch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "SETZEN START URL ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version a0b1b837",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": []
+}

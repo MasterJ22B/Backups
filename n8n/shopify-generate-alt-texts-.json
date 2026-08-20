@@ -1,0 +1,293 @@
+{
+  "updatedAt": "2026-02-04T08:51:21.375Z",
+  "createdAt": "2026-02-03T15:54:00.108Z",
+  "id": "h9VqAoC14z1eoQko2PmBy",
+  "name": "Shopify-Generate-Alt-Texts",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        16,
+        64
+      ],
+      "id": "2cd2e014-81f0-414b-9dfd-69dd0502328c",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "topic": "products/create"
+      },
+      "type": "n8n-nodes-base.shopifyTrigger",
+      "typeVersion": 1,
+      "position": [
+        256,
+        64
+      ],
+      "id": "90831777-b8e7-4126-af7b-8689e4f127e2",
+      "name": "Shopify Trigger",
+      "webhookId": "9aa4057f-e1c2-497e-93b1-7782f2cfc9bc",
+      "credentials": {
+        "shopifyAccessTokenApi": {
+          "id": "rnjn9OiNNLUl9HnT",
+          "name": "Shopify Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        912,
+        64
+      ],
+      "id": "9d3ed47c-179e-4fb9-a16a-ce4c323f35ee",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "content": "## Hole Produkt-Informationen\n",
+        "height": 336,
+        "width": 400,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        208,
+        -96
+      ],
+      "id": "afedd5ed-7e31-4cfb-bc85-74816ea96833",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Generiere passende Alt-Texte\n\n",
+        "height": 528,
+        "width": 352,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        848,
+        -96
+      ],
+      "id": "8436e3af-66c0-484e-a155-ab2dccef956c",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        64
+      ],
+      "id": "28e42c2a-0583-4f35-8274-221dc096522c",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        464,
+        64
+      ],
+      "id": "fee90265-e08c-4f40-8c95-6d79ec7bf87e",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        64
+      ],
+      "id": "afa80b2e-c97f-4314-91a8-8ec9711f6d7a",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "content": "## Informationen extrahieren\n\n",
+        "height": 336,
+        "width": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        624,
+        -96
+      ],
+      "id": "8a2c6d84-5ddf-47a9-b83c-2b4f2eceb334",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Mappe Image_ID zu Alt-Text\n",
+        "height": 336,
+        "width": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        -96
+      ],
+      "id": "27c1297e-171f-4d68-ae7f-bb9a8d6b94b7",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Update Produkt\n",
+        "height": 336,
+        "width": 208,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        -96
+      ],
+      "id": "ec3b6ce1-5744-4798-b5a2-0faaa10384b7",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Shopify-Alt-Text-Generator\n",
+        "height": 720,
+        "width": 1728,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        -256
+      ],
+      "id": "fa7c2db4-415b-44a8-81f0-e89ab4d57701",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery"
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        1488,
+        64
+      ],
+      "id": "488c110f-f8ce-4ad6-823b-0c1c6104d273",
+      "name": "Microsoft SQL",
+      "credentials": {
+        "microsoftSql": {
+          "id": "FPNARNNGeU5o4IlA",
+          "name": "Microsoft SQL account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        []
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "4cdb5e22-2294-4ea0-91ed-b0508ac7d30f",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-02-03T15:54:00.113Z",
+      "createdAt": "2026-02-03T15:54:00.113Z",
+      "role": "workflow:owner",
+      "workflowId": "h9VqAoC14z1eoQko2PmBy",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

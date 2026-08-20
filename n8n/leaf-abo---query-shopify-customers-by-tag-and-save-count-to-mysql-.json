@@ -1,0 +1,260 @@
+{
+  "updatedAt": "2026-04-14T09:02:21.478Z",
+  "createdAt": "2026-02-01T16:19:17.004Z",
+  "id": "raUNfxbIv64nw9hW5aJF5",
+  "name": "LEAF Abo - Query Shopify Customers by Tag and Save Count to MySQL",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "dcd27925-2dec-49d3-9578-e3e3abe44b2f",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        1984,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "customerTag",
+              "value": "appstle_subscription_active_customer",
+              "type": "string"
+            },
+            {
+              "id": "id-2",
+              "name": "mysqlTable",
+              "value": "<__PLACEHOLDER_VALUE__MySQL table name__>",
+              "type": "string"
+            },
+            {
+              "id": "id-3",
+              "name": "shopifyStoreUrl",
+              "value": "hfmtrs-bh.myshopify.com",
+              "type": "string"
+            },
+            {
+              "id": "id-4",
+              "name": "shopifyApiVersion",
+              "value": "2026-01",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "95ad1b02-b03b-4d7f-a41a-7d7bc50ed855",
+      "name": "Workflow Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2208,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "customer_count",
+              "value": "={{ $input.all().length }}",
+              "type": "number"
+            },
+            {
+              "id": "id-2",
+              "name": "tag",
+              "value": "={{ $('Workflow Configuration').first().json.customerTag }}",
+              "type": "string"
+            },
+            {
+              "id": "id-3",
+              "name": "timestamp",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "00ddeb3a-b82b-4792-861d-cb1f78951e27",
+      "name": "Calculate Count",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2656,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('Workflow Configuration').first().json.mysqlTable }}"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "customer_count",
+              "value": "={{ $json.customer_count }}"
+            },
+            {
+              "column": "tag",
+              "value": "={{ $json.tag }}"
+            },
+            {
+              "column": "timestamp",
+              "value": "={{ $json.timestamp }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8b8c0f7b-31a7-454c-8efc-5b89953bad96",
+      "name": "Save to MySQL",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        2880,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://' + $('Workflow Configuration').first().json.shopifyStoreUrl + '/admin/api/' + $('Workflow Configuration').first().json.shopifyApiVersion + '/customers.json?tags=' + $('Workflow Configuration').first().json.customerTag }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "shopifyAccessTokenApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page_info",
+                    "value": "={{ $response.headers.link ? String($response.headers.link).split(',').find(link => link.includes('rel=\"next\"'))?.match(/page_info=([^&>]+)/)?.[1] : '' }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.headers.link || !String($response.headers.link).includes('rel=\"next\"') }}",
+              "limitPagesFetched": true,
+              "maxRequests": 1000,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "id": "4e905691-b17c-4881-a78e-f81f6ac8c396",
+      "name": "Get Customers by Tag",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2432,
+        176
+      ],
+      "credentials": {
+        "shopifyApi": {
+          "id": "6EpclDa50iDDOJfH",
+          "name": "Shopify account"
+        },
+        "shopifyAccessTokenApi": {
+          "id": "rnjn9OiNNLUl9HnT",
+          "name": "Shopify Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Count": {
+      "main": [
+        [
+          {
+            "node": "Save to MySQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Configuration": {
+      "main": [
+        [
+          {
+            "node": "Get Customers by Tag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Customers by Tag": {
+      "main": [
+        [
+          {
+            "node": "Calculate Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "e3cb2063-8eef-4e51-a5c1-006e4cff8eb6",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-02-01T16:19:17.008Z",
+      "createdAt": "2026-02-01T16:19:17.008Z",
+      "role": "workflow:owner",
+      "workflowId": "raUNfxbIv64nw9hW5aJF5",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

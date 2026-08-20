@@ -1,0 +1,704 @@
+{
+  "updatedAt": "2026-07-30T20:00:23.000Z",
+  "createdAt": "2026-05-02T06:19:33.617Z",
+  "id": "kNxCirR9BHerOjij",
+  "name": "Instagram – Daily Token Refresh",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * *"
+            }
+          ]
+        }
+      },
+      "id": "991879c5-322a-417e-bf36-bcd3b1ae7874",
+      "name": "Daily at 03:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -960,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT account, access_token, expires_at, DATEDIFF(expires_at, NOW()) AS days_remaining FROM instagram_tokens WHERE account IN ('BB', 'LEAF') ORDER BY FIELD(account, 'BB', 'LEAF');",
+        "options": {}
+      },
+      "id": "de0465ca-ee77-4e33-86dd-2ae74e983312",
+      "name": "Read All Tokens from DB",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        -720,
+        224
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-expires",
+              "leftValue": "={{ $json.days_remaining }}",
+              "rightValue": 7,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "98338eb3-19c2-4134-8fc4-cebd138f4685",
+      "name": "Expires in < 7 Days?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.1,
+      "position": [
+        -480,
+        224
+      ],
+      "notes": "Refresht nur wenn Token in weniger als 7 Tagen abläuft.\nNormal: Refresh ca. alle 53 Tage (60 - 7 Puffer).\nBeide Accounts werden unabhängig geprüft."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Token muss nicht refresht werden – keine Aktion nötig\nconst account = $input.item.json.account;\nconst daysRemaining = $input.item.json.days_remaining;\nconsole.log(`[${account}] Token gültig für weitere ${daysRemaining} Tage – kein Refresh nötig.`);\nreturn [];"
+      },
+      "id": "2b6d7f5c-55a6-4e18-bd6c-b919e8b6ed53",
+      "name": "Skip (Token still valid)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-is-bb",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "BB",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ad270fd3-9104-4b40-8265-e74cd0ef0082",
+      "name": "Route by Account",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.1,
+      "position": [
+        -240,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/oauth/access_token",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "fb_exchange_token"
+            },
+            {
+              "name": "client_id",
+              "value": "699229221541832"
+            },
+            {
+              "name": "client_secret",
+              "value": "4882a0e057cdb9916747d6a22faf46ea"
+            },
+            {
+              "name": "fb_exchange_token",
+              "value": "={{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5aeb3e45-c071-48fe-ab46-aeb477f12be7",
+      "name": "BB – Refresh Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE instagram_tokens SET access_token='{{ $json.access_token }}', expires_at=DATE_ADD(NOW(), INTERVAL (7*24*60*60) SECOND), updated_at=NOW() WHERE account='BB';",
+        "options": {}
+      },
+      "id": "6c395ef3-6807-4ccc-a350-2fe36e724ca9",
+      "name": "BB – Save New Token",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/oauth/access_token",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "fb_exchange_token"
+            },
+            {
+              "name": "client_id",
+              "value": "1550896538786183"
+            },
+            {
+              "name": "client_secret",
+              "value": "0c49b09e46f887a9ebfa19086a1dc81a"
+            },
+            {
+              "name": "fb_exchange_token",
+              "value": "={{$json.access_token}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c66678f6-d37c-4233-a85d-7247c86d3a94",
+      "name": "LEAF BB – Refresh Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE instagram_tokens SET access_token='{{ $json.access_token }}', expires_at=DATE_ADD(NOW(), INTERVAL {{ $json.expires_in }} SECOND), updated_at=NOW() WHERE account='LEAF';",
+        "options": {}
+      },
+      "id": "3025a621-0cfe-4874-9bb7-f2fe1cb7eb5f",
+      "name": "LEAF BB – Save New Token",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        240,
+        160
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily at 03:00": {
+      "main": [
+        [
+          {
+            "node": "Read All Tokens from DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read All Tokens from DB": {
+      "main": [
+        [
+          {
+            "node": "Expires in < 7 Days?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expires in < 7 Days?": {
+      "main": [
+        [
+          {
+            "node": "Route by Account",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip (Token still valid)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Account": {
+      "main": [
+        [
+          {
+            "node": "BB – Refresh Token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LEAF BB – Refresh Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BB – Refresh Token": {
+      "main": [
+        [
+          {
+            "node": "BB – Save New Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEAF BB – Refresh Token": {
+      "main": [
+        [
+          {
+            "node": "LEAF BB – Save New Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 2
+  },
+  "staticData": {
+    "node:Daily at 03:00": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "c9de8861-d3e9-43a8-bf89-35f6ccddc8c7",
+  "activeVersionId": "a39b73fe-b09b-407a-a1d5-7bc816e21596",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-07-30T20:00:23.808Z",
+      "createdAt": "2026-07-30T20:00:23.808Z",
+      "role": "workflow:owner",
+      "workflowId": "kNxCirR9BHerOjij",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-07-05T15:50:04.000Z",
+    "createdAt": "2026-07-05T15:49:52.818Z",
+    "versionId": "a39b73fe-b09b-407a-a1d5-7bc816e21596",
+    "workflowId": "kNxCirR9BHerOjij",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 3 * * *"
+              }
+            ]
+          }
+        },
+        "id": "991879c5-322a-417e-bf36-bcd3b1ae7874",
+        "name": "Daily at 03:00",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -960,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT account, access_token, expires_at, DATEDIFF(expires_at, NOW()) AS days_remaining FROM instagram_tokens WHERE account IN ('BB', 'LEAF') ORDER BY FIELD(account, 'BB', 'LEAF');",
+          "options": {}
+        },
+        "id": "de0465ca-ee77-4e33-86dd-2ae74e983312",
+        "name": "Read All Tokens from DB",
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.4,
+        "position": [
+          -720,
+          224
+        ],
+        "credentials": {
+          "mySql": {
+            "id": "yEG5MndvkRzkGkRo",
+            "name": "BB Data Warehouse"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "cond-expires",
+                "leftValue": "={{ $json.days_remaining }}",
+                "rightValue": 7,
+                "operator": {
+                  "type": "number",
+                  "operation": "lt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "98338eb3-19c2-4134-8fc4-cebd138f4685",
+        "name": "Expires in < 7 Days?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.1,
+        "position": [
+          -480,
+          224
+        ],
+        "notes": "Refresht nur wenn Token in weniger als 7 Tagen abläuft.\nNormal: Refresh ca. alle 53 Tage (60 - 7 Puffer).\nBeide Accounts werden unabhängig geprüft."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Token muss nicht refresht werden – keine Aktion nötig\nconst account = $input.item.json.account;\nconst daysRemaining = $input.item.json.days_remaining;\nconsole.log(`[${account}] Token gültig für weitere ${daysRemaining} Tage – kein Refresh nötig.`);\nreturn [];"
+        },
+        "id": "2b6d7f5c-55a6-4e18-bd6c-b919e8b6ed53",
+        "name": "Skip (Token still valid)",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -240,
+          368
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "cond-is-bb",
+                "leftValue": "={{ $json.account }}",
+                "rightValue": "BB",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "ad270fd3-9104-4b40-8265-e74cd0ef0082",
+        "name": "Route by Account",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.1,
+        "position": [
+          -240,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://graph.facebook.com/oauth/access_token",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "grant_type",
+                "value": "fb_exchange_token"
+              },
+              {
+                "name": "client_id",
+                "value": "699229221541832"
+              },
+              {
+                "name": "client_secret",
+                "value": "4882a0e057cdb9916747d6a22faf46ea"
+              },
+              {
+                "name": "fb_exchange_token",
+                "value": "={{ $json.access_token }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "5aeb3e45-c071-48fe-ab46-aeb477f12be7",
+        "name": "BB – Refresh Token",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE instagram_tokens SET access_token='{{ $json.access_token }}', expires_at=DATE_ADD(NOW(), INTERVAL (7*24*60*60) SECOND), updated_at=NOW() WHERE account='BB';",
+          "options": {}
+        },
+        "id": "6c395ef3-6807-4ccc-a350-2fe36e724ca9",
+        "name": "BB – Save New Token",
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.4,
+        "position": [
+          240,
+          0
+        ],
+        "credentials": {
+          "mySql": {
+            "id": "yEG5MndvkRzkGkRo",
+            "name": "BB Data Warehouse"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://graph.facebook.com/oauth/access_token",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "grant_type",
+                "value": "fb_exchange_token"
+              },
+              {
+                "name": "client_id",
+                "value": "1550896538786183"
+              },
+              {
+                "name": "client_secret",
+                "value": "0c49b09e46f887a9ebfa19086a1dc81a"
+              },
+              {
+                "name": "fb_exchange_token",
+                "value": "={{ $json.access_token }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "c66678f6-d37c-4233-a85d-7247c86d3a94",
+        "name": "LEAF BB – Refresh Token",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          0,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE instagram_tokens SET access_token='{{ $json.access_token }}', expires_at=DATE_ADD(NOW(), INTERVAL {{ $json.expires_in }} SECOND), updated_at=NOW() WHERE account='LEAF';",
+          "options": {}
+        },
+        "id": "3025a621-0cfe-4874-9bb7-f2fe1cb7eb5f",
+        "name": "LEAF BB – Save New Token",
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.4,
+        "position": [
+          240,
+          160
+        ],
+        "credentials": {
+          "mySql": {
+            "id": "yEG5MndvkRzkGkRo",
+            "name": "BB Data Warehouse"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Daily at 03:00": {
+        "main": [
+          [
+            {
+              "node": "Read All Tokens from DB",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read All Tokens from DB": {
+        "main": [
+          [
+            {
+              "node": "Expires in < 7 Days?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Expires in < 7 Days?": {
+        "main": [
+          [
+            {
+              "node": "Route by Account",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Skip (Token still valid)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route by Account": {
+        "main": [
+          [
+            {
+              "node": "BB – Refresh Token",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "LEAF BB – Refresh Token",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BB – Refresh Token": {
+        "main": [
+          [
+            {
+              "node": "BB – Save New Token",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "LEAF BB – Refresh Token": {
+        "main": [
+          [
+            {
+              "node": "LEAF BB – Save New Token",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version a39b73fe",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": [
+    {
+      "updatedAt": "2026-05-01T14:33:37.336Z",
+      "createdAt": "2026-05-01T14:33:37.336Z",
+      "id": "E4CQ3SHLqbdJpF7F",
+      "name": "Analytics"
+    },
+    {
+      "updatedAt": "2026-05-01T14:33:37.303Z",
+      "createdAt": "2026-05-01T14:33:37.303Z",
+      "id": "pb0xe68LqS3s2WdC",
+      "name": "Instagram"
+    }
+  ]
+}

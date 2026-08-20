@@ -1,0 +1,210 @@
+{
+  "updatedAt": "2026-04-14T08:58:57.639Z",
+  "createdAt": "2025-12-27T19:03:23.757Z",
+  "id": "q5DzCEjzYL4DBhox",
+  "name": "Report n8n workflow errors per Mail",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "aa84d631-c14f-45c2-a659-454605e83c30",
+      "name": "On Error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "position": [
+        448,
+        448
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "message",
+              "value": "=⚠️ Workflow `{{$json[\"workflow\"][\"name\"]}}` failed to run! [execution]({{ $json.execution.url }})"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "abffce17-cc93-4c6a-8955-de2d0f4cc885",
+      "name": "Set message",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        720,
+        448
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Error <workflows@buecherbuechse.de>",
+        "toEmail": "Bücherbüchse | IT <it@buecherbuechse.de>",
+        "subject": "=Bücherbüchse | n8n Workflow Fehler \"{{ $('On Error').item.json.workflow.name }}\"",
+        "html": "={{ $json.message }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1136,
+        448
+      ],
+      "id": "67bc3cb7-4d6e-4f0f-b809-d1784f4bd191",
+      "name": "Send email",
+      "webhookId": "a8a7ef00-727b-4d9a-ad0e-f42e64cc736b",
+      "credentials": {
+        "smtp": {
+          "id": "ZzNsJGHozTJiS4R6",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "On Error": {
+      "main": [
+        [
+          {
+            "node": "Set message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set message": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateId": "2159",
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "e609fa5f-084c-4781-a74c-8f8619931e1d",
+  "activeVersionId": "e609fa5f-084c-4781-a74c-8f8619931e1d",
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-01-27T12:05:37.475Z",
+      "createdAt": "2026-01-27T12:05:37.475Z",
+      "role": "workflow:owner",
+      "workflowId": "q5DzCEjzYL4DBhox",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2025-12-27T19:05:17.000Z",
+    "createdAt": "2025-12-27T19:05:13.360Z",
+    "versionId": "e609fa5f-084c-4781-a74c-8f8619931e1d",
+    "workflowId": "q5DzCEjzYL4DBhox",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "aa84d631-c14f-45c2-a659-454605e83c30",
+        "name": "On Error",
+        "type": "n8n-nodes-base.errorTrigger",
+        "position": [
+          448,
+          448
+        ],
+        "typeVersion": 1
+      },
+      {
+        "parameters": {
+          "keepOnlySet": true,
+          "values": {
+            "string": [
+              {
+                "name": "message",
+                "value": "=⚠️ Workflow `{{$json[\"workflow\"][\"name\"]}}` failed to run! [execution]({{ $json.execution.url }})"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "abffce17-cc93-4c6a-8955-de2d0f4cc885",
+        "name": "Set message",
+        "type": "n8n-nodes-base.set",
+        "position": [
+          720,
+          448
+        ],
+        "typeVersion": 1
+      },
+      {
+        "parameters": {
+          "fromEmail": "Bücherbüchse Error <workflows@buecherbuechse.de>",
+          "toEmail": "Bücherbüchse | IT <it@buecherbuechse.de>",
+          "subject": "=Bücherbüchse | n8n Workflow Fehler \"{{ $('On Error').item.json.workflow.name }}\"",
+          "html": "={{ $json.message }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1136,
+          448
+        ],
+        "id": "67bc3cb7-4d6e-4f0f-b809-d1784f4bd191",
+        "name": "Send email",
+        "webhookId": "a8a7ef00-727b-4d9a-ad0e-f42e64cc736b",
+        "credentials": {
+          "smtp": {
+            "id": "ZzNsJGHozTJiS4R6",
+            "name": "SMTP account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "On Error": {
+        "main": [
+          [
+            {
+              "node": "Set message",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set message": {
+        "main": [
+          [
+            {
+              "node": "Send email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version e609fa5f",
+    "description": "",
+    "autosaved": false
+  },
+  "tags": []
+}

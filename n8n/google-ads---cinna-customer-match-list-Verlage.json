@@ -1,0 +1,756 @@
+{
+  "updatedAt": "2026-06-02T14:31:00.347Z",
+  "createdAt": "2026-05-05T07:24:57.058Z",
+  "id": "x9Cp2Kq4bRAwx11i",
+  "name": "Google Ads - CINNA Customer Match List",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtHour": 3,
+              "triggerAtMinute": 10
+            }
+          ]
+        }
+      },
+      "id": "6aa2bc43-e395-4cc0-a776-b2c4ae0eb20a",
+      "name": "am 1. des Monats",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH KundenDaten AS\n(\n    SELECT\n        a.cMail AS EmailAdresse,\n        a.cVorname AS Vorname,\n        a.cName AS Nachname,\n        a.cLand AS Land,\n        a.cPLZ AS Postleitzahl,\n        a.cTel AS Telefonnummer,\n        ROW_NUMBER() OVER\n        (\n            PARTITION BY a.cMail\n            ORDER BY a.cTel\n        ) AS rn\n    FROM dbo.tBestellung AS b\n    INNER JOIN dbo.tAdresse AS a\n        ON a.kKunde = b.tKunde_kKunde\n    WHERE b.tKunde_kKunde IS NOT NULL\n      AND b.cBestellNr LIKE 'CINNA%'\n      AND a.cMail IS NOT NULL\n      AND LTRIM(RTRIM(a.cMail)) <> ''\n)\nSELECT\n    EmailAdresse,\n    Vorname,\n    Nachname,\n    Land,\n    Postleitzahl,\n    Telefonnummer\nFROM KundenDaten\nWHERE rn = 1\nORDER BY\n    EmailAdresse;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -16,
+        192
+      ],
+      "id": "d10daeaa-60a1-4d2b-8eaa-fa76928a48ba",
+      "name": "Microsoft SQL",
+      "credentials": {
+        "microsoftSql": {
+          "id": "FPNARNNGeU5o4IlA",
+          "name": "Microsoft SQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ",",
+          "fileName": "cinna-customer-match-list.csv"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1744,
+        208
+      ],
+      "id": "1241ef51-91d8-4f44-9eda-f8d84e38793c",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de;christoph@buecherbuechse.de;performancemarketing@buecherbuechse.de",
+        "subject": "=CINNA | Google Customer Match List für {{ $now.minus(1,'months').format('MM.yyyy')}}",
+        "emailFormat": "text",
+        "text": "=Anbei befindet sich die cinna-customer-match-list.csv vom {{ $now.format('dd.MM.yyyy') }}.\n\nDiese Mail wurde vom n8n Workflow: \"Google Ads - CINNA Customer Match List\" versendet. \n\nMit freundlichen Grüßen \n\nBB's n8n ",
+        "options": {
+          "attachments": "data"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1968,
+        208
+      ],
+      "id": "2a3c3216-3b3d-4987-84ad-9e910deb2d7e",
+      "name": "Send an Email",
+      "webhookId": "99808b80-bdaf-42a2-8942-a686453b55ec",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const countryMap = {\n  'deutschland': 'de',\n  'germany': 'de',\n  'schweiz': 'ch',\n  'switzerland': 'ch',\n  'suisse': 'ch',\n  'österreich': 'at',\n  'oesterreich': 'at',\n  'austria': 'at'\n};\n\nconst supportedPhoneCountries = ['de', 'ch', 'at'];\n\nfunction cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction normalizeCountry(value) {\n  const raw = cleanString(value);\n  if (!raw) return '';\n\n  const key = raw.toLowerCase();\n\n  return countryMap[key] || raw;\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, countryCode) {\n  let phone = cleanString(rawPhone);\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  phone = phone.replace(/[^\\d+]/g, '');\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  const isSupportedCountry = supportedPhoneCountries.includes(countryCode);\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('+49')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('49')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '49' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('+41')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('41')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '41' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('+43')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('43')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '43' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (!isSupportedCountry) {\n    let cleaned = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n    if (obviousFakePhone(cleaned)) {\n      return {\n        phone: '',\n        sonderfall: false\n      };\n    }\n\n    return {\n      phone: cleaned,\n      sonderfall: true\n    };\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  return {\n    phone,\n    sonderfall: false\n  };\n}\n\nreturn items.map(item => {\n  const source = item.json;\n\n  const country = normalizeCountry(source.Land);\n  const phoneResult = normalizePhone(source.Telefonnummer, country);\n\n  item.json = {\n    Email: cleanString(source.EmailAdresse).toLowerCase(),\n    'First Name': cleanString(source.Vorname),\n    'Last Name': cleanString(source.Nachname),\n    Country: country,\n    Zip: cleanString(source.Postleitzahl),\n    Phone: phoneResult.phone,\n    sonderfall: phoneResult.sonderfall\n  };\n\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        192
+      ],
+      "id": "59b317dd-7490-4f15-a133-4a709e91323e",
+      "name": "Telefonnummer-Format-Bereinigung"
+    },
+    {
+      "parameters": {
+        "content": "## Timestamp + Abfrage\n",
+        "height": 480,
+        "width": 336,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        -16
+      ],
+      "id": "0cfc09b2-0721-4368-bd72-4dd1ec9353b8",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Grobe Korrektur der Telefonnummern per Skript",
+        "height": 480,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        176,
+        -16
+      ],
+      "id": "47305e77-fcb0-4fbb-895a-52db981a7fb9",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## CSV + Mail-Versand\n",
+        "height": 496,
+        "width": 784,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        -32
+      ],
+      "id": "584ad360-5a7b-4c05-beae-a8509e1fe913",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fe0bff12-74c5-4fec-b2f4-ed942e5bc9ef",
+              "leftValue": "={{ $json.sonderfall }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        512,
+        336
+      ],
+      "id": "14042a4e-015b-4d3b-80c2-ec0f57659366",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1136,
+        224
+      ],
+      "id": "d332889e-8e73-4d1e-a9ac-395828a57c29",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "content": "## Fein-Korrektur über AZURE + Zusammenführung\n",
+        "height": 480,
+        "width": 816,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        -16
+      ],
+      "id": "47962160-fef0-42ac-8ae3-c2805513ec33",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Hotfix 04.05.2026\nMissverständnis: Vorwahl und Nummer sollen NICHT per Semikolon getrennt werden. Leerzeichen sollen simpel entfernt werden.\n",
+        "height": 384,
+        "width": 288,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        32
+      ],
+      "id": "6f0c481c-6d28-443e-82f9-f43e209abb28",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  delete item.json.sonderfall;\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        208
+      ],
+      "id": "40d4d228-3941-4b60-ad42-a40cc8aebda7",
+      "name": "Löschen Sonderfall-Attributs "
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000|123456789)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, country) {\n  const original = cleanString(rawPhone);\n  const countryCode = cleanString(country).toLowerCase();\n\n  if (!original) return '';\n\n  let phone = original.replace(/[^\\d+]/g, '');\n\n  if (!phone) return '';\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) return '';\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('49')) return phone;\n    if (phone.startsWith('0')) return '49' + phone.slice(1);\n\n    // Deutsche Mobilnummer ohne führende 0, z. B. 17650335244\n    if (/^1[5-7]\\d{8,10}$/.test(phone)) {\n      return '49' + phone;\n    }\n\n    // Keine sicher erkennbare deutsche Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('43')) return phone;\n    if (phone.startsWith('0')) return '43' + phone.slice(1);\n\n    // Österreichische Mobilnummer ohne führende 0, z. B. 6605239952\n    if (/^6\\d{7,11}$/.test(phone)) {\n      return '43' + phone;\n    }\n\n    // Keine sicher erkennbare österreichische Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('41')) return phone;\n    if (phone.startsWith('0')) return '41' + phone.slice(1);\n\n    // Schweizer Mobilnummer ohne führende 0, z. B. 791234567\n    if (/^7\\d{8}$/.test(phone)) {\n      return '41' + phone;\n    }\n\n    // Keine sicher erkennbare Schweizer Telefonnummer\n    return '';\n  }\n\n  return original;\n}\n\nreturn items.map(item => {\n  item.json.Phone = normalizePhone(item.json.Phone, item.json.Country);\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        208
+      ],
+      "id": "f3d75fe3-baf6-4bf2-a748-2d414e4c3805",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "connections": {
+    "am 1. des Monats": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL": {
+      "main": [
+        [
+          {
+            "node": "Telefonnummer-Format-Bereinigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telefonnummer-Format-Bereinigung": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Löschen Sonderfall-Attributs ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen Sonderfall-Attributs ": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:am 1. des Monats": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "1a213fba-8273-4767-9fb6-71b22034ff46",
+  "activeVersionId": "1a213fba-8273-4767-9fb6-71b22034ff46",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-05-05T07:24:57.063Z",
+      "createdAt": "2026-05-05T07:24:57.063Z",
+      "role": "workflow:owner",
+      "workflowId": "x9Cp2Kq4bRAwx11i",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-06-02T14:31:04.000Z",
+    "createdAt": "2026-06-02T14:31:00.348Z",
+    "versionId": "1a213fba-8273-4767-9fb6-71b22034ff46",
+    "workflowId": "x9Cp2Kq4bRAwx11i",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "months",
+                "triggerAtHour": 3,
+                "triggerAtMinute": 10
+              }
+            ]
+          }
+        },
+        "id": "6aa2bc43-e395-4cc0-a776-b2c4ae0eb20a",
+        "name": "am 1. des Monats",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -176,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH KundenDaten AS\n(\n    SELECT\n        a.cMail AS EmailAdresse,\n        a.cVorname AS Vorname,\n        a.cName AS Nachname,\n        a.cLand AS Land,\n        a.cPLZ AS Postleitzahl,\n        a.cTel AS Telefonnummer,\n        ROW_NUMBER() OVER\n        (\n            PARTITION BY a.cMail\n            ORDER BY a.cTel\n        ) AS rn\n    FROM dbo.tBestellung AS b\n    INNER JOIN dbo.tAdresse AS a\n        ON a.kKunde = b.tKunde_kKunde\n    WHERE b.tKunde_kKunde IS NOT NULL\n      AND b.cBestellNr LIKE 'CINNA%'\n      AND a.cMail IS NOT NULL\n      AND LTRIM(RTRIM(a.cMail)) <> ''\n)\nSELECT\n    EmailAdresse,\n    Vorname,\n    Nachname,\n    Land,\n    Postleitzahl,\n    Telefonnummer\nFROM KundenDaten\nWHERE rn = 1\nORDER BY\n    EmailAdresse;\n",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          -16,
+          192
+        ],
+        "id": "d10daeaa-60a1-4d2b-8eaa-fa76928a48ba",
+        "name": "Microsoft SQL",
+        "credentials": {
+          "microsoftSql": {
+            "id": "FPNARNNGeU5o4IlA",
+            "name": "Microsoft SQL account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "options": {
+            "delimiter": ",",
+            "fileName": "cinna-customer-match-list.csv"
+          }
+        },
+        "type": "n8n-nodes-base.convertToFile",
+        "typeVersion": 1.1,
+        "position": [
+          1744,
+          208
+        ],
+        "id": "1241ef51-91d8-4f44-9eda-f8d84e38793c",
+        "name": "Convert to File"
+      },
+      {
+        "parameters": {
+          "fromEmail": "n8n@mail.buecherbuechse.de",
+          "toEmail": "jesse.balsam@buecherbuechse.de;christoph@buecherbuechse.de;performancemarketing@buecherbuechse.de",
+          "subject": "=CINNA | Google Customer Match List für {{ $now.minus(1,'months').format('MM.yyyy')}}",
+          "emailFormat": "text",
+          "text": "=Anbei befindet sich die cinna-customer-match-list.csv vom {{ $now.format('dd.MM.yyyy') }}.\n\nDiese Mail wurde vom n8n Workflow: \"Google Ads - CINNA Customer Match List\" versendet. \n\nMit freundlichen Grüßen \n\nBB's n8n ",
+          "options": {
+            "attachments": "data"
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1968,
+          208
+        ],
+        "id": "2a3c3216-3b3d-4987-84ad-9e910deb2d7e",
+        "name": "Send an Email",
+        "webhookId": "99808b80-bdaf-42a2-8942-a686453b55ec",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const countryMap = {\n  'deutschland': 'de',\n  'germany': 'de',\n  'schweiz': 'ch',\n  'switzerland': 'ch',\n  'suisse': 'ch',\n  'österreich': 'at',\n  'oesterreich': 'at',\n  'austria': 'at'\n};\n\nconst supportedPhoneCountries = ['de', 'ch', 'at'];\n\nfunction cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction normalizeCountry(value) {\n  const raw = cleanString(value);\n  if (!raw) return '';\n\n  const key = raw.toLowerCase();\n\n  return countryMap[key] || raw;\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, countryCode) {\n  let phone = cleanString(rawPhone);\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  phone = phone.replace(/[^\\d+]/g, '');\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  const isSupportedCountry = supportedPhoneCountries.includes(countryCode);\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('+49')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('49')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '49' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('+41')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('41')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '41' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('+43')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('43')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '43' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (!isSupportedCountry) {\n    let cleaned = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n    if (obviousFakePhone(cleaned)) {\n      return {\n        phone: '',\n        sonderfall: false\n      };\n    }\n\n    return {\n      phone: cleaned,\n      sonderfall: true\n    };\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  return {\n    phone,\n    sonderfall: false\n  };\n}\n\nreturn items.map(item => {\n  const source = item.json;\n\n  const country = normalizeCountry(source.Land);\n  const phoneResult = normalizePhone(source.Telefonnummer, country);\n\n  item.json = {\n    Email: cleanString(source.EmailAdresse).toLowerCase(),\n    'First Name': cleanString(source.Vorname),\n    'Last Name': cleanString(source.Nachname),\n    Country: country,\n    Zip: cleanString(source.Postleitzahl),\n    Phone: phoneResult.phone,\n    sonderfall: phoneResult.sonderfall\n  };\n\n  return item;\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          240,
+          192
+        ],
+        "id": "59b317dd-7490-4f15-a133-4a709e91323e",
+        "name": "Telefonnummer-Format-Bereinigung"
+      },
+      {
+        "parameters": {
+          "content": "## Timestamp + Abfrage\n",
+          "height": 480,
+          "width": 336,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -208,
+          -16
+        ],
+        "id": "0cfc09b2-0721-4368-bd72-4dd1ec9353b8",
+        "name": "Sticky Note"
+      },
+      {
+        "parameters": {
+          "content": "## Grobe Korrektur der Telefonnummern per Skript",
+          "height": 480,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          176,
+          -16
+        ],
+        "id": "47305e77-fcb0-4fbb-895a-52db981a7fb9",
+        "name": "Sticky Note1"
+      },
+      {
+        "parameters": {
+          "content": "## CSV + Mail-Versand\n",
+          "height": 496,
+          "width": 784,
+          "color": 5
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1328,
+          -32
+        ],
+        "id": "584ad360-5a7b-4c05-beae-a8509e1fe913",
+        "name": "Sticky Note3"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "fe0bff12-74c5-4fec-b2f4-ed942e5bc9ef",
+                "leftValue": "={{ $json.sonderfall }}",
+                "rightValue": false,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          512,
+          336
+        ],
+        "id": "14042a4e-015b-4d3b-80c2-ec0f57659366",
+        "name": "If"
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          1136,
+          224
+        ],
+        "id": "d332889e-8e73-4d1e-a9ac-395828a57c29",
+        "name": "Merge"
+      },
+      {
+        "parameters": {
+          "content": "## Fein-Korrektur über AZURE + Zusammenführung\n",
+          "height": 480,
+          "width": 816,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          464,
+          -16
+        ],
+        "id": "47962160-fef0-42ac-8ae3-c2805513ec33",
+        "name": "Sticky Note2"
+      },
+      {
+        "parameters": {
+          "content": "## Hotfix 04.05.2026\nMissverständnis: Vorwahl und Nummer sollen NICHT per Semikolon getrennt werden. Leerzeichen sollen simpel entfernt werden.\n",
+          "height": 384,
+          "width": 288,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1344,
+          32
+        ],
+        "id": "6f0c481c-6d28-443e-82f9-f43e209abb28",
+        "name": "Sticky Note4"
+      },
+      {
+        "parameters": {
+          "jsCode": "return items.map(item => {\n  delete item.json.sonderfall;\n  return item;\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1392,
+          208
+        ],
+        "id": "40d4d228-3941-4b60-ad42-a40cc8aebda7",
+        "name": "Löschen Sonderfall-Attributs "
+      },
+      {
+        "parameters": {
+          "jsCode": "function cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000|123456789)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, country) {\n  const original = cleanString(rawPhone);\n  const countryCode = cleanString(country).toLowerCase();\n\n  if (!original) return '';\n\n  let phone = original.replace(/[^\\d+]/g, '');\n\n  if (!phone) return '';\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) return '';\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('49')) return phone;\n    if (phone.startsWith('0')) return '49' + phone.slice(1);\n\n    // Deutsche Mobilnummer ohne führende 0, z. B. 17650335244\n    if (/^1[5-7]\\d{8,10}$/.test(phone)) {\n      return '49' + phone;\n    }\n\n    // Keine sicher erkennbare deutsche Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('43')) return phone;\n    if (phone.startsWith('0')) return '43' + phone.slice(1);\n\n    // Österreichische Mobilnummer ohne führende 0, z. B. 6605239952\n    if (/^6\\d{7,11}$/.test(phone)) {\n      return '43' + phone;\n    }\n\n    // Keine sicher erkennbare österreichische Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('41')) return phone;\n    if (phone.startsWith('0')) return '41' + phone.slice(1);\n\n    // Schweizer Mobilnummer ohne führende 0, z. B. 791234567\n    if (/^7\\d{8}$/.test(phone)) {\n      return '41' + phone;\n    }\n\n    // Keine sicher erkennbare Schweizer Telefonnummer\n    return '';\n  }\n\n  return original;\n}\n\nreturn items.map(item => {\n  item.json.Phone = normalizePhone(item.json.Phone, item.json.Country);\n  return item;\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          720,
+          208
+        ],
+        "id": "f3d75fe3-baf6-4bf2-a748-2d414e4c3805",
+        "name": "Code in JavaScript"
+      }
+    ],
+    "connections": {
+      "am 1. des Monats": {
+        "main": [
+          [
+            {
+              "node": "Microsoft SQL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Microsoft SQL": {
+        "main": [
+          [
+            {
+              "node": "Telefonnummer-Format-Bereinigung",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Convert to File": {
+        "main": [
+          [
+            {
+              "node": "Send an Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Telefonnummer-Format-Bereinigung": {
+        "main": [
+          [
+            {
+              "node": "If",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "If": {
+        "main": [
+          [
+            {
+              "node": "Code in JavaScript",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Merge": {
+        "main": [
+          [
+            {
+              "node": "Löschen Sonderfall-Attributs ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Löschen Sonderfall-Attributs ": {
+        "main": [
+          [
+            {
+              "node": "Convert to File",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code in JavaScript": {
+        "main": [
+          [
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 1
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version 1a213fba",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": [
+    {
+      "updatedAt": "2026-03-08T13:05:09.107Z",
+      "createdAt": "2026-03-08T13:05:09.107Z",
+      "id": "7yj1m1x4xrHvUucU",
+      "name": "Verlage"
+    }
+  ]
+}

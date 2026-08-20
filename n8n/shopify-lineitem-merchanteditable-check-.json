@@ -1,0 +1,198 @@
+{
+  "updatedAt": "2026-07-09T07:34:43.611Z",
+  "createdAt": "2026-07-03T10:00:49.796Z",
+  "id": "DwgEwvVv27XV17z2",
+  "name": "Shopify-LineItem-merchantEditable-Check",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        368
+      ],
+      "id": "9e1127d8-62f0-4542-b71a-88254dbfcdfb",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -192,
+        368
+      ],
+      "id": "ca0041df-debf-4412-9e3b-deaef2fbd2fa",
+      "name": "Token holen ",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const orderGid = 'gid://shopify/Order/7576484053107';\n\nconst body = {\n  query: `{ order(id: \"${orderGid}\") { id name lineItems(first: 50) { edges { node { id title sku quantity merchantEditable originalUnitPriceSet { shopMoney { amount currencyCode } } contract { id } sellingPlan { name } } } } } }`\n};\n\nreturn [{\n  json: {\n    accessToken: $('Token holen ').item.json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        368
+      ],
+      "id": "e0132a34-754b-4be3-b4ab-02c5a0ce243f",
+      "name": "Query bauen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        368
+      ],
+      "id": "1db6365f-b429-4998-af9a-8b960cd2d83d",
+      "name": "GraphQL Order abfragen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst errs = resp?.errors;\nif (errs) {\n  throw new Error('GraphQL errors: ' + JSON.stringify(errs));\n}\n\nconst order = resp?.data?.order;\nif (!order) {\n  throw new Error('Keine Order erhalten: ' + JSON.stringify(resp));\n}\n\nconst edges = order.lineItems?.edges || [];\n\nreturn edges.map(e => {\n  const n = e.node;\n  return {\n    json: {\n      orderName: order.name,\n      lineItemId: n.id,\n      title: n.title,\n      sku: n.sku,\n      quantity: n.quantity,\n      merchantEditable: n.merchantEditable,\n      preis: n.originalUnitPriceSet?.shopMoney?.amount ?? null,\n      waehrung: n.originalUnitPriceSet?.shopMoney?.currencyCode ?? null,\n      hatContract: !!n.contract?.id,\n      sellingPlan: n.sellingPlan?.name ?? null\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        368
+      ],
+      "id": "b5658e6e-e15f-4a5a-9f15-dfe0cb5a9d7e",
+      "name": "Positionen auswerten"
+    },
+    {
+      "parameters": {
+        "content": "## merchantEditable-Check (eine Bestellung)\nFragt Bestellung BB-1500974 (gid 7581693476979) per GraphQL ab und listet je Position: merchantEditable, Preis, SKU, Titel, Contract-/SellingPlan-Bezug.\n\nZiel: sehen, ob die 0-€-Position (SKU 004) merchantEditable=true ist → nur dann liesse sie sich per orderEditSetQuantity(0) entfernen.\n\nBei Bedarf orderGid im Node \"Query bauen\" tauschen.",
+        "height": 320,
+        "width": 640,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dd01493f-d4dd-48b4-b969-a39bf12de298",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen ": {
+      "main": [
+        [
+          {
+            "node": "Query bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen": {
+      "main": [
+        [
+          {
+            "node": "GraphQL Order abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GraphQL Order abfragen": {
+      "main": [
+        [
+          {
+            "node": "Positionen auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "9ca07e07-d6cb-4d30-a9f5-309b2e6567c1",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-07-03T10:00:49.799Z",
+      "createdAt": "2026-07-03T10:00:49.799Z",
+      "role": "workflow:owner",
+      "workflowId": "DwgEwvVv27XV17z2",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

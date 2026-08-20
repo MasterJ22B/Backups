@@ -1,0 +1,409 @@
+{
+  "updatedAt": "2026-08-05T07:37:23.495Z",
+  "createdAt": "2026-08-04T08:25:33.124Z",
+  "id": "0myOWesDw67tT7Bz",
+  "name": "Shopify-Bestellungen-mit-App-Bearbeitung-finden-n8n-filter",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        48,
+        352
+      ],
+      "id": "f15f3765-b63d-4d53-88cc-92431e132eb1",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === Zentrale Konfiguration – hier pflegen ===\nconst CONFIG = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  // Zeitraum der Bearbeitung (nicht des Bestelldatums!).\n  // updatedAtMin gesetzt -> gewinnt. Sonst wird stundenZurueck verwendet.\n  updatedAtMin: null,\n  updatedAtMax: null,\n  stundenZurueck: 24,\n\n  // Nach App-Name filtern. Beim ERSTEN Lauf auf null lassen – dann siehst du\n  // im Ergebnis, wie deine App in appTitle heisst, und kannst hier eintragen.\n  appTitel: null,\n\n  // Zusätzlich nach Event-Text suchen (staffNote aus orderEditCommit).\n  // null = nur nach App filtern.\n  suchtext: 'Automatischer Positionstausch',\n\n  // Verknüpfung der beiden Filter: 'ODER' (Treffer bei einem von beiden)\n  // oder 'UND' (beide müssen zutreffen).\n  verknuepfung: 'ODER',\n\n  // Schutz gegen Endlosschleife bei sehr grossen Zeiträumen\n  maxSeiten: 25\n};\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.config = CONFIG;\nstaticData.treffer = [];\nstaticData.geprueft = 0;\nstaticData.appTitelGesehen = {};\n\nreturn [{ json: { config: CONFIG } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        352
+      ],
+      "id": "fbdf46b3-f0b7-4a29-8cf3-34f2ff7f7886",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        480,
+        352
+      ],
+      "id": "0927047d-fdca-4679-910f-d27b180ea395",
+      "name": "Token holen",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\n\n// Zeitfenster bestimmen\nlet min = config.updatedAtMin;\nif (!min) {\n  const h = Number(config.stundenZurueck) || 24;\n  min = new Date(Date.now() - h * 3600 * 1000).toISOString();\n}\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.treffer = [];\nstaticData.geprueft = 0;\nstaticData.appTitelGesehen = {};\nstaticData.updatedAtMin = min;\n\nreturn [{ json: { cursor: null, hasNext: true, seite: 0, updatedAtMin: min } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        352
+      ],
+      "id": "f4556b00-b272-45f0-8b35-5fb37d6dfb30",
+      "name": "Cursor initialisieren"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst inp = $input.first().json;\nconst staticData = $getWorkflowStaticData('global');\n\nconst filter = ['updated_at:>=' + staticData.updatedAtMin];\nif (config.updatedAtMax) filter.push('updated_at:<=' + config.updatedAtMax);\n\n// Events tragen attributeToApp + appTitle -> daran erkennt man App-Bearbeitungen.\nconst body = {\n  query: `query($cursor: String, $q: String!) {\n    orders(first: 20, after: $cursor, query: $q, sortKey: UPDATED_AT) {\n      pageInfo { hasNextPage endCursor }\n      edges {\n        node {\n          id\n          name\n          createdAt\n          updatedAt\n          displayFinancialStatus\n          app { name }\n          totalOutstandingSet { presentmentMoney { amount currencyCode } }\n          currentTotalPriceSet { presentmentMoney { amount currencyCode } }\n          lineItems(first: 25) {\n            edges { node { sku title quantity currentQuantity } }\n          }\n          events(first: 15, sortKey: CREATED_AT, reverse: true) {\n            edges {\n              node { id createdAt message attributeToApp attributeToUser appTitle }\n            }\n          }\n        }\n      }\n    }\n  }`,\n  variables: { cursor: inp.cursor || null, q: filter.join(' AND ') }\n};\n\nreturn [{\n  json: {\n    accessToken: $('Token holen').first().json.access_token,\n    gqlBody: JSON.stringify(body),\n    seite: (Number(inp.seite) || 0) + 1\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        352
+      ],
+      "id": "ca9d5ff5-9ef6-429b-81fb-64a9ea1a80f8",
+      "name": "Query bauen (Orders + Events)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1152,
+        352
+      ],
+      "id": "7070abd8-2a07-4baf-b137-f6e6e9f55c20",
+      "name": "Orders + Events abfragen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\n\n// GraphQL antwortet mit HTTP 200 auch bei ungültigen Queries\nif (resp?.errors?.length) {\n  throw new Error('GraphQL: ' + JSON.stringify(resp.errors));\n}\nconst conn = resp?.data?.orders;\nif (!conn) {\n  throw new Error('Keine orders-Connection erhalten: ' + JSON.stringify(resp));\n}\n\nconst config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.treffer)) staticData.treffer = [];\nif (!staticData.appTitelGesehen) staticData.appTitelGesehen = {};\n\nconst suchtext = config.suchtext ? String(config.suchtext).toLowerCase() : null;\nconst appTitel = config.appTitel ? String(config.appTitel).toLowerCase() : null;\nconst undVerknuepft = String(config.verknuepfung || 'ODER').toUpperCase() === 'UND';\n\nfor (const edge of conn.edges) {\n  const o = edge.node;\n  staticData.geprueft = (staticData.geprueft || 0) + 1;\n\n  const events = (o.events?.edges || []).map(e => e.node);\n\n  // Inventar aller gesehenen App-Namen – hilft beim Setzen von Config.appTitel\n  for (const ev of events) {\n    if (ev.attributeToApp && ev.appTitle) {\n      staticData.appTitelGesehen[ev.appTitle] = (staticData.appTitelGesehen[ev.appTitle] || 0) + 1;\n    }\n  }\n\n  const relevant = events.filter(ev => {\n    const trefferApp = ev.attributeToApp === true &&\n      (!appTitel || String(ev.appTitle || '').toLowerCase().includes(appTitel));\n    const trefferText = suchtext\n      ? String(ev.message || '').toLowerCase().includes(suchtext)\n      : false;\n\n    if (appTitel && suchtext) {\n      return undVerknuepft ? (trefferApp && trefferText) : (trefferApp || trefferText);\n    }\n    if (suchtext && !appTitel) {\n      return undVerknuepft ? (trefferApp && trefferText) : (trefferApp || trefferText);\n    }\n    return trefferApp;\n  });\n\n  if (!relevant.length) continue;\n\n  const li = (o.lineItems?.edges || []).map(e => e.node);\n  const aktiv = li.filter(x => Number(x.currentQuantity) > 0);\n  const entfernt = li.filter(x => Number(x.currentQuantity) === 0);\n\n  staticData.treffer.push({\n    orderName: o.name,\n    orderId: o.id.split('/').pop(),\n    erstelltAm: o.createdAt,\n    bearbeitetAm: o.updatedAt,\n    finanzstatus: o.displayFinancialStatus,\n    erstelltVonApp: o.app?.name || null,\n    offenerSaldo: o.totalOutstandingSet?.presentmentMoney?.amount || null,\n    aktuelleSumme: o.currentTotalPriceSet?.presentmentMoney?.amount || null,\n    waehrung: o.currentTotalPriceSet?.presentmentMoney?.currencyCode || null,\n    aktiveSkus: aktiv.map(x => x.sku).filter(Boolean).join(' | '),\n    entfernteSkus: entfernt.map(x => x.sku).filter(Boolean).join(' | '),\n    anzahlEvents: relevant.length,\n    apps: [...new Set(relevant.map(e => e.appTitle).filter(Boolean))].join(' | '),\n    events: relevant\n      .map(e => `${e.createdAt} [${e.appTitle || (e.attributeToUser ? 'Mitarbeiter' : 'System')}] ${e.message}`)\n      .join(' || ')\n  });\n}\n\nconst seite = Number($('Query bauen (Orders + Events)').first().json.seite) || 1;\nconst weiter = conn.pageInfo?.hasNextPage === true && seite < Number(config.maxSeiten);\n\nreturn [{\n  json: {\n    cursor: conn.pageInfo?.endCursor || null,\n    hasNext: weiter,\n    seite,\n    geprueftGesamt: staticData.geprueft,\n    trefferGesamt: staticData.treffer.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        352
+      ],
+      "id": "15776919-3d2e-4306-9d2e-73cf45166d4c",
+      "name": "Treffer filtern + Cursor"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1584,
+        352
+      ],
+      "id": "052f47ab-cd9e-46dd-a4b1-3c120e142cc3",
+      "name": "Wait",
+      "webhookId": "9a6d2f55-ecc1-47e6-95be-fddffb3be39b"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a735e24b-0d08-4b13-b76c-9c4d09636148",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1808,
+        352
+      ],
+      "id": "a5ed0fbe-4467-43a6-ba1c-cf952631b8ad",
+      "name": "Weitere Seite?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst treffer = staticData.treffer || [];\nconst gesehen = staticData.appTitelGesehen || {};\n\n// === NUR n8n-App-Bearbeitungen ===\n// Events sind als \"... [appTitle] message\" gespeichert -> darauf filtern.\nconst N8N = 'n8n';\nconst nurN8n = treffer\n  .map(t => {\n    const eigene = String(t.events || '')\n      .split(' || ')\n      .filter(e => e.toLowerCase().includes('[' + N8N));\n    if (!eigene.length) return null;\n    return {\n      ...t,\n      anzahlEvents: eigene.length,\n      apps: [...new Set(\n        String(t.apps || '').split(' | ').filter(a => a.toLowerCase().includes(N8N))\n      )].join(' | '),\n      events: eigene.join(' || ')\n    };\n  })\n  .filter(Boolean);\n\nconst kopf = {\n  zeile: 'ZUSAMMENFASSUNG',\n  zeitraumAb: staticData.updatedAtMin,\n  bestellungenGeprueft: staticData.geprueft || 0,\n  treffer: nurN8n.length,\n  // Alle App-Namen, die im Zeitraum Events erzeugt haben – zum Setzen von Config.appTitel\n  appsImZeitraum: Object.entries(gesehen)\n    .sort((a, b) => b[1] - a[1])\n    .map(([name, n]) => `${name} (${n})`)\n    .join(' | ') || 'keine'\n};\n\nif (!nurN8n.length) {\n  return [{ json: { ...kopf, hinweis: 'Keine Bestellung mit n8n-App-Bearbeitung gefunden.' } }];\n}\n\n// Neueste Bearbeitung zuerst\nnurN8n.sort((a, b) => String(b.bearbeitetAm).localeCompare(String(a.bearbeitetAm)));\n\nreturn [\n  { json: kopf },\n  ...nurN8n.map(t => ({ json: { zeile: 'BESTELLUNG', ...t } }))\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        512
+      ],
+      "id": "c90f87fd-71f6-4663-8dfd-207e702adccb",
+      "name": "Ergebnis ausgeben",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "options": {
+          "fileName": "app-bearbeitete-bestellungen.csv"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        512
+      ],
+      "id": "72382a28-1f80-4194-bcbb-823896d39a46",
+      "name": "Als CSV ausgeben"
+    },
+    {
+      "parameters": {
+        "content": "## Bestellungen mit App-Bearbeitung finden\nSucht **nicht** über das Bestelldatum, sondern über `updated_at` – also den Bearbeitungszeitpunkt.\n\nJeder Order-Edit erzeugt ein Event mit `attributeToApp: true` und dem App-Namen in `appTitle`. Zusätzlich landet der `staffNote`-Text aus `orderEditCommit` als Event-Message. Beides wird ausgewertet.\n\nRein lesend – der Flow verändert nichts.",
+        "height": 300,
+        "width": 620,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "74e1f386-7425-421f-9eec-0dd07422ce61",
+      "name": "Sticky Zweck"
+    },
+    {
+      "parameters": {
+        "content": "## Erster Lauf\n`Config.appTitel` auf `null` lassen. Im Output von **Ergebnis ausgeben** steht dann unter `appsImZeitraum`, wie deine App tatsächlich heisst und wie oft sie aufgetaucht ist.\n\nDiesen Namen anschliessend in `Config.appTitel` eintragen und `verknuepfung` auf `UND` stellen, wenn du exakt die Positionstausch-Läufe sehen willst.",
+        "height": 300,
+        "width": 560,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        0
+      ],
+      "id": "2154a26c-38ce-4256-9f3f-35172bfc57e4",
+      "name": "Sticky Erster Lauf"
+    },
+    {
+      "parameters": {
+        "content": "## Paginierung\n`orders(first: 20, sortKey: UPDATED_AT)` mit Cursor. Pro Bestellung 15 Events und 25 Positionen.\n\n`Config.maxSeiten` (25) deckelt den Durchlauf bei 500 Bestellungen – Schutz gegen zu grosse Zeiträume. Wird der Deckel erreicht, ist die Liste unvollständig; dann Zeitraum verkleinern.",
+        "height": 296,
+        "width": 620,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        0
+      ],
+      "id": "39313f9e-5a1e-4ead-97e5-a61424334b18",
+      "name": "Sticky Paginierung"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Cursor initialisieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cursor initialisieren": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Orders + Events)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (Orders + Events)": {
+      "main": [
+        [
+          {
+            "node": "Orders + Events abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Orders + Events abfragen": {
+      "main": [
+        [
+          {
+            "node": "Treffer filtern + Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Treffer filtern + Cursor": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Weitere Seite?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weitere Seite?": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Orders + Events)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis ausgeben": {
+      "main": [
+        [
+          {
+            "node": "Als CSV ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "485232b6-833a-4be0-8568-529abf43699d",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-08-04T08:25:33.126Z",
+      "createdAt": "2026-08-04T08:25:33.126Z",
+      "role": "workflow:owner",
+      "workflowId": "0myOWesDw67tT7Bz",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

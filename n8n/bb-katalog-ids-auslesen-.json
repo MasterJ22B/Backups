@@ -1,0 +1,250 @@
+{
+  "updatedAt": "2026-07-09T11:09:44.168Z",
+  "createdAt": "2026-07-09T11:08:14.727Z",
+  "id": "qcM9LO52KiaquDAs",
+  "name": "BB-Katalog-IDs-auslesen",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        304
+      ],
+      "id": "5e1d3093-f7a5-4b53-8f9d-2a2e2df9fcb1",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        160,
+        304
+      ],
+      "id": "9b7efbab-9647-4f0d-b8d4-4460b5a70e1c",
+      "name": "Token holen ",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.access_token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `query {\\n  priceLists(first: 50) {\\n    nodes {\\n      id\\n      name\\n      currency\\n      catalog { id title }\\n    }\\n  }\\n}` }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        192
+      ],
+      "id": "c7295269-cce1-494d-b98b-cd347859eb4b",
+      "name": "GET PriceLists",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen ').item.json.access_token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `query {\\n  collections(first: 100) {\\n    nodes { id title handle productsCount { count } }\\n  }\\n}` }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        416
+      ],
+      "id": "41f93960-a130-43b3-a329-6f69ccc26778",
+      "name": "GET Collections",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        688,
+        304
+      ],
+      "id": "0a1d61b5-9855-4da2-aeab-453eae6e5200",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ergebnisse beider Queries aufbereiten:\n// - PriceLists (id, name, currency, catalog.title) -> hilft AT/CH zuzuordnen\n// - Collections (id, title, handle) -> hilft Bücher/Merch zuzuordnen\n// Gibt zusätzlich einen kopierfertigen Config-Block aus.\n\nconst items = $input.all();\n\n// Query-Ergebnisse anhand ihrer Datenstruktur identifizieren (Reihenfolge unabhängig)\nlet priceLists = [];\nlet collections = [];\nfor (const it of items) {\n  const d = it.json?.data || {};\n  if (d.priceLists?.nodes) priceLists = d.priceLists.nodes;\n  if (d.collections?.nodes) collections = d.collections.nodes;\n}\n\nconst plOut = priceLists.map(p => ({\n  id: p.id,\n  name: p.name,\n  currency: p.currency,\n  catalogTitle: p.catalog?.title || null,\n  catalogId: p.catalog?.id || null\n}));\n\nconst colOut = collections.map(c => ({\n  id: c.id,\n  title: c.title,\n  handle: c.handle,\n  produkte: c.productsCount?.count ?? null\n}));\n\n// Best-guess-Vorschläge für die Config (nur Heuristik über Titel/Währung)\nconst findCol = (rx) => (colOut.find(c => rx.test(c.title)) || {}).id || 'gid://shopify/Collection/PLATZHALTER';\nconst findPl = (cur, rx) => (plOut.find(p => p.currency === cur || (p.catalogTitle && rx.test(p.catalogTitle))) || {}).id || 'gid://shopify/PriceList/PLATZHALTER';\n\nconst vorschlag = {\n  collectionBuecher: findCol(/b(\\u00fc|ue)cher/i),\n  collectionMerch: findCol(/merch/i),\n  priceListAT: findPl('EUR', /AT|\\u00d6sterreich|Austria/i),\n  priceListCH: findPl('CHF', /CH|Schweiz|Switzerland/i)\n};\n\nreturn [{\n  json: {\n    priceLists: plOut,\n    collections: colOut,\n    configVorschlag: vorschlag\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        304
+      ],
+      "id": "b8372b06-b721-4d91-adfc-764d21c131e5",
+      "name": "IDs aufbereiten",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "content": "## Katalog-IDs auslesen\nZieht aus vdzvc0-nd:\n- **PriceLists** (id, name, currency, Katalog-Titel) → AT/CH zuordnen\n- **Collections** (id, title, handle) → Bücher/Merch zuordnen\n\nOutput-Node \"IDs aufbereiten\": Feld `configVorschlag` enthält einen Best-Guess (Heuristik über Währung/Titel) — vor Übernahme prüfen.\n\nBenötigter Scope: `read_products`.",
+        "height": 300,
+        "width": 460,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -112,
+        -32
+      ],
+      "id": "50687169-84c7-4a6e-8d02-3ad0d39ff60b",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen ": {
+      "main": [
+        [
+          {
+            "node": "GET PriceLists",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GET Collections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET PriceLists": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Collections": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "IDs aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "2075ccd1-36f2-47e0-9755-9c1799462395",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-07-09T11:08:14.729Z",
+      "createdAt": "2026-07-09T11:08:14.729Z",
+      "role": "workflow:owner",
+      "workflowId": "qcM9LO52KiaquDAs",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

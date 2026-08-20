@@ -1,0 +1,905 @@
+{
+  "updatedAt": "2026-06-02T14:23:01.833Z",
+  "createdAt": "2026-03-09T05:59:42.615Z",
+  "id": "EiZmqe9ky7I9KO5u",
+  "name": "Google Ads - LEAF Customer Match List",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtHour": 3,
+              "triggerAtMinute": 11
+            }
+          ]
+        }
+      },
+      "id": "b17d805e-45dc-4856-88f1-a3a4ab220876",
+      "name": "am 1. des Monats",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH KundenDaten AS\n(\n    SELECT\n        a.cMail AS EmailAdresse,\n        a.cVorname AS Vorname,\n        a.cName AS Nachname,\n        a.cLand AS Land,\n        a.cPLZ AS Postleitzahl,\n        a.cTel AS Telefonnummer,\n        ROW_NUMBER() OVER\n        (\n            PARTITION BY a.cMail\n            ORDER BY a.cTel\n        ) AS rn\n    FROM dbo.tBestellung AS b\n    INNER JOIN dbo.tAdresse AS a\n        ON a.kKunde = b.tKunde_kKunde\n    WHERE b.tKunde_kKunde IS NOT NULL\n      AND b.cBestellNr LIKE 'LEAF%'\n      AND a.cMail IS NOT NULL\n      AND LTRIM(RTRIM(a.cMail)) <> ''\n)\nSELECT\n    EmailAdresse,\n    Vorname,\n    Nachname,\n    Land,\n    Postleitzahl,\n    Telefonnummer\nFROM KundenDaten\nWHERE rn = 1\nORDER BY\n    EmailAdresse;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -16,
+        192
+      ],
+      "id": "fce5ee4a-4444-46d3-961e-2f2c8a4006cb",
+      "name": "Microsoft SQL",
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ",",
+          "fileName": "leaf-customer-match-list.csv"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1744,
+        208
+      ],
+      "id": "08917f2a-99fa-4b15-b7c4-76f6eb6714ce",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de;christoph@buecherbuechse.de;performancemarketing@buecherbuechse.de",
+        "subject": "=LEAF | Google Customer Match List für {{ $now.minus(1,'months').format('MM.yyyy')}}",
+        "emailFormat": "text",
+        "text": "=Anbei befindet sich die leaf-customer-match-list.csv vom {{ $now.format('dd.MM.yyyy') }}.\n\nDiese Mail wurde vom n8n Workflow: \"Google Ads - LEAF Customer Match List\" versendet. \n\nMit freundlichen Grüßen \n\nBB's n8n ",
+        "options": {
+          "attachments": "data"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1968,
+        208
+      ],
+      "id": "4b4bf52e-4629-48ef-84bd-854bcdc1f3d0",
+      "name": "Send an Email",
+      "webhookId": "d49aa661-e6b9-4f3e-a525-6e80541abbae",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const countryMap = {\n  'deutschland': 'de',\n  'germany': 'de',\n  'schweiz': 'ch',\n  'switzerland': 'ch',\n  'suisse': 'ch',\n  'österreich': 'at',\n  'oesterreich': 'at',\n  'austria': 'at'\n};\n\nconst supportedPhoneCountries = ['de', 'ch', 'at'];\n\nfunction cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction normalizeCountry(value) {\n  const raw = cleanString(value);\n  if (!raw) return '';\n\n  const key = raw.toLowerCase();\n\n  return countryMap[key] || raw;\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, countryCode) {\n  let phone = cleanString(rawPhone);\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  phone = phone.replace(/[^\\d+]/g, '');\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  const isSupportedCountry = supportedPhoneCountries.includes(countryCode);\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('+49')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('49')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '49' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('+41')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('41')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '41' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('+43')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('43')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '43' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (!isSupportedCountry) {\n    let cleaned = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n    if (obviousFakePhone(cleaned)) {\n      return {\n        phone: '',\n        sonderfall: false\n      };\n    }\n\n    return {\n      phone: cleaned,\n      sonderfall: true\n    };\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  return {\n    phone,\n    sonderfall: false\n  };\n}\n\nreturn items.map(item => {\n  const source = item.json;\n\n  const country = normalizeCountry(source.Land);\n  const phoneResult = normalizePhone(source.Telefonnummer, country);\n\n  item.json = {\n    Email: cleanString(source.EmailAdresse).toLowerCase(),\n    'First Name': cleanString(source.Vorname),\n    'Last Name': cleanString(source.Nachname),\n    Country: country,\n    Zip: cleanString(source.Postleitzahl),\n    Phone: phoneResult.phone,\n    sonderfall: phoneResult.sonderfall\n  };\n\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        192
+      ],
+      "id": "76d49fa3-7cc9-444a-a7cd-0c8ce5e52dad",
+      "name": "Telefonnummer-Format-Bereinigung"
+    },
+    {
+      "parameters": {
+        "content": "## Timestamp + Abfrage\n",
+        "height": 480,
+        "width": 336,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        -16
+      ],
+      "id": "f3dac34b-40f6-4e85-9899-8216b1f91a12",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Grobe Korrektur der Telefonnummern per Skript",
+        "height": 480,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        176,
+        -16
+      ],
+      "id": "ecf1b213-6de8-461a-b626-23d36e2db4fd",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## CSV + Mail-Versand\n",
+        "height": 496,
+        "width": 784,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        -32
+      ],
+      "id": "72d89e53-c781-4411-8b1a-8b158c51d658",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fe0bff12-74c5-4fec-b2f4-ed942e5bc9ef",
+              "leftValue": "={{ $json.sonderfall }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        512,
+        336
+      ],
+      "id": "115d0e73-2238-44bc-ae1b-434fb0b6b1d0",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1136,
+        224
+      ],
+      "id": "32604efd-b33a-47ec-a744-fc5bce4aba11",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You receive one JSON object.\n\nTask:\n- Change only the value of the attribute \"Phone\".\n- Keep every other field exactly unchanged.\n- Return only valid JSON.\n- No explanation.\n- No markdown.\n- Do not add or remove attributes.\n\nGoal:\nClean and normalize \"Phone\" for Google Customer Match.\n\nTarget format:\n- Only digits\n- No plus sign\n- No spaces\n- No slashes\n- No dashes\n- No parentheses\n- No dots\n- No other separators\n- Must include country code\n- Must not start with a national leading 0\n\nExamples:\n\"+49 151 23456789\" -> \"4915123456789\"\n\"0049 151 23456789\" -> \"4915123456789\"\n\"0151 23456789\" with Country \"de\" -> \"4915123456789\"\n\"+43 664 1234567\" -> \"436641234567\"\n\"0664 1234567\" with Country \"at\" -> \"436641234567\"\n\"+41 79 123 45 67\" -> \"41791234567\"\n\"079 123 45 67\" with Country \"ch\" -> \"41791234567\"\n\nRules:\n1. Only modify \"Phone\".\n2. Keep all other attributes and values exactly unchanged, including \"sonderfall\".\n3. If \"Phone\" is empty, keep it empty.\n4. Remove spaces, slashes, dashes, parentheses, dots, and other separators before interpreting the number.\n5. If the number starts with \"+49\", convert it to \"49\".\n6. If the number starts with \"0049\", convert it to \"49\".\n7. If the number starts with \"+43\", convert it to \"43\".\n8. If the number starts with \"0043\", convert it to \"43\".\n9. If the number starts with \"+41\", convert it to \"41\".\n10. If the number starts with \"0041\", convert it to \"41\".\n11. If \"Country\" is \"de\" and the number starts with \"0\", replace the leading \"0\" with \"49\".\n12. If \"Country\" is \"at\" and the number starts with \"0\", replace the leading \"0\" with \"43\".\n13. If \"Country\" is \"ch\" and the number starts with \"0\", replace the leading \"0\" with \"41\".\n14. If the number already starts with a clear international country code, keep the country code and remove only separators and plus signs.\n15. If the number is national and \"Country\" does not clearly identify the country, keep the original \"Phone\" unchanged.\n16. If the number is too short, incomplete, or ambiguous and cannot be normalized safely, keep the original \"Phone\" unchanged.\n17. If the number is obviously fake or invalid, set \"Phone\" to an empty string.\n\nObviously fake or invalid:\n- only zeros\n- only one repeated digit\n- simple test sequences like \"123456\", \"0123456789\", \"999999999\"\n- fewer than 7 digits after cleaning\n- more than 15 digits after cleaning\n\nImportant:\n- Do not invent digits.\n- Do not guess country codes.\n- Do not modify any field except \"Phone\".\n- Return the full JSON object with all original attributes.\n\nInput:\n{{ JSON.stringify($json, null, 2) }}",
+        "messages": {
+          "messageValues": []
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        512,
+        48
+      ],
+      "id": "04f5c39b-80bf-4f47-b879-63d1fa246985",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "gpt-5.4",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAzureOpenAi",
+      "typeVersion": 1,
+      "position": [
+        528,
+        176
+      ],
+      "id": "2e21e21e-bc2e-4cce-9aa4-a13fff96a4de",
+      "name": "Azure OpenAI Chat Model",
+      "credentials": {
+        "azureOpenAiApi": {
+          "id": "jyqLAhX2g3rrnKmm",
+          "name": "Azure Open AI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Fein-Korrektur über AZURE + Zusammenführung\n",
+        "height": 480,
+        "width": 816,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        464,
+        -16
+      ],
+      "id": "15796982-ddf3-463a-9f6c-82f829f9c7ad",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map((item, index) => {\n  const value = item.json.text ?? item.json;\n\n  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {\n    return { json: value };\n  }\n\n  if (typeof value !== 'string') {\n    throw new Error(`Item ${index}: Weder String noch Objekt gefunden.`);\n  }\n\n  try {\n    return {\n      json: JSON.parse(value.trim()),\n    };\n  } catch (error) {\n    throw new Error(`Item ${index}: Ungültiges JSON: ${value}`);\n  }\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        48
+      ],
+      "id": "d07af89b-23f1-481c-950f-5cfab0ac9af9",
+      "name": "Verwertung der AI Ausgabe"
+    },
+    {
+      "parameters": {
+        "content": "## Hotfix 04.05.2026\nMissverständnis: Vorwahl und Nummer sollen NICHT per Semikolon getrennt werden. Leerzeichen sollen simpel entfernt werden.\n",
+        "height": 384,
+        "width": 288,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        32
+      ],
+      "id": "215bd263-58e4-4b69-946c-0484aa3d822d",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  delete item.json.sonderfall;\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        208
+      ],
+      "id": "c4ca5545-5601-4377-bc75-e6f6c30b9231",
+      "name": "Löschen Sonderfall-Attributs "
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000|123456789)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, country) {\n  const original = cleanString(rawPhone);\n  const countryCode = cleanString(country).toLowerCase();\n\n  if (!original) return '';\n\n  let phone = original.replace(/[^\\d+]/g, '');\n\n  if (!phone) return '';\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) return '';\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('49')) return phone;\n    if (phone.startsWith('0')) return '49' + phone.slice(1);\n\n    // Deutsche Mobilnummer ohne führende 0, z. B. 17650335244\n    if (/^1[5-7]\\d{8,10}$/.test(phone)) {\n      return '49' + phone;\n    }\n\n    // Keine sicher erkennbare deutsche Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('43')) return phone;\n    if (phone.startsWith('0')) return '43' + phone.slice(1);\n\n    // Österreichische Mobilnummer ohne führende 0, z. B. 6605239952\n    if (/^6\\d{7,11}$/.test(phone)) {\n      return '43' + phone;\n    }\n\n    // Keine sicher erkennbare österreichische Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('41')) return phone;\n    if (phone.startsWith('0')) return '41' + phone.slice(1);\n\n    // Schweizer Mobilnummer ohne führende 0, z. B. 791234567\n    if (/^7\\d{8}$/.test(phone)) {\n      return '41' + phone;\n    }\n\n    // Keine sicher erkennbare Schweizer Telefonnummer\n    return '';\n  }\n\n  return original;\n}\n\nreturn items.map(item => {\n  item.json.Phone = normalizePhone(item.json.Phone, item.json.Country);\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        208
+      ],
+      "id": "ec90c1c7-1d2c-4fee-a249-0bd5eca9b7ea",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "connections": {
+    "am 1. des Monats": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL": {
+      "main": [
+        [
+          {
+            "node": "Telefonnummer-Format-Bereinigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telefonnummer-Format-Bereinigung": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Löschen Sonderfall-Attributs ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Azure OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Verwertung der AI Ausgabe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verwertung der AI Ausgabe": {
+      "main": [
+        []
+      ]
+    },
+    "Löschen Sonderfall-Attributs ": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:am 1. des Monats": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "bedd22f9-a48d-4437-a00f-a30ef9a64c50",
+  "activeVersionId": "bedd22f9-a48d-4437-a00f-a30ef9a64c50",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-09T05:59:42.618Z",
+      "createdAt": "2026-03-09T05:59:42.618Z",
+      "role": "workflow:owner",
+      "workflowId": "EiZmqe9ky7I9KO5u",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-06-02T14:23:12.000Z",
+    "createdAt": "2026-06-02T14:23:01.834Z",
+    "versionId": "bedd22f9-a48d-4437-a00f-a30ef9a64c50",
+    "workflowId": "EiZmqe9ky7I9KO5u",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "months",
+                "triggerAtHour": 3,
+                "triggerAtMinute": 11
+              }
+            ]
+          }
+        },
+        "id": "b17d805e-45dc-4856-88f1-a3a4ab220876",
+        "name": "am 1. des Monats",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -176,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH KundenDaten AS\n(\n    SELECT\n        a.cMail AS EmailAdresse,\n        a.cVorname AS Vorname,\n        a.cName AS Nachname,\n        a.cLand AS Land,\n        a.cPLZ AS Postleitzahl,\n        a.cTel AS Telefonnummer,\n        ROW_NUMBER() OVER\n        (\n            PARTITION BY a.cMail\n            ORDER BY a.cTel\n        ) AS rn\n    FROM dbo.tBestellung AS b\n    INNER JOIN dbo.tAdresse AS a\n        ON a.kKunde = b.tKunde_kKunde\n    WHERE b.tKunde_kKunde IS NOT NULL\n      AND b.cBestellNr LIKE 'LEAF%'\n      AND a.cMail IS NOT NULL\n      AND LTRIM(RTRIM(a.cMail)) <> ''\n)\nSELECT\n    EmailAdresse,\n    Vorname,\n    Nachname,\n    Land,\n    Postleitzahl,\n    Telefonnummer\nFROM KundenDaten\nWHERE rn = 1\nORDER BY\n    EmailAdresse;\n",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          -16,
+          192
+        ],
+        "id": "fce5ee4a-4444-46d3-961e-2f2c8a4006cb",
+        "name": "Microsoft SQL",
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "options": {
+            "delimiter": ",",
+            "fileName": "leaf-customer-match-list.csv"
+          }
+        },
+        "type": "n8n-nodes-base.convertToFile",
+        "typeVersion": 1.1,
+        "position": [
+          1744,
+          208
+        ],
+        "id": "08917f2a-99fa-4b15-b7c4-76f6eb6714ce",
+        "name": "Convert to File"
+      },
+      {
+        "parameters": {
+          "fromEmail": "n8n@mail.buecherbuechse.de",
+          "toEmail": "jesse.balsam@buecherbuechse.de;christoph@buecherbuechse.de;performancemarketing@buecherbuechse.de",
+          "subject": "=LEAF | Google Customer Match List für {{ $now.minus(1,'months').format('MM.yyyy')}}",
+          "emailFormat": "text",
+          "text": "=Anbei befindet sich die leaf-customer-match-list.csv vom {{ $now.format('dd.MM.yyyy') }}.\n\nDiese Mail wurde vom n8n Workflow: \"Google Ads - LEAF Customer Match List\" versendet. \n\nMit freundlichen Grüßen \n\nBB's n8n ",
+          "options": {
+            "attachments": "data"
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1968,
+          208
+        ],
+        "id": "4b4bf52e-4629-48ef-84bd-854bcdc1f3d0",
+        "name": "Send an Email",
+        "webhookId": "d49aa661-e6b9-4f3e-a525-6e80541abbae",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const countryMap = {\n  'deutschland': 'de',\n  'germany': 'de',\n  'schweiz': 'ch',\n  'switzerland': 'ch',\n  'suisse': 'ch',\n  'österreich': 'at',\n  'oesterreich': 'at',\n  'austria': 'at'\n};\n\nconst supportedPhoneCountries = ['de', 'ch', 'at'];\n\nfunction cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction normalizeCountry(value) {\n  const raw = cleanString(value);\n  if (!raw) return '';\n\n  const key = raw.toLowerCase();\n\n  return countryMap[key] || raw;\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, countryCode) {\n  let phone = cleanString(rawPhone);\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  phone = phone.replace(/[^\\d+]/g, '');\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  const isSupportedCountry = supportedPhoneCountries.includes(countryCode);\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('+49')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('49')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '49' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('+41')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('41')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '41' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('+43')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('43')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '43' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (!isSupportedCountry) {\n    let cleaned = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n    if (obviousFakePhone(cleaned)) {\n      return {\n        phone: '',\n        sonderfall: false\n      };\n    }\n\n    return {\n      phone: cleaned,\n      sonderfall: true\n    };\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  return {\n    phone,\n    sonderfall: false\n  };\n}\n\nreturn items.map(item => {\n  const source = item.json;\n\n  const country = normalizeCountry(source.Land);\n  const phoneResult = normalizePhone(source.Telefonnummer, country);\n\n  item.json = {\n    Email: cleanString(source.EmailAdresse).toLowerCase(),\n    'First Name': cleanString(source.Vorname),\n    'Last Name': cleanString(source.Nachname),\n    Country: country,\n    Zip: cleanString(source.Postleitzahl),\n    Phone: phoneResult.phone,\n    sonderfall: phoneResult.sonderfall\n  };\n\n  return item;\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          240,
+          192
+        ],
+        "id": "76d49fa3-7cc9-444a-a7cd-0c8ce5e52dad",
+        "name": "Telefonnummer-Format-Bereinigung"
+      },
+      {
+        "parameters": {
+          "content": "## Timestamp + Abfrage\n",
+          "height": 480,
+          "width": 336,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -208,
+          -16
+        ],
+        "id": "f3dac34b-40f6-4e85-9899-8216b1f91a12",
+        "name": "Sticky Note"
+      },
+      {
+        "parameters": {
+          "content": "## Grobe Korrektur der Telefonnummern per Skript",
+          "height": 480,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          176,
+          -16
+        ],
+        "id": "ecf1b213-6de8-461a-b626-23d36e2db4fd",
+        "name": "Sticky Note1"
+      },
+      {
+        "parameters": {
+          "content": "## CSV + Mail-Versand\n",
+          "height": 496,
+          "width": 784,
+          "color": 5
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1328,
+          -32
+        ],
+        "id": "72d89e53-c781-4411-8b1a-8b158c51d658",
+        "name": "Sticky Note3"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "fe0bff12-74c5-4fec-b2f4-ed942e5bc9ef",
+                "leftValue": "={{ $json.sonderfall }}",
+                "rightValue": false,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          512,
+          336
+        ],
+        "id": "115d0e73-2238-44bc-ae1b-434fb0b6b1d0",
+        "name": "If"
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          1136,
+          224
+        ],
+        "id": "32604efd-b33a-47ec-a744-fc5bce4aba11",
+        "name": "Merge"
+      },
+      {
+        "parameters": {
+          "promptType": "define",
+          "text": "=You receive one JSON object.\n\nTask:\n- Change only the value of the attribute \"Phone\".\n- Keep every other field exactly unchanged.\n- Return only valid JSON.\n- No explanation.\n- No markdown.\n- Do not add or remove attributes.\n\nGoal:\nClean and normalize \"Phone\" for Google Customer Match.\n\nTarget format:\n- Only digits\n- No plus sign\n- No spaces\n- No slashes\n- No dashes\n- No parentheses\n- No dots\n- No other separators\n- Must include country code\n- Must not start with a national leading 0\n\nExamples:\n\"+49 151 23456789\" -> \"4915123456789\"\n\"0049 151 23456789\" -> \"4915123456789\"\n\"0151 23456789\" with Country \"de\" -> \"4915123456789\"\n\"+43 664 1234567\" -> \"436641234567\"\n\"0664 1234567\" with Country \"at\" -> \"436641234567\"\n\"+41 79 123 45 67\" -> \"41791234567\"\n\"079 123 45 67\" with Country \"ch\" -> \"41791234567\"\n\nRules:\n1. Only modify \"Phone\".\n2. Keep all other attributes and values exactly unchanged, including \"sonderfall\".\n3. If \"Phone\" is empty, keep it empty.\n4. Remove spaces, slashes, dashes, parentheses, dots, and other separators before interpreting the number.\n5. If the number starts with \"+49\", convert it to \"49\".\n6. If the number starts with \"0049\", convert it to \"49\".\n7. If the number starts with \"+43\", convert it to \"43\".\n8. If the number starts with \"0043\", convert it to \"43\".\n9. If the number starts with \"+41\", convert it to \"41\".\n10. If the number starts with \"0041\", convert it to \"41\".\n11. If \"Country\" is \"de\" and the number starts with \"0\", replace the leading \"0\" with \"49\".\n12. If \"Country\" is \"at\" and the number starts with \"0\", replace the leading \"0\" with \"43\".\n13. If \"Country\" is \"ch\" and the number starts with \"0\", replace the leading \"0\" with \"41\".\n14. If the number already starts with a clear international country code, keep the country code and remove only separators and plus signs.\n15. If the number is national and \"Country\" does not clearly identify the country, keep the original \"Phone\" unchanged.\n16. If the number is too short, incomplete, or ambiguous and cannot be normalized safely, keep the original \"Phone\" unchanged.\n17. If the number is obviously fake or invalid, set \"Phone\" to an empty string.\n\nObviously fake or invalid:\n- only zeros\n- only one repeated digit\n- simple test sequences like \"123456\", \"0123456789\", \"999999999\"\n- fewer than 7 digits after cleaning\n- more than 15 digits after cleaning\n\nImportant:\n- Do not invent digits.\n- Do not guess country codes.\n- Do not modify any field except \"Phone\".\n- Return the full JSON object with all original attributes.\n\nInput:\n{{ JSON.stringify($json, null, 2) }}",
+          "messages": {
+            "messageValues": []
+          },
+          "batching": {}
+        },
+        "type": "@n8n/n8n-nodes-langchain.chainLlm",
+        "typeVersion": 1.9,
+        "position": [
+          512,
+          48
+        ],
+        "id": "04f5c39b-80bf-4f47-b879-63d1fa246985",
+        "name": "Basic LLM Chain"
+      },
+      {
+        "parameters": {
+          "model": "gpt-5.4",
+          "options": {}
+        },
+        "type": "@n8n/n8n-nodes-langchain.lmChatAzureOpenAi",
+        "typeVersion": 1,
+        "position": [
+          528,
+          176
+        ],
+        "id": "2e21e21e-bc2e-4cce-9aa4-a13fff96a4de",
+        "name": "Azure OpenAI Chat Model",
+        "credentials": {
+          "azureOpenAiApi": {
+            "id": "jyqLAhX2g3rrnKmm",
+            "name": "Azure Open AI account 2"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "content": "## Fein-Korrektur über AZURE + Zusammenführung\n",
+          "height": 480,
+          "width": 816,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          464,
+          -16
+        ],
+        "id": "15796982-ddf3-463a-9f6c-82f829f9c7ad",
+        "name": "Sticky Note2"
+      },
+      {
+        "parameters": {
+          "jsCode": "return items.map((item, index) => {\n  const value = item.json.text ?? item.json;\n\n  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {\n    return { json: value };\n  }\n\n  if (typeof value !== 'string') {\n    throw new Error(`Item ${index}: Weder String noch Objekt gefunden.`);\n  }\n\n  try {\n    return {\n      json: JSON.parse(value.trim()),\n    };\n  } catch (error) {\n    throw new Error(`Item ${index}: Ungültiges JSON: ${value}`);\n  }\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          848,
+          48
+        ],
+        "id": "d07af89b-23f1-481c-950f-5cfab0ac9af9",
+        "name": "Verwertung der AI Ausgabe"
+      },
+      {
+        "parameters": {
+          "content": "## Hotfix 04.05.2026\nMissverständnis: Vorwahl und Nummer sollen NICHT per Semikolon getrennt werden. Leerzeichen sollen simpel entfernt werden.\n",
+          "height": 384,
+          "width": 288,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1344,
+          32
+        ],
+        "id": "215bd263-58e4-4b69-946c-0484aa3d822d",
+        "name": "Sticky Note4"
+      },
+      {
+        "parameters": {
+          "jsCode": "return items.map(item => {\n  delete item.json.sonderfall;\n  return item;\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1392,
+          208
+        ],
+        "id": "c4ca5545-5601-4377-bc75-e6f6c30b9231",
+        "name": "Löschen Sonderfall-Attributs "
+      },
+      {
+        "parameters": {
+          "jsCode": "function cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000|123456789)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, country) {\n  const original = cleanString(rawPhone);\n  const countryCode = cleanString(country).toLowerCase();\n\n  if (!original) return '';\n\n  let phone = original.replace(/[^\\d+]/g, '');\n\n  if (!phone) return '';\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) return '';\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('49')) return phone;\n    if (phone.startsWith('0')) return '49' + phone.slice(1);\n\n    // Deutsche Mobilnummer ohne führende 0, z. B. 17650335244\n    if (/^1[5-7]\\d{8,10}$/.test(phone)) {\n      return '49' + phone;\n    }\n\n    // Keine sicher erkennbare deutsche Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('43')) return phone;\n    if (phone.startsWith('0')) return '43' + phone.slice(1);\n\n    // Österreichische Mobilnummer ohne führende 0, z. B. 6605239952\n    if (/^6\\d{7,11}$/.test(phone)) {\n      return '43' + phone;\n    }\n\n    // Keine sicher erkennbare österreichische Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('41')) return phone;\n    if (phone.startsWith('0')) return '41' + phone.slice(1);\n\n    // Schweizer Mobilnummer ohne führende 0, z. B. 791234567\n    if (/^7\\d{8}$/.test(phone)) {\n      return '41' + phone;\n    }\n\n    // Keine sicher erkennbare Schweizer Telefonnummer\n    return '';\n  }\n\n  return original;\n}\n\nreturn items.map(item => {\n  item.json.Phone = normalizePhone(item.json.Phone, item.json.Country);\n  return item;\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          720,
+          208
+        ],
+        "id": "ec90c1c7-1d2c-4fee-a249-0bd5eca9b7ea",
+        "name": "Code in JavaScript"
+      }
+    ],
+    "connections": {
+      "am 1. des Monats": {
+        "main": [
+          [
+            {
+              "node": "Microsoft SQL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Microsoft SQL": {
+        "main": [
+          [
+            {
+              "node": "Telefonnummer-Format-Bereinigung",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Convert to File": {
+        "main": [
+          [
+            {
+              "node": "Send an Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Telefonnummer-Format-Bereinigung": {
+        "main": [
+          [
+            {
+              "node": "If",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "If": {
+        "main": [
+          [
+            {
+              "node": "Code in JavaScript",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Merge": {
+        "main": [
+          [
+            {
+              "node": "Löschen Sonderfall-Attributs ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Azure OpenAI Chat Model": {
+        "ai_languageModel": [
+          [
+            {
+              "node": "Basic LLM Chain",
+              "type": "ai_languageModel",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Basic LLM Chain": {
+        "main": [
+          [
+            {
+              "node": "Verwertung der AI Ausgabe",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Verwertung der AI Ausgabe": {
+        "main": [
+          []
+        ]
+      },
+      "Löschen Sonderfall-Attributs ": {
+        "main": [
+          [
+            {
+              "node": "Convert to File",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code in JavaScript": {
+        "main": [
+          [
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 1
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version bedd22f9",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": []
+}

@@ -1,0 +1,296 @@
+{
+  "updatedAt": "2026-04-14T08:58:15.933Z",
+  "createdAt": "2026-03-09T05:52:12.245Z",
+  "id": "jGPMgi0x3FvKB2DV",
+  "name": "Google Ads - BB Customer Match List",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  user_email as Email,\n  MAX(CASE WHEN meta_key = 'billing_first_name' THEN meta_value END) as 'First Name',\n  MAX(CASE WHEN meta_key = 'billing_last_name' THEN meta_value END) as 'Last Name',\n  MAX(CASE WHEN meta_key = 'billing_country' THEN meta_value END) as 'Country',\n  MAX(CASE WHEN meta_key = 'billing_postcode' THEN meta_value END) as 'Zip',\n  MAX(CASE WHEN meta_key = 'billing_phone' THEN meta_value END) as 'Phone'\nFROM d034ee28.wp_users users\nJOIN wp_usermeta ON users.ID = wp_usermeta.user_id\nWHERE users.user_status = 0\nGROUP BY users.id;",
+        "options": {}
+      },
+      "id": "e320f8d9-0479-4832-978c-9b57a4775ac0",
+      "name": "MySQL",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        272,
+        0
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "XD6s1ttnipEf2yQq",
+          "name": "MySQL account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ",",
+          "fileName": "={{ 'BB' + $now.setZone('Europe/Berlin').toFormat('yyyyLLdd_HHmmss') + '_Google_Ads_Customer_Match_List.csv' }}",
+          "headerRow": true
+        }
+      },
+      "id": "d94b0661-3a11-48d2-89e6-587a2022123f",
+      "name": "Convert to CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        528,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse \n Marketing-Team <workflows@buecherbuechse.de>",
+        "toEmail": "performancemarketing@buecherbuechse.de,christoph@buecherbuechse.de",
+        "subject": "={{ 'Bücherbüchse | Neue Customer Match Liste vom ' + $now.setZone('Europe/Berlin').setLocale('de').toFormat('dd.LL.yyyy') }}",
+        "html": "Hallo liebes Marketing-Team,<br><br>anbei erhaltet ihr die neue Customer Match Liste für Google Ads.",
+        "options": {
+          "appendAttribution": false,
+          "attachments": "data"
+        }
+      },
+      "id": "373fc3b4-a4b1-47b1-8f1b-5847a063c6c9",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        784,
+        0
+      ],
+      "webhookId": "125f0170-6bb0-44e7-987a-2c684f2091fb",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtHour": 3
+            }
+          ]
+        }
+      },
+      "id": "02d7983d-3610-4067-9e20-6cf5582e1bd2",
+      "name": "am 1. des Monats",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "MySQL": {
+      "main": [
+        [
+          {
+            "node": "Convert to CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to CSV": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "am 1. des Monats": {
+      "main": [
+        [
+          {
+            "node": "MySQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "node:am 1. des Monats": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "cf26411b-e328-4b64-af88-f3ddeb21e78b",
+  "activeVersionId": "cf26411b-e328-4b64-af88-f3ddeb21e78b",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-09T05:52:12.248Z",
+      "createdAt": "2026-03-09T05:52:12.248Z",
+      "role": "workflow:owner",
+      "workflowId": "jGPMgi0x3FvKB2DV",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-03-09T05:58:03.000Z",
+    "createdAt": "2026-03-09T05:58:01.234Z",
+    "versionId": "cf26411b-e328-4b64-af88-f3ddeb21e78b",
+    "workflowId": "jGPMgi0x3FvKB2DV",
+    "nodes": [
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT\n  user_email as Email,\n  MAX(CASE WHEN meta_key = 'billing_first_name' THEN meta_value END) as 'First Name',\n  MAX(CASE WHEN meta_key = 'billing_last_name' THEN meta_value END) as 'Last Name',\n  MAX(CASE WHEN meta_key = 'billing_country' THEN meta_value END) as 'Country',\n  MAX(CASE WHEN meta_key = 'billing_postcode' THEN meta_value END) as 'Zip',\n  MAX(CASE WHEN meta_key = 'billing_phone' THEN meta_value END) as 'Phone'\nFROM d034ee28.wp_users users\nJOIN wp_usermeta ON users.ID = wp_usermeta.user_id\nWHERE users.user_status = 0\nGROUP BY users.id;",
+          "options": {}
+        },
+        "id": "e320f8d9-0479-4832-978c-9b57a4775ac0",
+        "name": "MySQL",
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.5,
+        "position": [
+          272,
+          0
+        ],
+        "credentials": {
+          "mySql": {
+            "id": "XD6s1ttnipEf2yQq",
+            "name": "MySQL account 2"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "options": {
+            "delimiter": ",",
+            "fileName": "={{ 'BB' + $now.setZone('Europe/Berlin').toFormat('yyyyLLdd_HHmmss') + '_Google_Ads_Customer_Match_List.csv' }}",
+            "headerRow": true
+          }
+        },
+        "id": "d94b0661-3a11-48d2-89e6-587a2022123f",
+        "name": "Convert to CSV",
+        "type": "n8n-nodes-base.convertToFile",
+        "typeVersion": 1.1,
+        "position": [
+          528,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "Bücherbüchse \n Marketing-Team <workflows@buecherbuechse.de>",
+          "toEmail": "performancemarketing@buecherbuechse.de,christoph@buecherbuechse.de",
+          "subject": "={{ 'Bücherbüchse | Neue Customer Match Liste vom ' + $now.setZone('Europe/Berlin').setLocale('de').toFormat('dd.LL.yyyy') }}",
+          "html": "Hallo liebes Marketing-Team,<br><br>anbei erhaltet ihr die neue Customer Match Liste für Google Ads.",
+          "options": {
+            "appendAttribution": false,
+            "attachments": "data"
+          }
+        },
+        "id": "373fc3b4-a4b1-47b1-8f1b-5847a063c6c9",
+        "name": "Send Email",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          784,
+          0
+        ],
+        "webhookId": "125f0170-6bb0-44e7-987a-2c684f2091fb",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "months",
+                "triggerAtHour": 3
+              }
+            ]
+          }
+        },
+        "id": "02d7983d-3610-4067-9e20-6cf5582e1bd2",
+        "name": "am 1. des Monats",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ]
+      }
+    ],
+    "connections": {
+      "MySQL": {
+        "main": [
+          [
+            {
+              "node": "Convert to CSV",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Convert to CSV": {
+        "main": [
+          [
+            {
+              "node": "Send Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "am 1. des Monats": {
+        "main": [
+          [
+            {
+              "node": "MySQL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version cf26411b",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": []
+}

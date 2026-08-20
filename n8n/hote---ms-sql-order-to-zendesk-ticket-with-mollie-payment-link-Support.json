@@ -1,0 +1,431 @@
+{
+  "updatedAt": "2026-04-14T08:57:39.552Z",
+  "createdAt": "2026-01-07T07:25:52.144Z",
+  "id": "oRxCv7n7uSXmy3pS",
+  "name": "HOTE - MS SQL Order to Zendesk Ticket with Mollie Payment Link",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "mollieApiUrl",
+              "value": "https://api.mollie.com/v2/payment-links",
+              "type": "string"
+            },
+            {
+              "id": "id-2",
+              "name": "mollieApiKey",
+              "value": "live_DkNqKqqSnqWKtwhECSt3eVU8gAM5rk",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "7866ad22-a082-431c-b864-3d37d4116e6a",
+      "name": "Workflow Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3024,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH RelevantePositionen AS (\n    SELECT\n        a.kAuftrag,\n        a.cAuftragsNr,\n        a.dErstellt,\n        a.kVersandArt,\n        a.kKunde,\n        ap.kAuftragPosition,\n        ap.fAnzahl      AS MengeAuftrag,\n        ap.fMwSt       AS MwSt,\n        -- Nettowert der relevanten Position = Menge * Netto-Einzelpreis\n        ap.fAnzahl * ap.fVKNetto AS NettowertPosition,\n        art.cArtNr\n    FROM Verkauf.tAuftrag a\n    JOIN Verkauf.tAuftragPosition ap ON ap.kAuftrag = a.kAuftrag\n    JOIN tArtikel        art ON art.kArtikel = ap.kArtikel\n    WHERE a.nStorno = 0\n      AND ap.nType = 1\n      AND art.kArtikel IN (6719)  -- <<< deine relevanten Artikel\n\t  AND a.cAuftragsNr NOT IN\n\t  (\n\t'LEAF-7545',\n'LEAF-7512',\n'LEAF-7507',\n'LEAF-7491',\n'LEAF-7480',\n'LEAF-7460',\n'LEAF-7459',\n'LEAF-7458',\n'LEAF-7451',\n'LEAF-7442',\n'LEAF-7435',\n'LEAF-7431',\n'LEAF-7430',\n'LEAF-7428',\n'LEAF-7424',\n'LEAF-7426',\n'LEAF-7423',\n'LEAF-7422',\n'LEAF-7421',\n'LEAF-7418',\n'LEAF-7417',\n'LEAF-7416',\n'LEAF-7414',\n'LEAF-7413',\n'LEAF-7411',\n'LEAF-7410',\n'LEAF-7408',\n'LEAF-7407',\n'LEAF-7406',\n'LEAF-7403',\n'LEAF-7402',\n'LEAF-7401',\n'LEAF-7399',\n'LEAF-7398',\n'LEAF-7396',\n'LEAF-7391',\n'LEAF-7388',\n'LEAF-7385',\n'LEAF-7384',\n'LEAF-7383',\n'LEAF-7379',\n'LEAF-7377',\n'LEAF-7375',\n'LEAF-7376',\n'LEAF-7373',\n'LEAF-7372',\n'LEAF-7371',\n'LEAF-7370',\n'LEAF-7369',\n'LEAF-7367',\n'LEAF-7366',\n'LEAF-7364',\n'LEAF-7363',\n'LEAF-7361',\n'LEAF-7360',\n'LEAF-7356',\n'LEAF-7354',\n'LEAF-7351',\n'LEAF-7353',\n'LEAF-7348',\n'LEAF-7347',\n'LEAF-7345',\n'LEAF-7346',\n'LEAF-7344',\n'LEAF-7343',\n'LEAF-7342',\n'LEAF-7341',\n'LEAF-7340',\n'LEAF-7339',\n'LEAF-7337',\n'LEAF-7336',\n'LEAF-7334',\n'LEAF-7335',\n'LEAF-7333',\n'LEAF-7331',\n'LEAF-7330',\n'LEAF-7329',\n'LEAF-7325',\n'LEAF-7328',\n'LEAF-7326',\n'LEAF-7324',\n'LEAF-7323',\n'LEAF-7322',\n'LEAF-7321',\n'LEAF-7320',\n'LEAF-7318',\n'LEAF-7316',\n'LEAF-7317',\n'LEAF-7315',\n'LEAF-7314',\n'LEAF-7312',\n'LEAF-7313',\n'LEAF-7311',\n'LEAF-7310',\n'LEAF-7309',\n'LEAF-7308',\n'LEAF-7307',\n'LEAF-7306',\n'LEAF-7304',\n'LEAF-7305',\n'LEAF-7301',\n'LEAF-7299',\n'LEAF-7298',\n'LEAF-7297',\n'LEAF-7296',\n'LEAF-7295',\n'LEAF-7293',\n'LEAF-7294',\n'LEAF-7289',\n'LEAF-7287',\n'LEAF-7286',\n'LEAF-7285',\n'LEAF-7283',\n'LEAF-7282',\n'LEAF-7281',\n'LEAF-7280',\n'LEAF-7279',\n'LEAF-7278',\n'LEAF-7275',\n'LEAF-7277',\n'LEAF-7272',\n'LEAF-7270',\n'LEAF-7268',\n'LEAF-7267',\n'LEAF-7266',\n'LEAF-7265',\n'LEAF-7263',\n'LEAF-7264'\n\n)\n),\nRelevantSteuersaetze AS (\n    SELECT DISTINCT\n        kAuftrag,\n        MwSt\n    FROM RelevantePositionen\n),\nBestellSummen AS (\n    -- Menge + Nettowert der relevanten Artikel pro Auftrag\n    SELECT\n        kAuftrag,\n        SUM(MengeAuftrag)      AS GesamtMengeAuftrag,\n        SUM(NettowertPosition) AS NettowertRelevanterArtikel\n    FROM RelevantePositionen\n    GROUP BY kAuftrag\n),\nRechnungSummen AS (\n    SELECT\n        rp.kAuftrag,\n        SUM(rpPos.fAnzahl) AS GesamtMengeRechnung\n    FROM RelevantePositionen rp\n    JOIN Rechnung.tRechnungPosition rpPos\n        ON rpPos.kAuftragPosition = rp.kAuftragPosition\n    JOIN tRechnung r\n        ON r.kRechnung = rpPos.kRechnung\n    GROUP BY rp.kAuftrag\n),\nLieferscheinSummen AS (\n    SELECT\n        rp.kAuftrag,\n        SUM(lsPos.fAnzahl) AS GesamtMengeGeliefert\n    FROM RelevantePositionen rp\n    JOIN tLieferscheinPos lsPos\n        ON lsPos.kBestellPos = rp.kAuftragPosition\n    JOIN tLieferschein ls\n        ON ls.kLieferschein = lsPos.kLieferschein\n    GROUP BY rp.kAuftrag\n),\nWeitereArtikelImAuftrag AS (\n    SELECT\n        ap.kAuftrag,\n        COUNT(*) AS AnzahlWeitereArtikel,\n        SUM(\n            CASE \n                WHEN rs.MwSt IS NULL THEN 1 ELSE 0 \n            END\n        ) AS AnzahlWeitereMitAnderemMwSt\n    FROM Verkauf.tAuftragPosition ap\n    JOIN Verkauf.tAuftrag a \n        ON a.kAuftrag = ap.kAuftrag\n    LEFT JOIN RelevantSteuersaetze rs\n        ON rs.kAuftrag = ap.kAuftrag\n       AND rs.MwSt     = ap.fMwSt\n    WHERE a.nStorno = 0\n      AND ap.nType = 0\n      AND ap.kAuftrag IN (SELECT DISTINCT kAuftrag FROM RelevantePositionen)\n      AND ap.kAuftragPosition NOT IN (\n            SELECT kAuftragPosition\n            FROM RelevantePositionen\n      )\n    GROUP BY ap.kAuftrag\n),\nKombis AS (\n    SELECT\n        rp.kAuftrag,\n        Artikelkombination =\n            STUFF((\n                SELECT ',' + x.cArtNr\n                FROM (\n                    SELECT DISTINCT rp2.cArtNr\n                    FROM RelevantePositionen rp2\n                    WHERE rp2.kAuftrag = rp.kAuftrag\n                ) x\n                ORDER BY x.cArtNr\n                FOR XML PATH(''), TYPE\n            ).value('.','nvarchar(max)'), 1, 1, '')\n    FROM RelevantePositionen rp\n    GROUP BY rp.kAuftrag\n),\nOffeneZahlung AS (\n    -- Offener Posten je Auftrag aus JTL-View\n    SELECT\n        opa.kBestellung,\n        -- TODO: Spaltennamen für offenen Betrag ggf. anpassen\n        SUM(opa.fWertOffen) AS OffenerZahlungsbetrag\n    FROM Zahlungsabgleich.vOffenerPostenAuftrag opa\n    WHERE opa.kBestellung IN (SELECT DISTINCT kAuftrag FROM RelevantePositionen)\n    GROUP BY opa.kbestellung\n)\nSELECT\n    DISTINCT(a.kAuftrag),\n    a.cAuftragsNr,\n    a.dErstellt,\n\n    -- Versandart\n    va.cName AS Versandart,\n\n    -- Lieferland aus tAdresse (nTyp = 0 = Lieferadresse)\n    adrL.cLand AS Lieferland,\n\n    -- E-Mail der Rechnungsadresse aus tAdresse (nTyp = 1 = Rechnungsadresse)\n    adrR.cMail AS RechnungsadresseEMail,\n\tCONCAT(adrR.cVorname,' ', adrR.cName) as RechnungsName,\n\n    -- Kombination der relevanten Artikel\n    k.Artikelkombination,\n\n    -- Nettowert der relevanten Artikel (eine Spalte)\n    bs.NettowertRelevanterArtikel,\n\n    ISNULL(rs.GesamtMengeRechnung,0)  AS GesamtMengeRechnung,\n    CASE\n        WHEN ISNULL(rs.GesamtMengeRechnung,0) = 0\n            THEN 'Keine Rechnung'\n        WHEN rs.GesamtMengeRechnung >= bs.GesamtMengeAuftrag\n            THEN 'Komplettrechnung'\n        ELSE 'Teilrechnung'\n    END AS Rechnungsstatus,\n\n    ISNULL(ls.GesamtMengeGeliefert,0) AS GesamtMengeGeliefert,\n    CASE\n        WHEN ISNULL(ls.GesamtMengeGeliefert,0) = 0\n            THEN 'Noch keine Lieferung'\n        WHEN ls.GesamtMengeGeliefert < bs.GesamtMengeAuftrag\n            THEN 'Teillieferung'\n        ELSE 'Komplett geliefert'\n    END AS Lieferstatus,\n\n    ISNULL(w.AnzahlWeitereArtikel,0) AS AnzahlWeitereArtikel,\n    CASE\n        WHEN ISNULL(w.AnzahlWeitereArtikel,0) > 0 THEN 'Ja' ELSE 'Nein'\n    END AS HatWeitereArtikel,\n    CASE\n        WHEN ISNULL(w.AnzahlWeitereMitAnderemMwSt,0) > 0 THEN 'Ja' ELSE 'Nein'\n    END AS WeitereArtikelMitAnderemSteuersatz,\n\n\t-- 🔹 Offener Posten aus der JTL-View\n    ISNULL(oz.OffenerZahlungsbetrag, 0) AS OffenerZahlungsbetrag\n\nFROM Verkauf.tAuftrag a\nJOIN BestellSummen bs\n    ON bs.kAuftrag = a.kAuftrag\nJOIN Kombis k\n    ON k.kAuftrag = a.kAuftrag\nLEFT JOIN RechnungSummen rs\n    ON rs.kAuftrag = a.kAuftrag\nLEFT JOIN LieferscheinSummen ls\n    ON ls.kAuftrag = a.kAuftrag\nLEFT JOIN WeitereArtikelImAuftrag w\n    ON w.kAuftrag = a.kAuftrag\nLEFT JOIN tVersandArt va\n    ON va.kVersandArt = a.kVersandArt\n\n-- Lieferadresse: nTyp = 0\nLEFT JOIN tAdresse adrL\n    ON adrL.kKunde = a.kKunde\n   AND adrL.nTyp   = 0\n\n-- Rechnungsadresse: nTyp = 1\nLEFT JOIN tAdresse adrR\n    ON adrR.kKunde = a.kKunde\n   AND adrR.nTyp   = 1\n\n-- Offener Posten\nLEFT JOIN OffeneZahlung oz\n    ON oz.kBestellung = a.kAuftrag\n\nWHERE OffenerZahlungsbetrag > 0\nAND a.cAuftragsNr NOT LIKE 'A-%' AND cAuftragsNr NOT LIKE 'B2B-%'\n\nORDER BY a.dErstellt DESC;\n",
+        "options": {}
+      },
+      "id": "20a24dcb-0567-48ba-9da1-ab34f3867d6c",
+      "name": "Query Orders from MS SQL",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        3248,
+        240
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "FPNARNNGeU5o4IlA",
+          "name": "Microsoft SQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "user",
+        "operation": "search",
+        "limit": 1,
+        "filters": {
+          "query": "={{ $json.RechnungsadresseEMail }}"
+        }
+      },
+      "id": "dff0ba0f-99b0-418c-8a64-b4aa83b76d00",
+      "name": "Search Zendesk User",
+      "type": "n8n-nodes-base.zendesk",
+      "typeVersion": 1,
+      "position": [
+        3920,
+        160
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "zendeskApi": {
+          "id": "z4rtlKq5ATLdum23",
+          "name": "Zendesk account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "id-1",
+              "leftValue": "={{ $item(\"0\").$node[\"Search Zendesk User\"].json }}",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "={{ false }}",
+        "options": {}
+      },
+      "id": "7c534a9c-3473-465b-bdfa-e613722d2765",
+      "name": "Customer Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4144,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "user",
+        "name": "={{ $('Wait').item.json.RechnungsName }}",
+        "additionalFields": {
+          "email": "={{ $('Wait').item.json.RechnungsadresseEMail }}"
+        }
+      },
+      "id": "8b3095a2-62eb-48c5-bcdd-14a7cb1e0e58",
+      "name": "Create Zendesk User",
+      "type": "n8n-nodes-base.zendesk",
+      "typeVersion": 1,
+      "position": [
+        4368,
+        240
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "z4rtlKq5ATLdum23",
+          "name": "Zendesk account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "zendeskUserId",
+              "value": "={{ $('Search Zendesk User').item.json.id ?  $('Search Zendesk User').item.json.id: $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "b66b477b-e855-4f25-bf69-2d52ff0dfad7",
+      "name": "Prepare User ID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4592,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Workflow Configuration').first().json.mollieApiUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"description\": \"{{ $('Query Orders from MS SQL').item.json.cAuftragsNr }} Nachzahlung Heat of the Everflame\",\n  \"amount\": {\n    \"currency\": \"EUR\",\n    \"value\": \"{{ $('Query Orders from MS SQL').item.json.OffenerZahlungsbetrag.toFixed(2) }}\"\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "7fff4dbb-355c-4dba-8d94-568ab453605b",
+      "name": "Create Mollie Payment Link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        4816,
+        160
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "IIkFQsQOOkomzFAA",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "=Hallo {{ $('Prepare User ID').item.json.name }},\n\nwir melden uns heute noch einmal in Bezug auf unsere Info-Mail vom 19.12.2025.\nDarin haben wir dich darüber informiert, dass der Verlag den Preis von Heat of the Everflame (Band 3) von 28,00 € auf 30,00 €* angepasst hat.\n \nHintergrund ist, dass der dritte Band deutlich umfangreicher ausgefallen ist als ursprünglich geplant und sich dadurch die Herstellungskosten erhöht haben.\n\nDa Bücher in Deutschland der gesetzlichen Buchpreisbindung unterliegen, muss dieser neue Preis für alle Händler einheitlich gelten. \n\nDeshalb bitten wir dich, den nun offenen Differenzbetrag von 2,00 € pro Buch* (i.d.F. sind {{ $json.amount.value }}€ offen ) auszugleichen.\n\n👉 Bitte nutze hierfür deinen persönlichen Zahlungslink: {{ $json._links.paymentLink.href }}\n\nSolltest du das Buch aufgrund der Preisänderung lieber stornieren wollen, ist das selbstverständlich möglich. Gib uns in diesem Fall bitte kurz per Antwort auf diese Mail Bescheid.\nWichtige Hinweise zum weiteren Ablauf:\n\nDer Versand zum Erscheinungstermin am 13.01.2026 kann nur erfolgen, wenn der Differenzbetrag beglichen wurde.\n \nVielen Dank für dein Verständnis. Wir wünschen dir und deinen Lieben schöne Feiertage!\n\nLiebe Grüße\nDein Bücherbüchse-Team\n\n* Es handelt sich um den deutschen Ladenpreis. Bei Bestellungen ins Ausland kann es aufgrund unterschiedlicher Mehrwertsteuersätze zu geringfügigen Abweichungen kommen.\n",
+        "jsonParameters": true,
+        "additionalFieldsJson": "={ \"description\": \"Hallo {{ $('Prepare User ID').item.json.name }},\\n\\nwir melden uns heute noch einmal in Bezug auf unsere Info-Mail vom 19.12.2025.\\nDarin haben wir dich darüber informiert, dass der Verlag den Preis von Heat of the Everflame (Band 3) von 28,00 € auf 30,00 €* angepasst hat.\\n \\nHintergrund ist, dass der dritte Band deutlich umfangreicher ausgefallen ist als ursprünglich geplant und sich dadurch die Herstellungskosten erhöht haben.\\n\\nDa Bücher in Deutschland der gesetzlichen Buchpreisbindung unterliegen, muss dieser neue Preis für alle Händler einheitlich gelten. \\n\\nDeshalb bitten wir dich, den nun offenen Differenzbetrag von 2,00 € pro Buch* (i.d.F. sind {{ $json.amount.value }}€ offen ) auszugleichen.\\n\\n👉 Bitte nutze hierfür deinen persönlichen Zahlungslink: {{ $json._links.paymentLink.href }}\\n\\nSolltest du das Buch aufgrund der Preisänderung lieber stornieren wollen, ist das selbstverständlich möglich. Gib uns in diesem Fall bitte kurz per Antwort auf diese Mail Bescheid.\\nWichtige Hinweise zum weiteren Ablauf:\\n\\nDer Versand zum Erscheinungstermin am 13.01.2026 kann nur erfolgen, wenn der Differenzbetrag beglichen wurde.\\n \\nVielen Dank für dein Verständnis. Wir wünschen dir und deinen Lieben schöne Feiertage!\\n\\nLiebe Grüße\\nDein Bücherbüchse-Team\\n\\n* Es handelt sich um den deutschen Ladenpreis. Bei Bestellungen ins Ausland kann es aufgrund unterschiedlicher Mehrwertsteuersätze zu geringfügigen Abweichungen kommen.\", \"requester_id\": {{ $('Prepare User ID').item.json.zendeskUserId }}, \"subject\": \"Korrektur: Link zur Nachzahlung \\\"Heat of the Everflame\\\" für Bestellung {{ $('Wait').item.json.cAuftragsNr }}\", \"status\": \"pending\", \"requester_id\": {{ $('Prepare User ID').item.json.id }}}"
+      },
+      "id": "d101c75d-953d-4764-8ae1-c99bfe6d6bd1",
+      "name": "Create Zendesk Ticket",
+      "type": "n8n-nodes-base.zendesk",
+      "typeVersion": 1,
+      "position": [
+        5040,
+        240
+      ],
+      "credentials": {
+        "zendeskApi": {
+          "id": "z4rtlKq5ATLdum23",
+          "name": "Zendesk account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        2800,
+        144
+      ],
+      "id": "45f11018-eec6-4eff-bb76-8e7772b3c405",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        3472,
+        240
+      ],
+      "id": "659bea78-3e58-4bb4-b59d-19e3ba5fc970",
+      "name": "Loop Over Items",
+      "executeOnce": false
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3696,
+        160
+      ],
+      "id": "380eb773-2eb9-45a3-8ea3-25a23bf30a20",
+      "name": "Wait",
+      "webhookId": "24cb4247-6a64-42ae-877d-7a3390917f5b"
+    }
+  ],
+  "connections": {
+    "Workflow Configuration": {
+      "main": [
+        [
+          {
+            "node": "Query Orders from MS SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Orders from MS SQL": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Zendesk User": {
+      "main": [
+        [
+          {
+            "node": "Customer Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Exists?": {
+      "main": [
+        [
+          {
+            "node": "Prepare User ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Zendesk User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Zendesk User": {
+      "main": [
+        [
+          {
+            "node": "Prepare User ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare User ID": {
+      "main": [
+        [
+          {
+            "node": "Create Mollie Payment Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Mollie Payment Link": {
+      "main": [
+        [
+          {
+            "node": "Create Zendesk Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Search Zendesk User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Zendesk Ticket": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "98a5b2b5-6912-4320-ba1d-d6f32757c423",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-01-27T12:06:00.649Z",
+      "createdAt": "2026-01-27T12:06:00.649Z",
+      "role": "workflow:owner",
+      "workflowId": "oRxCv7n7uSXmy3pS",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": [
+    {
+      "updatedAt": "2026-01-08T10:25:20.418Z",
+      "createdAt": "2026-01-08T10:25:20.418Z",
+      "id": "x0qTp7A3NOgGXUae",
+      "name": "Support"
+    }
+  ]
+}

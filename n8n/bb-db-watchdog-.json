@@ -1,0 +1,162 @@
+{
+  "updatedAt": "2026-06-23T13:06:56.727Z",
+  "createdAt": "2026-06-23T12:11:34.371Z",
+  "id": "I729a2hcKBV5nIU2",
+  "name": "BB DB Watchdog",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "db-watchdog-bb",
+        "options": {
+          "noResponseBody": true
+        }
+      },
+      "id": "ed6dec21-7520-474e-b381-bddc7a30f29b",
+      "name": "DB Watchdog Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -208,
+        192
+      ],
+      "webhookId": "da126a22-88fd-4bd2-8cc0-9f6e12345678"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nconst WATCHDOG_SECRET = '02194db639f32b2e643946d783fae76f74c1b49049efcbcb233c415b812e3f130c4db368b186f5fc2ce354e9e0f07ba7';\nconst REQUIRE_SIGNATURE = true;\nconst MAX_CLOCK_SKEW_SECONDS = 15 * 60;\nconst EXPECTED_SOURCE = 'db-watchdog-agent';\n\nfunction getHeader(headers, name) {\n  const target = String(name).toLowerCase();\n  for (const pair of Object.entries(headers || {})) {\n    const key = pair[0];\n    const value = pair[1];\n    if (String(key).toLowerCase() === target) {\n      return Array.isArray(value) ? String(value[0] || '') : String(value || '');\n    }\n  }\n  return '';\n}\n\nfunction getRawBody(input) {\n  if (typeof input.rawBody === 'string') return input.rawBody;\n  if (typeof input.raw_body === 'string') return input.raw_body;\n  if (typeof input.bodyRaw === 'string') return input.bodyRaw;\n  if (typeof input.body === 'string') return input.body;\n  if (input.body && typeof input.body.rawBody === 'string') return input.body.rawBody;\n  return JSON.stringify(input.body || {});\n}\n\nfunction parsePayload(input, rawBody) {\n  if (input.body && typeof input.body === 'object' && !Array.isArray(input.body)) return input.body;\n  if (typeof input.body === 'string' && input.body.trim() !== '') return JSON.parse(input.body);\n  if (typeof rawBody === 'string' && rawBody.trim() !== '') return JSON.parse(rawBody);\n  return input;\n}\n\nfunction safeTimingEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left));\n  const rightBuffer = Buffer.from(String(right));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\n\nconst input = items[0] && items[0].json ? items[0].json : {};\nconst headers = input.headers || {};\nconst signature = getHeader(headers, 'x-bb-watchdog-signature');\nconst timestampHeader = getHeader(headers, 'x-bb-watchdog-timestamp');\nconst rawBody = getRawBody(input);\nconst payload = parsePayload(input, rawBody);\n\nif (REQUIRE_SIGNATURE) {\n  if (!WATCHDOG_SECRET || WATCHDOG_SECRET.indexOf('CHANGE_ME') === 0) {\n    throw new Error('Watchdog secret is not configured in n8n.');\n  }\n  if (!signature) throw new Error('Missing X-BB-Watchdog-Signature header.');\n\n  const expected = 'sha256=' + crypto.createHmac('sha256', WATCHDOG_SECRET).update(rawBody).digest('hex');\n  if (!safeTimingEqual(signature, expected)) throw new Error('Invalid watchdog signature.');\n}\n\nif (EXPECTED_SOURCE && payload.source !== EXPECTED_SOURCE) {\n  throw new Error('Unexpected watchdog source: ' + String(payload.source || ''));\n}\n\nconst nowSeconds = Math.floor(Date.now() / 1000);\nconst payloadSeconds = Number(payload.timestamp_epoch || timestampHeader || 0);\nif (payloadSeconds > 0 && Math.abs(nowSeconds - payloadSeconds) > MAX_CLOCK_SKEW_SECONDS) {\n  throw new Error('Watchdog payload timestamp outside accepted clock skew.');\n}\n\nif (!Array.isArray(payload.records)) {\n  throw new Error('Watchdog payload does not contain records array.');\n}\n\nreturn [{\n  json: Object.assign({}, payload, {\n    received_at: new Date().toISOString(),\n    n8n_watchdog: {\n      signature_required: REQUIRE_SIGNATURE,\n      signature_valid: REQUIRE_SIGNATURE ? true : null,\n      workflow: EXPECTED_SOURCE\n    }\n  })\n}];"
+      },
+      "id": "2c2860be-5fd4-422a-982c-37845ee7c2cd",
+      "name": "Verify DB Push",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const KNOWN_ADMIN_IDS = new Set(['1', '34', '72', '30328', '32065', '62317', '121806', '136996']);\nconst RESET_BASELINE = false;\nconst ALERT_ON_FIRST_RUN_FINDINGS = true;\n\nconst state = $getWorkflowStaticData('global');\nconst payload = items[0] && items[0].json ? items[0].json : {};\nconst rows = Array.isArray(payload.records) ? payload.records : [];\n\nfunction stableKey(row) {\n  return [row.record_type || 'unknown', row.key_name || '', row.label || ''].join('|');\n}\n\nfunction severityFor(row, reason) {\n  if (row.record_type === 'admin_user') return 'critical';\n  if (row.record_type === 'watched_option' && row.key_name === 'active_plugins') return 'critical';\n  if (row.record_type === 'suspicious_option') return 'critical';\n  if (row.record_type === 'wpwebhooks_table') return 'warning';\n  if (reason === 'changed') return 'warning';\n  return 'warning';\n}\n\nfunction rowSummary(row) {\n  return {\n    record_type: row.record_type || 'unknown',\n    key_name: row.key_name || '',\n    label: row.label || '',\n    value_hash: row.value_hash || '',\n    details: row.details || ''\n  };\n}\n\nconst current = {};\nfor (const row of rows) {\n  const key = stableKey(row);\n  current[key] = rowSummary(row);\n}\n\nconst firstRunFindings = [];\nfor (const row of rows) {\n  if (row.record_type === 'admin_user' && !KNOWN_ADMIN_IDS.has(String(row.key_name))) {\n    firstRunFindings.push({\n      severity: 'critical',\n      reason: 'admin_not_in_allowlist',\n      record: rowSummary(row)\n    });\n  }\n  if (row.record_type === 'suspicious_option') {\n    firstRunFindings.push({\n      severity: 'critical',\n      reason: 'suspicious_option_payload',\n      record: rowSummary(row)\n    });\n  }\n}\n\nif (RESET_BASELINE || !state.dbBaseline) {\n  state.dbBaseline = {\n    initialized_at: new Date().toISOString(),\n    records: current\n  };\n\n  if (ALERT_ON_FIRST_RUN_FINDINGS && firstRunFindings.length) {\n    return [{\n      json: {\n        source: 'db-watchdog',\n        severity: firstRunFindings.some(function(f) { return f.severity === 'critical'; }) ? 'critical' : 'warning',\n        reason: 'first_run_findings',\n        host_id: payload.host_id || '',\n        agent_timestamp_utc: payload.timestamp_utc || '',\n        findings: firstRunFindings,\n        record_count: rows.length,\n        baseline_initialized: true,\n        checked_at: new Date().toISOString(),\n        payload: payload\n      }\n    }];\n  }\n\n  return [];\n}\n\nconst previous = state.dbBaseline.records || {};\nconst findings = [];\n\nfor (const key of Object.keys(current)) {\n  const row = current[key];\n  const old = previous[key];\n  if (!old) {\n    findings.push({\n      severity: severityFor(row, 'new'),\n      reason: 'new_record',\n      record: row\n    });\n    continue;\n  }\n  if (String(old.value_hash || '') !== String(row.value_hash || '')) {\n    findings.push({\n      severity: severityFor(row, 'changed'),\n      reason: 'changed',\n      old_record: old,\n      record: row\n    });\n  }\n}\n\nfor (const key of Object.keys(previous)) {\n  if (!current[key]) {\n    findings.push({\n      severity: 'notice',\n      reason: 'removed_record',\n      old_record: previous[key]\n    });\n  }\n}\n\nstate.dbBaseline = {\n  initialized_at: state.dbBaseline.initialized_at,\n  updated_at: new Date().toISOString(),\n  records: current\n};\n\nconst actionable = findings.filter(function(f) { return f.severity === 'critical' || f.severity === 'warning'; });\nif (!actionable.length) return [];\n\nreturn [{\n  json: {\n    source: 'db-watchdog',\n    severity: actionable.some(function(f) { return f.severity === 'critical'; }) ? 'critical' : 'warning',\n    reason: 'db_state_changed',\n    host_id: payload.host_id || '',\n    agent_timestamp_utc: payload.timestamp_utc || '',\n    findings: actionable,\n    record_count: rows.length,\n    checked_at: new Date().toISOString(),\n    payload: payload\n  }\n}];"
+      },
+      "id": "9a6861eb-9417-4bde-8f18-efe54400dd0b",
+      "name": "Analyze DB State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0] && items[0].json ? items[0].json : {};\n\nfunction escapeHtml(value) {\n  return String(value === undefined || value === null ? '' : value)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n}\n\nfunction asJson(value) {\n  return escapeHtml(JSON.stringify(value || {}, null, 2));\n}\n\nconst severity = String(input.severity || 'warning').toLowerCase();\nconst color = severity === 'critical' ? '#b42318' : '#b54708';\nconst subject = '[BB Watchdog DB] - ' + severity.toUpperCase() + ' - ' + (input.reason || 'db_state_changed');\nconst findings = Array.isArray(input.findings) ? input.findings : [];\nconst itemsHtml = findings.map(function(finding) {\n  const record = finding.record || finding.old_record || {};\n  return '<li><strong>' + escapeHtml(finding.severity || '') + '</strong> '\n    + escapeHtml(finding.reason || '')\n    + ' - <code>' + escapeHtml(record.record_type || '') + ':' + escapeHtml(record.key_name || '') + '</code>'\n    + '<br><small>' + escapeHtml(record.details || '') + '</small></li>';\n}).join('');\n\nconst html = [\n  '<div style=\"font-family:Arial,Helvetica,sans-serif;color:#1d2939;line-height:1.45;\">',\n  '<h2 style=\"margin:0 0 8px;color:' + color + ';\">BB DB Watchdog Alert</h2>',\n  '<p><strong>Severity:</strong> <span style=\"color:' + color + ';font-weight:bold;\">' + escapeHtml(severity.toUpperCase()) + '</span></p>',\n  '<p><strong>Host:</strong> ' + escapeHtml(input.host_id || '') + ' &nbsp; <strong>Agent time:</strong> ' + escapeHtml(input.agent_timestamp_utc || '') + '</p>',\n  '<p><strong>Checked at:</strong> ' + escapeHtml(input.checked_at || '') + '</p>',\n  '<h3>Findings</h3>',\n  '<ul>' + itemsHtml + '</ul>',\n  '<h3>Raw Data</h3>',\n  '<pre style=\"white-space:pre-wrap;background:#f6f8fa;padding:12px;border:1px solid #d0d7de;border-radius:6px;overflow:auto;\">' + asJson(input) + '</pre>',\n  '<p style=\"color:#667085;font-size:12px;margin-top:24px;\">Hinweis: Dieser Workflow empfaengt einen signierten Server-Push. n8n hat keinen MySQL-Zugriff auf den Shop.</p>',\n  '</div>'\n].join('');\n\nreturn [{ json: { subject: subject, html: html, event: input } }];"
+      },
+      "id": "0ac892f1-4e8f-4f11-b4eb-4a0c24a597b7",
+      "name": "Build DB Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "patrick.schmitz@buecherbuechse.de, it@buecherbuechse.de",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "4a28d561-7680-4e9e-8462-bd687644cdb8",
+      "name": "Send Security Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        752,
+        192
+      ],
+      "webhookId": "08fea6c0-5453-45b8-b2b9-68f209be62fe",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "DB Watchdog Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify DB Push",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify DB Push": {
+      "main": [
+        [
+          {
+            "node": "Analyze DB State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze DB State": {
+      "main": [
+        [
+          {
+            "node": "Build DB Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build DB Email": {
+      "main": [
+        [
+          {
+            "node": "Send Security Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "1fcd5f26-8cb3-4e32-8ae5-4a2b44d879d0",
+  "activeVersionId": null,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-06-23T12:11:34.374Z",
+      "createdAt": "2026-06-23T12:11:34.374Z",
+      "role": "workflow:owner",
+      "workflowId": "I729a2hcKBV5nIU2",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

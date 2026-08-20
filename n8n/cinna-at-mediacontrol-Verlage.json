@@ -1,0 +1,1107 @@
+{
+  "updatedAt": "2026-07-21T11:05:41.117Z",
+  "createdAt": "2026-05-12T10:03:07.195Z",
+  "id": "uTnMNhzO8NWM9lxm",
+  "name": "CINNA AT MediaControl",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtMinute": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -416,
+        192
+      ],
+      "id": "b1bc6115-f08e-47b5-a17a-a225b863d1aa",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  Versand.[dVersendet] Versanddatum,\n  Artikel.ISBN EAN,\n  ArtikelTitel.cName Titel,\n  LieferscheinPos.fAnzahl Menge,\n  Artikel.VerkaufspreisBrutto VKPreis,\n  Lieferadresse.cPLZ PLZ\nFROM [eazybusiness].[dbo].[tVersand] Versand\nRIGHT JOIN [eazybusiness].[dbo].[tLieferschein] Lieferschein\n  ON Lieferschein.kLieferschein = Versand.kLieferschein\nRIGHT JOIN [eazybusiness].[dbo].[tLieferscheinPos] LieferscheinPos\n  ON LieferscheinPos.kLieferschein = Lieferschein.kLieferschein\nRIGHT JOIN [eazybusiness].[dbo].[tbestellpos] BestellPosition\n  ON BestellPosition.kBestellPos = LieferscheinPos.kBestellPos\nRIGHT JOIN [eazybusiness].[dbo].[tBestellung] Bestellung\n  ON Bestellung.kBestellung = BestellPosition.tBestellung_kBestellung\nRIGHT JOIN [eazybusiness].Verkauf.tAuftragAdresse Lieferadresse\n  ON Lieferadresse.kAuftrag = Bestellung.kBestellung\nRIGHT JOIN [eazybusiness].[ArtikelVerwaltung].[vArtikelliste] Artikel\n  ON Artikel.kArtikel = BestellPosition.tArtikel_kArtikel\nRIGHT JOIN [eazybusiness].[dbo].[tkategorieartikel] KategorieArtikel\n  ON KategorieArtikel.kArtikel = Artikel.kArtikel\nRIGHT JOIN [eazybusiness].[dbo].[tkategorie] Kategorie\n  ON Kategorie.kKategorie = KategorieArtikel.kKategorie\nOUTER APPLY (\n  SELECT TOP 1\n    ArtikelBeschreibung.cName\n  FROM [eazybusiness].[dbo].[tArtikelBeschreibung] ArtikelBeschreibung\n  WHERE ArtikelBeschreibung.kArtikel = Artikel.kArtikel\n  ORDER BY ArtikelBeschreibung.kSprache\n) ArtikelTitel\nRIGHT JOIN tKunde\n  ON tKunde.kKunde = Bestellung.tKunde_kKunde\nWHERE\n  dVersendet IS NOT NULL\n  AND dVersendet >= '{{ $now.setZone('Europe/Berlin').minus({ days: 1 }).toFormat('yyyy-MM-dd') }} 00:00:00'\n  AND dVersendet <  '{{ $now.setZone('Europe/Berlin').toFormat('yyyy-MM-dd') }} 00:00:00'\n  AND KategorieArtikel.kKategorie IN (3,10,12)\n  AND Artikel.ISBN <> ''\n  AND Lieferadresse.cISO = 'AT'\n  AND Lieferadresse.nTyp = 0\n  AND Artikel.IstStueckliste = 0\n  AND Artikel.VerkaufspreisBrutto > 0\n  AND kVersandArt NOT IN (2614, 108)\n  AND kKundengruppe NOT IN (5)\n  AND kShop IN (24)\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -32,
+        192
+      ],
+      "id": "04bf8fc2-9c37-4c47-82ca-3d8d50379136",
+      "name": "Microsoft SQL",
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const paketAnzahl = items.length;\n\nconst buchAnzahl = items.reduce((sum, item) => {\n  return sum + Number(item.json.Menge || 0);\n}, 0);\n\n// Globale Workflow-Variable\nconst globalData = $getWorkflowStaticData('global');\nglobalData.anzahlUmgewandeltePakete = paketAnzahl;\nglobalData.anzahlUmgewandelteBuecher = buchAnzahl;\n\nreturn items.map(item => {\n  const row = item.json;\n\n  /*\n   * Versanddatum: ISO-Datum in YYYYMMDD umwandeln\n   * Beispiel: 2026-05-05T13:56:27.160Z -> 20260505\n   */\n  row.Versanddatum = String(row.Versanddatum ?? '')\n    .slice(0, 10)\n    .replace(/-/g, '');\n\n  /*\n   * Menge: Länge 7 inkl. Pluszeichen\n   * Beispiel: 3 -> +000003\n   */\n  row.Menge = '+' + String(Number(row.Menge)).padStart(6, '0');\n\n  /*\n   * VKPreis: 2 Nachkommastellen, Punkt entfernen, auf 9 Stellen auffüllen\n   * Beispiel: 12.99 -> 000001299\n   */\n  row.VKPreis = Number(row.VKPreis)\n    .toFixed(2)\n    .replace('.', '')\n    .padStart(9, '0');\n\n  /*\n   * PLZ: falls führende Null fehlt, ergänzen\n   * Danach auf die ersten 3 Stellen kürzen\n   */\n  row.PLZ = String(row.PLZ ?? '');\n\n  if (row.PLZ.length < 5) {\n    row.PLZ = '0' + row.PLZ;\n  }\n\n  row.PLZ = row.PLZ.slice(0, 3);\n\n  /*\n   * EAN: Leerzeichen entfernen\n   */\n  row.EAN = String(row.EAN ?? '').replace(/\\s+/g, '');\n\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -64
+      ],
+      "id": "c66f71c1-727a-4e51-af4c-9f393049e669",
+      "name": "Payload Anpassung"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "path": "={{ $binary.data.fileName }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.ftp",
+      "typeVersion": 1,
+      "position": [
+        928,
+        -336
+      ],
+      "id": "e9483e18-52ec-4fa3-8d6e-bd9807cb30cf",
+      "name": "FTP",
+      "credentials": {
+        "ftp": {
+          "id": "SnpsUOXpA9AA0YAd",
+          "name": "LEAF MediaControl FTP"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "79591ae1-e43d-4b7b-8049-4a2c6dc8b0ca",
+              "leftValue": "={{ $json.EAN }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        160,
+        192
+      ],
+      "id": "624a2071-db17-4695-8a37-1c8a58bdf460",
+      "name": "Check IF empty"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "={{ $json.sendto }}",
+        "subject": "={{ $json.titel }} - Flow",
+        "html": "={{ $json.mailText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        640,
+        208
+      ],
+      "id": "9d6c4f1f-1074-4bec-9709-d6e672e0a09c",
+      "name": "Kein Versand hat statt gefunden.",
+      "webhookId": "b37b45e9-fd4b-4e9c-9597-b81526871022",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "={{ $json.sendto }}",
+        "subject": "={{ $json.titel }} - Flow FTP Erfolg",
+        "html": "={{ $json.mailText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1376,
+        -576
+      ],
+      "id": "e84adb5d-4d4b-41f3-b83e-87843f8a8bf2",
+      "name": "Upload Success",
+      "webhookId": "97042fc4-b467-45e8-a24d-6680cae65d2a",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "={{ $json.sendto }}",
+        "subject": "={{ $json.titel }} - Flow FTP Fehler",
+        "html": "={{ $json.mailText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1376,
+        -320
+      ],
+      "id": "2ce1362b-b7f5-4824-8314-f1fd417629d4",
+      "name": "Upload Fail ",
+      "webhookId": "2d6849fd-a24e-4a2d-9ee4-d819436d8f8d",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.titel = 'CINNA | MediaControl AT vom '+ $now.setZone('Europe/Berlin').minus({ days: 1 }).toFormat('yyyy-MM-dd');\nstaticData.sendto = 'jesse.balsam@buecherbuechse.de,christoph@buecherbuechse.de, lisa@buecherbuechse.de,programm@cinna-verlag.de';\n\nreturn [\n  {\n    json: {\n      success: true,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        192
+      ],
+      "id": "710c3d77-c76d-427b-8454-942955ee0a9f",
+      "name": "Setzen von globalen Variablen "
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst titel = staticData.titel || 'Kein Titel gesetzt';\nconst sendto = staticData.sendto || '';\nconst anzahlUmgewandeltePakete =\n  staticData.anzahlUmgewandeltePakete || 0;\nconst anzahlUmgewandelteBuecher =\n  staticData.anzahlUmgewandelteBuecher || 0;\nconst escapeHtml = (value) => {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n};\n// Tabellen-Items aus Payload Anpassung holen (= ein Merge-Input)\nconst datenItems = $('Payload Anpassung').all();\nconst titelMap = new Map();\nfor (const item of datenItems) {\n  const row = item.json;\n  const titelKey = String(row.Titel ?? '').trim();\n  const ean = String(row.EAN ?? '').trim();\n  const menge = Number(row.Menge || 0);\n  // VKPreis aus MediaControl-Format (z.B. \"000001299\") zurück in Euro (12.99)\n  const vkPreis = Number(String(row.VKPreis ?? '0').replace(/\\D/g, '')) / 100;\n  if (!titelMap.has(titelKey)) {\n    titelMap.set(titelKey, {\n      Titel: titelKey,\n      EAN: ean,\n      Menge: 0,\n      VKPreis: vkPreis,\n    });\n  }\n  titelMap.get(titelKey).Menge += menge;\n}\nconst aggregierteTitel = Array.from(titelMap.values())\n  .sort((a, b) => b.Menge - a.Menge);\nconst tabellenZeilen = aggregierteTitel.map(row => {\n  return `\n    <tr>\n      <td>${escapeHtml(row.Titel)}</td>\n      <td>${escapeHtml(row.EAN)}</td>\n      <td align=\"right\">${escapeHtml(row.Menge)}</td>\n      <td align=\"right\">${escapeHtml(row.VKPreis.toFixed(2))} &euro;</td>\n    </tr>\n  `;\n}).join('');\nconst mailText = `\n<p>Der FTP Upload vom ${escapeHtml(titel)} - Flow war erfolgreich!</p>\n<p>\n  Insgesamt wurden ${escapeHtml(anzahlUmgewandeltePakete)} Pakete aus der DB-Abfrage zum FTP Upload durchgegeben.<br>\n  Diese Pakete enthalten insgesamt ${escapeHtml(anzahlUmgewandelteBuecher)} Bücher.\n</p>\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;\">\n  <thead>\n    <tr>\n      <th align=\"left\">Titel</th>\n      <th align=\"left\">EAN</th>\n      <th align=\"right\">Menge</th>\n      <th align=\"right\">VK-Preis (brutto)</th>\n    </tr>\n  </thead>\n  <tbody>\n    ${tabellenZeilen}\n  </tbody>\n</table>\n<p>\n  Liebe Grüße<br>\n  ${escapeHtml(titel)} - Flow\n</p>\n`;\nreturn [\n  {\n    json: {\n      success: true,\n      titel,\n      sendto,\n      anzahlUmgewandeltePakete,\n      anzahlUmgewandelteBuecher,\n      anzahlTitel: aggregierteTitel.length,\n      mailText,\n    },\n    // CSV-Datei aus dem FTP-Success-Input (Convert to File1) weitergeben\n    binary: items.find(item => item.binary)?.binary,\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        -576
+      ],
+      "id": "d334fce6-59ca-4f9a-94a2-005b1ecb2dde",
+      "name": "Mail-Vorbereitung"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst titel = staticData.titel || 'Kein Titel gesetzt';\nconst sendto = staticData.sendto || '';\n\nreturn items.map(item => {\n  return {\n    json: {\n      ...item.json,\n\n      titel,\n      sendto,\n\n      mailText: `Der FTP Upload vom ${titel} - Flow schlug fehl!\n\nLiebe Grüße \nDer ${titel} - Flow `,\n    },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        -320
+      ],
+      "id": "1ecee16f-1505-4a49-9178-1761fe774766",
+      "name": "Mail-Vorbereitung 2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst titel = staticData.titel || 'Kein Titel gesetzt';\nconst sendto = staticData.sendto || '';\n\nreturn items.map(item => {\n  return {\n    json: {\n      ...item.json,\n\n      titel,\n      sendto,\n\n      mailText: `Der ${titel} wurde ausgelöst. Es gab im Zeitraum von gestern zu heute keine passenden Versendungen\n      \n      Liebe Grüße\n${titel} - Flow`,\n    },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        208
+      ],
+      "id": "0fbda7e4-bf88-4f52-87f9-13eca847730b",
+      "name": "Mail-Vorbereitung 4"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  delete item.json.Titel;\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -64
+      ],
+      "id": "281842cd-6c3e-4abf-8692-23c0df9fd327",
+      "name": "Entferne Titel"
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": "|",
+          "fileName": "={{ 'CI' + $now.setZone('Europe/Berlin').toFormat('yyyyMMdd_HHmmss') + '_AT.999' }}",
+          "headerRow": false
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        688,
+        -64
+      ],
+      "id": "1fed6e86-969b-49d9-8adb-f49b182a7c25",
+      "name": "Convert to File1"
+    },
+    {
+      "parameters": {
+        "content": "## Trigger plus Abfrage",
+        "height": 256,
+        "width": 768,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        112
+      ],
+      "id": "3d6f62d9-f2d7-4a0f-9e62-06be374df8db",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Keine Versendeten Bücher innerhalb der letzten 24h",
+        "height": 256,
+        "width": 496,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        336,
+        112
+      ],
+      "id": "3aaa4047-afbb-4a8d-8944-019ccf913d64",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Payload Vorbereitung \nBereitet Payload für Nachricht an IT UND die Umwandlung für den FTP Upload vor.",
+        "height": 272,
+        "width": 304,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        336,
+        -176
+      ],
+      "id": "ab86c497-b855-4ef1-b6d9-e9f003f5ee96",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Umwandlung in CSV",
+        "height": 272,
+        "width": 176,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        656,
+        -176
+      ],
+      "id": "c056bf81-dd4f-4bec-bad8-bc691541531d",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## FTP Upload",
+        "height": 224,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        848,
+        -400
+      ],
+      "id": "7cecb641-11fb-48b1-9cb8-875f906e955d",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Mail bei FTP Upload Error\n",
+        "height": 224,
+        "width": 512,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        -400
+      ],
+      "id": "0651b1e6-8cff-4d7e-bc28-ea7e56845264",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "## Mail bei FTP Upload Success\n\n",
+        "height": 224,
+        "width": 512,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        -640
+      ],
+      "id": "4d07ad77-b9a6-4db8-ba6b-718d99ed9920",
+      "name": "Sticky Note7"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Setzen von globalen Variablen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL": {
+      "main": [
+        [
+          {
+            "node": "Check IF empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payload Anpassung": {
+      "main": [
+        [
+          {
+            "node": "Entferne Titel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FTP": {
+      "main": [
+        [
+          {
+            "node": "Mail-Vorbereitung",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail-Vorbereitung 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check IF empty": {
+      "main": [
+        [
+          {
+            "node": "Payload Anpassung",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail-Vorbereitung 4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Fail ": {
+      "main": [
+        []
+      ]
+    },
+    "Setzen von globalen Variablen ": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Vorbereitung": {
+      "main": [
+        [
+          {
+            "node": "Upload Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Vorbereitung 2": {
+      "main": [
+        [
+          {
+            "node": "Upload Fail ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Vorbereitung 4": {
+      "main": [
+        []
+      ]
+    },
+    "Entferne Titel": {
+      "main": [
+        [
+          {
+            "node": "Convert to File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File1": {
+      "main": [
+        [
+          {
+            "node": "FTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "global": {
+      "titel": "CINNA | MediaControl AT vom 2026-08-11",
+      "sendto": "jesse.balsam@buecherbuechse.de,christoph@buecherbuechse.de, lisa@buecherbuechse.de,programm@cinna-verlag.de",
+      "anzahlUmgewandeltePakete": 2,
+      "anzahlUmgewandelteBuecher": 2
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "334089f6-6cc9-4ea8-9308-fdbdc5669001",
+  "activeVersionId": "334089f6-6cc9-4ea8-9308-fdbdc5669001",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-05-12T10:03:07.197Z",
+      "createdAt": "2026-05-12T10:03:07.197Z",
+      "role": "workflow:owner",
+      "workflowId": "uTnMNhzO8NWM9lxm",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-07-21T11:05:44.000Z",
+    "createdAt": "2026-07-21T11:05:41.118Z",
+    "versionId": "334089f6-6cc9-4ea8-9308-fdbdc5669001",
+    "workflowId": "uTnMNhzO8NWM9lxm",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtMinute": 10
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          -416,
+          192
+        ],
+        "id": "b1bc6115-f08e-47b5-a17a-a225b863d1aa",
+        "name": "Schedule Trigger"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT\n  Versand.[dVersendet] Versanddatum,\n  Artikel.ISBN EAN,\n  ArtikelTitel.cName Titel,\n  LieferscheinPos.fAnzahl Menge,\n  Artikel.VerkaufspreisBrutto VKPreis,\n  Lieferadresse.cPLZ PLZ\nFROM [eazybusiness].[dbo].[tVersand] Versand\nRIGHT JOIN [eazybusiness].[dbo].[tLieferschein] Lieferschein\n  ON Lieferschein.kLieferschein = Versand.kLieferschein\nRIGHT JOIN [eazybusiness].[dbo].[tLieferscheinPos] LieferscheinPos\n  ON LieferscheinPos.kLieferschein = Lieferschein.kLieferschein\nRIGHT JOIN [eazybusiness].[dbo].[tbestellpos] BestellPosition\n  ON BestellPosition.kBestellPos = LieferscheinPos.kBestellPos\nRIGHT JOIN [eazybusiness].[dbo].[tBestellung] Bestellung\n  ON Bestellung.kBestellung = BestellPosition.tBestellung_kBestellung\nRIGHT JOIN [eazybusiness].Verkauf.tAuftragAdresse Lieferadresse\n  ON Lieferadresse.kAuftrag = Bestellung.kBestellung\nRIGHT JOIN [eazybusiness].[ArtikelVerwaltung].[vArtikelliste] Artikel\n  ON Artikel.kArtikel = BestellPosition.tArtikel_kArtikel\nRIGHT JOIN [eazybusiness].[dbo].[tkategorieartikel] KategorieArtikel\n  ON KategorieArtikel.kArtikel = Artikel.kArtikel\nRIGHT JOIN [eazybusiness].[dbo].[tkategorie] Kategorie\n  ON Kategorie.kKategorie = KategorieArtikel.kKategorie\nOUTER APPLY (\n  SELECT TOP 1\n    ArtikelBeschreibung.cName\n  FROM [eazybusiness].[dbo].[tArtikelBeschreibung] ArtikelBeschreibung\n  WHERE ArtikelBeschreibung.kArtikel = Artikel.kArtikel\n  ORDER BY ArtikelBeschreibung.kSprache\n) ArtikelTitel\nRIGHT JOIN tKunde\n  ON tKunde.kKunde = Bestellung.tKunde_kKunde\nWHERE\n  dVersendet IS NOT NULL\n  AND dVersendet >= '{{ $now.setZone('Europe/Berlin').minus({ days: 1 }).toFormat('yyyy-MM-dd') }} 00:00:00'\n  AND dVersendet <  '{{ $now.setZone('Europe/Berlin').toFormat('yyyy-MM-dd') }} 00:00:00'\n  AND KategorieArtikel.kKategorie IN (3,10,12)\n  AND Artikel.ISBN <> ''\n  AND Lieferadresse.cISO = 'AT'\n  AND Lieferadresse.nTyp = 0\n  AND Artikel.IstStueckliste = 0\n  AND Artikel.VerkaufspreisBrutto > 0\n  AND kVersandArt NOT IN (2614, 108)\n  AND kKundengruppe NOT IN (5)\n  AND kShop IN (24)\n",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          -32,
+          192
+        ],
+        "id": "04bf8fc2-9c37-4c47-82ca-3d8d50379136",
+        "name": "Microsoft SQL",
+        "alwaysOutputData": true,
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const paketAnzahl = items.length;\n\nconst buchAnzahl = items.reduce((sum, item) => {\n  return sum + Number(item.json.Menge || 0);\n}, 0);\n\n// Globale Workflow-Variable\nconst globalData = $getWorkflowStaticData('global');\nglobalData.anzahlUmgewandeltePakete = paketAnzahl;\nglobalData.anzahlUmgewandelteBuecher = buchAnzahl;\n\nreturn items.map(item => {\n  const row = item.json;\n\n  /*\n   * Versanddatum: ISO-Datum in YYYYMMDD umwandeln\n   * Beispiel: 2026-05-05T13:56:27.160Z -> 20260505\n   */\n  row.Versanddatum = String(row.Versanddatum ?? '')\n    .slice(0, 10)\n    .replace(/-/g, '');\n\n  /*\n   * Menge: Länge 7 inkl. Pluszeichen\n   * Beispiel: 3 -> +000003\n   */\n  row.Menge = '+' + String(Number(row.Menge)).padStart(6, '0');\n\n  /*\n   * VKPreis: 2 Nachkommastellen, Punkt entfernen, auf 9 Stellen auffüllen\n   * Beispiel: 12.99 -> 000001299\n   */\n  row.VKPreis = Number(row.VKPreis)\n    .toFixed(2)\n    .replace('.', '')\n    .padStart(9, '0');\n\n  /*\n   * PLZ: falls führende Null fehlt, ergänzen\n   * Danach auf die ersten 3 Stellen kürzen\n   */\n  row.PLZ = String(row.PLZ ?? '');\n\n  if (row.PLZ.length < 5) {\n    row.PLZ = '0' + row.PLZ;\n  }\n\n  row.PLZ = row.PLZ.slice(0, 3);\n\n  /*\n   * EAN: Leerzeichen entfernen\n   */\n  row.EAN = String(row.EAN ?? '').replace(/\\s+/g, '');\n\n  return item;\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          368,
+          -64
+        ],
+        "id": "c66f71c1-727a-4e51-af4c-9f393049e669",
+        "name": "Payload Anpassung"
+      },
+      {
+        "parameters": {
+          "operation": "upload",
+          "path": "={{ $binary.data.fileName }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.ftp",
+        "typeVersion": 1,
+        "position": [
+          928,
+          -336
+        ],
+        "id": "e9483e18-52ec-4fa3-8d6e-bd9807cb30cf",
+        "name": "FTP",
+        "credentials": {
+          "ftp": {
+            "id": "SnpsUOXpA9AA0YAd",
+            "name": "LEAF MediaControl FTP"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "79591ae1-e43d-4b7b-8049-4a2c6dc8b0ca",
+                "leftValue": "={{ $json.EAN }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "exists",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          160,
+          192
+        ],
+        "id": "624a2071-db17-4695-8a37-1c8a58bdf460",
+        "name": "Check IF empty"
+      },
+      {
+        "parameters": {
+          "fromEmail": "n8n@mail.buecherbuechse.de",
+          "toEmail": "={{ $json.sendto }}",
+          "subject": "={{ $json.titel }} - Flow",
+          "html": "={{ $json.mailText }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          640,
+          208
+        ],
+        "id": "9d6c4f1f-1074-4bec-9709-d6e672e0a09c",
+        "name": "Kein Versand hat statt gefunden.",
+        "webhookId": "b37b45e9-fd4b-4e9c-9597-b81526871022",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+          "toEmail": "={{ $json.sendto }}",
+          "subject": "={{ $json.titel }} - Flow FTP Erfolg",
+          "html": "={{ $json.mailText }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1376,
+          -576
+        ],
+        "id": "e84adb5d-4d4b-41f3-b83e-87843f8a8bf2",
+        "name": "Upload Success",
+        "webhookId": "97042fc4-b467-45e8-a24d-6680cae65d2a",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+          "toEmail": "={{ $json.sendto }}",
+          "subject": "={{ $json.titel }} - Flow FTP Fehler",
+          "html": "={{ $json.mailText }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1376,
+          -320
+        ],
+        "id": "2ce1362b-b7f5-4824-8314-f1fd417629d4",
+        "name": "Upload Fail ",
+        "webhookId": "2d6849fd-a24e-4a2d-9ee4-d819436d8f8d",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.titel = 'CINNA | MediaControl AT vom '+ $now.setZone('Europe/Berlin').minus({ days: 1 }).toFormat('yyyy-MM-dd');\nstaticData.sendto = 'jesse.balsam@buecherbuechse.de,christoph@buecherbuechse.de, lisa@buecherbuechse.de,programm@cinna-verlag.de';\n\nreturn [\n  {\n    json: {\n      success: true,\n    },\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -224,
+          192
+        ],
+        "id": "710c3d77-c76d-427b-8454-942955ee0a9f",
+        "name": "Setzen von globalen Variablen "
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst titel = staticData.titel || 'Kein Titel gesetzt';\nconst sendto = staticData.sendto || '';\nconst anzahlUmgewandeltePakete =\n  staticData.anzahlUmgewandeltePakete || 0;\nconst anzahlUmgewandelteBuecher =\n  staticData.anzahlUmgewandelteBuecher || 0;\nconst escapeHtml = (value) => {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n};\n// Tabellen-Items aus Payload Anpassung holen (= ein Merge-Input)\nconst datenItems = $('Payload Anpassung').all();\nconst titelMap = new Map();\nfor (const item of datenItems) {\n  const row = item.json;\n  const titelKey = String(row.Titel ?? '').trim();\n  const ean = String(row.EAN ?? '').trim();\n  const menge = Number(row.Menge || 0);\n  // VKPreis aus MediaControl-Format (z.B. \"000001299\") zurück in Euro (12.99)\n  const vkPreis = Number(String(row.VKPreis ?? '0').replace(/\\D/g, '')) / 100;\n  if (!titelMap.has(titelKey)) {\n    titelMap.set(titelKey, {\n      Titel: titelKey,\n      EAN: ean,\n      Menge: 0,\n      VKPreis: vkPreis,\n    });\n  }\n  titelMap.get(titelKey).Menge += menge;\n}\nconst aggregierteTitel = Array.from(titelMap.values())\n  .sort((a, b) => b.Menge - a.Menge);\nconst tabellenZeilen = aggregierteTitel.map(row => {\n  return `\n    <tr>\n      <td>${escapeHtml(row.Titel)}</td>\n      <td>${escapeHtml(row.EAN)}</td>\n      <td align=\"right\">${escapeHtml(row.Menge)}</td>\n      <td align=\"right\">${escapeHtml(row.VKPreis.toFixed(2))} &euro;</td>\n    </tr>\n  `;\n}).join('');\nconst mailText = `\n<p>Der FTP Upload vom ${escapeHtml(titel)} - Flow war erfolgreich!</p>\n<p>\n  Insgesamt wurden ${escapeHtml(anzahlUmgewandeltePakete)} Pakete aus der DB-Abfrage zum FTP Upload durchgegeben.<br>\n  Diese Pakete enthalten insgesamt ${escapeHtml(anzahlUmgewandelteBuecher)} Bücher.\n</p>\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;\">\n  <thead>\n    <tr>\n      <th align=\"left\">Titel</th>\n      <th align=\"left\">EAN</th>\n      <th align=\"right\">Menge</th>\n      <th align=\"right\">VK-Preis (brutto)</th>\n    </tr>\n  </thead>\n  <tbody>\n    ${tabellenZeilen}\n  </tbody>\n</table>\n<p>\n  Liebe Grüße<br>\n  ${escapeHtml(titel)} - Flow\n</p>\n`;\nreturn [\n  {\n    json: {\n      success: true,\n      titel,\n      sendto,\n      anzahlUmgewandeltePakete,\n      anzahlUmgewandelteBuecher,\n      anzahlTitel: aggregierteTitel.length,\n      mailText,\n    },\n    // CSV-Datei aus dem FTP-Success-Input (Convert to File1) weitergeben\n    binary: items.find(item => item.binary)?.binary,\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1184,
+          -576
+        ],
+        "id": "d334fce6-59ca-4f9a-94a2-005b1ecb2dde",
+        "name": "Mail-Vorbereitung"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst titel = staticData.titel || 'Kein Titel gesetzt';\nconst sendto = staticData.sendto || '';\n\nreturn items.map(item => {\n  return {\n    json: {\n      ...item.json,\n\n      titel,\n      sendto,\n\n      mailText: `Der FTP Upload vom ${titel} - Flow schlug fehl!\n\nLiebe Grüße \nDer ${titel} - Flow `,\n    },\n  };\n});\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1184,
+          -320
+        ],
+        "id": "1ecee16f-1505-4a49-9178-1761fe774766",
+        "name": "Mail-Vorbereitung 2"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst titel = staticData.titel || 'Kein Titel gesetzt';\nconst sendto = staticData.sendto || '';\n\nreturn items.map(item => {\n  return {\n    json: {\n      ...item.json,\n\n      titel,\n      sendto,\n\n      mailText: `Der ${titel} wurde ausgelöst. Es gab im Zeitraum von gestern zu heute keine passenden Versendungen\n      \n      Liebe Grüße\n${titel} - Flow`,\n    },\n  };\n});\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          416,
+          208
+        ],
+        "id": "0fbda7e4-bf88-4f52-87f9-13eca847730b",
+        "name": "Mail-Vorbereitung 4"
+      },
+      {
+        "parameters": {
+          "jsCode": "return items.map(item => {\n  delete item.json.Titel;\n  return item;\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          496,
+          -64
+        ],
+        "id": "281842cd-6c3e-4abf-8692-23c0df9fd327",
+        "name": "Entferne Titel"
+      },
+      {
+        "parameters": {
+          "options": {
+            "delimiter": "|",
+            "fileName": "={{ 'CI' + $now.setZone('Europe/Berlin').toFormat('yyyyMMdd_HHmmss') + '_AT.999' }}",
+            "headerRow": false
+          }
+        },
+        "type": "n8n-nodes-base.convertToFile",
+        "typeVersion": 1.1,
+        "position": [
+          688,
+          -64
+        ],
+        "id": "1fed6e86-969b-49d9-8adb-f49b182a7c25",
+        "name": "Convert to File1"
+      },
+      {
+        "parameters": {
+          "content": "## Trigger plus Abfrage",
+          "height": 256,
+          "width": 768,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -448,
+          112
+        ],
+        "id": "3d6f62d9-f2d7-4a0f-9e62-06be374df8db",
+        "name": "Sticky Note"
+      },
+      {
+        "parameters": {
+          "content": "## Keine Versendeten Bücher innerhalb der letzten 24h",
+          "height": 256,
+          "width": 496,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          336,
+          112
+        ],
+        "id": "3aaa4047-afbb-4a8d-8944-019ccf913d64",
+        "name": "Sticky Note1"
+      },
+      {
+        "parameters": {
+          "content": "## Payload Vorbereitung \nBereitet Payload für Nachricht an IT UND die Umwandlung für den FTP Upload vor.",
+          "height": 272,
+          "width": 304,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          336,
+          -176
+        ],
+        "id": "ab86c497-b855-4ef1-b6d9-e9f003f5ee96",
+        "name": "Sticky Note3"
+      },
+      {
+        "parameters": {
+          "content": "## Umwandlung in CSV",
+          "height": 272,
+          "width": 176,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          656,
+          -176
+        ],
+        "id": "c056bf81-dd4f-4bec-bad8-bc691541531d",
+        "name": "Sticky Note4"
+      },
+      {
+        "parameters": {
+          "content": "## FTP Upload",
+          "height": 224,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          848,
+          -400
+        ],
+        "id": "7cecb641-11fb-48b1-9cb8-875f906e955d",
+        "name": "Sticky Note5"
+      },
+      {
+        "parameters": {
+          "content": "## Mail bei FTP Upload Error\n",
+          "height": 224,
+          "width": 512,
+          "color": 3
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1104,
+          -400
+        ],
+        "id": "0651b1e6-8cff-4d7e-bc28-ea7e56845264",
+        "name": "Sticky Note6"
+      },
+      {
+        "parameters": {
+          "content": "## Mail bei FTP Upload Success\n\n",
+          "height": 224,
+          "width": 512,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1104,
+          -640
+        ],
+        "id": "4d07ad77-b9a6-4db8-ba6b-718d99ed9920",
+        "name": "Sticky Note7"
+      }
+    ],
+    "connections": {
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "Setzen von globalen Variablen ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Microsoft SQL": {
+        "main": [
+          [
+            {
+              "node": "Check IF empty",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Payload Anpassung": {
+        "main": [
+          [
+            {
+              "node": "Entferne Titel",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "FTP": {
+        "main": [
+          [
+            {
+              "node": "Mail-Vorbereitung",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Mail-Vorbereitung 2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check IF empty": {
+        "main": [
+          [
+            {
+              "node": "Payload Anpassung",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Mail-Vorbereitung 4",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Upload Fail ": {
+        "main": [
+          []
+        ]
+      },
+      "Setzen von globalen Variablen ": {
+        "main": [
+          [
+            {
+              "node": "Microsoft SQL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mail-Vorbereitung": {
+        "main": [
+          [
+            {
+              "node": "Upload Success",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mail-Vorbereitung 2": {
+        "main": [
+          [
+            {
+              "node": "Upload Fail ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mail-Vorbereitung 4": {
+        "main": [
+          []
+        ]
+      },
+      "Entferne Titel": {
+        "main": [
+          [
+            {
+              "node": "Convert to File1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Convert to File1": {
+        "main": [
+          [
+            {
+              "node": "FTP",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Jesse Balsam",
+    "name": "Version 334089f6",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": [
+    {
+      "updatedAt": "2026-03-08T13:05:09.107Z",
+      "createdAt": "2026-03-08T13:05:09.107Z",
+      "id": "7yj1m1x4xrHvUucU",
+      "name": "Verlage"
+    }
+  ]
+}

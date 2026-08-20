@@ -1,0 +1,1287 @@
+{
+  "updatedAt": "2026-07-02T17:58:40.398Z",
+  "createdAt": "2026-07-02T17:57:49.801Z",
+  "id": "VG10cQCHSDJZkuTw",
+  "name": "BB Watchdog Daily Summary",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "watchdog-daily-summary-bb",
+        "options": {
+          "noResponseBody": true
+        }
+      },
+      "id": "f1c2c620-ad08-4db2-9d26-285a630fccaa",
+      "name": "Daily Summary Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "f2a552f3-d34f-48a6-9b0d-7055e7a1d001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nconst WATCHDOG_SECRET = '02194db639f32b2e643946d783fae76f74c1b49049efcbcb233c415b812e3f130c4db368b186f5fc2ce354e9e0f07ba7';\nconst REQUIRE_SIGNATURE = true;\nconst MAX_CLOCK_SKEW_SECONDS = 6 * 60 * 60;\nconst EXPECTED_SOURCE = 'daily-watchdog-summary-agent';\n\nfunction getHeader(headers, name) {\n  const target = String(name).toLowerCase();\n  for (const pair of Object.entries(headers || {})) {\n    const key = pair[0];\n    const value = pair[1];\n    if (String(key).toLowerCase() === target) {\n      return Array.isArray(value) ? String(value[0] || '') : String(value || '');\n    }\n  }\n  return '';\n}\n\nfunction getRawBody(input) {\n  if (typeof input.rawBody === 'string') return input.rawBody;\n  if (typeof input.raw_body === 'string') return input.raw_body;\n  if (typeof input.bodyRaw === 'string') return input.bodyRaw;\n  if (typeof input.body === 'string') return input.body;\n  if (input.body && typeof input.body.rawBody === 'string') return input.body.rawBody;\n  return JSON.stringify(input.body || {});\n}\n\nfunction parsePayload(input, rawBody) {\n  if (input.body && typeof input.body === 'object' && !Array.isArray(input.body)) return input.body;\n  if (typeof input.body === 'string' && input.body.trim() !== '') return JSON.parse(input.body);\n  if (typeof rawBody === 'string' && rawBody.trim() !== '') return JSON.parse(rawBody);\n  return input;\n}\n\nfunction safeTimingEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left));\n  const rightBuffer = Buffer.from(String(right));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\n\nconst input = items[0] && items[0].json ? items[0].json : {};\nconst headers = input.headers || {};\nconst signature = getHeader(headers, 'x-bb-watchdog-signature');\nconst timestampHeader = getHeader(headers, 'x-bb-watchdog-timestamp');\nconst rawBody = getRawBody(input);\nconst payload = parsePayload(input, rawBody);\n\nif (REQUIRE_SIGNATURE) {\n  if (!WATCHDOG_SECRET || WATCHDOG_SECRET.indexOf('CHANGE_ME') === 0) {\n    throw new Error('Daily Watchdog secret is not configured in n8n.');\n  }\n  if (!signature) throw new Error('Missing X-BB-Watchdog-Signature header.');\n  const expected = 'sha256=' + crypto.createHmac('sha256', WATCHDOG_SECRET).update(rawBody).digest('hex');\n  if (!safeTimingEqual(signature, expected)) throw new Error('Invalid Daily Watchdog signature.');\n}\n\nif (EXPECTED_SOURCE && payload.source !== EXPECTED_SOURCE) {\n  throw new Error('Unexpected watchdog source: ' + String(payload.source || ''));\n}\n\nconst nowSeconds = Math.floor(Date.now() / 1000);\nconst payloadSeconds = Number(payload.timestamp_epoch || timestampHeader || 0);\nif (payloadSeconds > 0 && Math.abs(nowSeconds - payloadSeconds) > MAX_CLOCK_SKEW_SECONDS) {\n  throw new Error('Daily Watchdog payload timestamp outside accepted clock skew.');\n}\n\nif (!payload.local_watchdog || !payload.db_watchdog || !payload.file_watchdog) {\n  throw new Error('Daily Watchdog payload is missing one or more sections.');\n}\n\nreturn [{\n  json: Object.assign({}, payload, {\n    received_at: new Date().toISOString(),\n    n8n_watchdog: {\n      signature_required: REQUIRE_SIGNATURE,\n      signature_valid: REQUIRE_SIGNATURE ? true : null,\n      workflow: 'BB Watchdog Daily Summary'\n    }\n  })\n}];"
+      },
+      "id": "3272fbc4-facf-4677-8012-50bd09f18036",
+      "name": "Verify Daily Push",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const KNOWN_ADMIN_IDS = new Set(['1', '34', '72', '30328', '32065', '62317', '121806', '136996']);\nconst ALLOWED_MU_FILES = new Set(['wp-content/mu-plugins/local-watchdog.php']);\nconst RESET_BASELINES = false;\nconst ALERT_ON_FIRST_RUN_FINDINGS = true;\n\nconst state = $getWorkflowStaticData('global');\nconst payload = items[0] && items[0].json ? items[0].json : {};\n\nfunction stableDbKey(row) {\n  return [row.record_type || 'unknown', row.key_name || '', row.label || ''].join('|');\n}\n\nfunction dbSummary(row) {\n  return {\n    record_type: row.record_type || 'unknown',\n    key_name: row.key_name || '',\n    label: row.label || '',\n    value_hash: row.value_hash || '',\n    details: row.details || ''\n  };\n}\n\nfunction dbSeverity(row, reason) {\n  if (row.record_type === 'admin_user') return 'critical';\n  if (row.record_type === 'watched_option' && row.key_name === 'active_plugins') return 'critical';\n  if (row.record_type === 'suspicious_option') return 'critical';\n  if (row.record_type === 'wpwebhooks_table') return 'warning';\n  if (reason === 'changed') return 'warning';\n  return 'warning';\n}\n\nfunction fileKey(record) {\n  return String(record.kind || 'UNKNOWN') + '|' + String(record.path || '');\n}\n\nfunction fileSummary(record) {\n  return {\n    kind: String(record.kind || 'UNKNOWN'),\n    path: String(record.path || ''),\n    size: String(record.size || ''),\n    mtime: String(record.mtime || ''),\n    hash: String(record.hash || '')\n  };\n}\n\nfunction fileSeverity(record, reason) {\n  if (record.kind === 'ERROR') return 'critical';\n  if (record.kind === 'IOC_FILE') return 'critical';\n  if (record.kind === 'UPLOAD_EXEC') return 'critical';\n  if (record.kind === 'MU_FILE' && !ALLOWED_MU_FILES.has(record.path)) return 'critical';\n  if (record.kind === 'PLUGIN_DIR' && reason === 'new_record') return 'critical';\n  if (record.kind === 'CRITICAL_FILE' && reason === 'changed') return 'critical';\n  return 'warning';\n}\n\nfunction analyzeDb(section) {\n  const findings = [];\n  const baseline = { initialized: false, updated: false };\n  if (!section || section.status !== 'ok') {\n    findings.push({ severity: 'critical', source: 'db-watchdog', reason: 'agent_error', message: section && section.error_output ? section.error_output : 'DB watchdog did not return a valid payload.' });\n    return { findings, baseline };\n  }\n\n  const rows = section.payload && Array.isArray(section.payload.records) ? section.payload.records : [];\n  const current = {};\n  for (const row of rows) current[stableDbKey(row)] = dbSummary(row);\n\n  const firstRunFindings = [];\n  for (const row of rows) {\n    if (row.record_type === 'admin_user' && !KNOWN_ADMIN_IDS.has(String(row.key_name))) {\n      firstRunFindings.push({ severity: 'critical', source: 'db-watchdog', reason: 'admin_not_in_allowlist', record: dbSummary(row) });\n    }\n    if (row.record_type === 'suspicious_option') {\n      firstRunFindings.push({ severity: 'critical', source: 'db-watchdog', reason: 'suspicious_option_payload', record: dbSummary(row) });\n    }\n  }\n\n  if (RESET_BASELINES || !state.dailyDbBaseline) {\n    state.dailyDbBaseline = { initialized_at: new Date().toISOString(), records: current };\n    baseline.initialized = true;\n    if (ALERT_ON_FIRST_RUN_FINDINGS) findings.push(...firstRunFindings);\n    return { findings, baseline };\n  }\n\n  const previous = state.dailyDbBaseline.records || {};\n  for (const key of Object.keys(current)) {\n    const row = current[key];\n    const old = previous[key];\n    if (!old) {\n      findings.push({ severity: dbSeverity(row, 'new'), source: 'db-watchdog', reason: 'new_record', record: row });\n      continue;\n    }\n    if (String(old.value_hash || '') !== String(row.value_hash || '')) {\n      findings.push({ severity: dbSeverity(row, 'changed'), source: 'db-watchdog', reason: 'changed', old_record: old, record: row });\n    }\n  }\n\n  state.dailyDbBaseline = { initialized_at: state.dailyDbBaseline.initialized_at, updated_at: new Date().toISOString(), records: current };\n  baseline.updated = true;\n  return { findings, baseline };\n}\n\nfunction analyzeFile(section) {\n  const findings = [];\n  const baseline = { initialized: false, updated: false };\n  if (!section || section.status !== 'ok') {\n    findings.push({ severity: 'critical', source: 'file-watchdog', reason: 'agent_error', message: section && section.error_output ? section.error_output : 'File watchdog did not return a valid payload.' });\n    return { findings, baseline };\n  }\n\n  const records = section.payload && Array.isArray(section.payload.records) ? section.payload.records : [];\n  const current = {};\n  for (const record of records) current[fileKey(record)] = fileSummary(record);\n\n  const firstRunFindings = [];\n  for (const record of records) {\n    if (record.kind === 'ERROR' || record.kind === 'IOC_FILE' || record.kind === 'UPLOAD_EXEC' || (record.kind === 'MU_FILE' && !ALLOWED_MU_FILES.has(record.path))) {\n      firstRunFindings.push({ severity: fileSeverity(record, 'first_run'), source: 'file-watchdog', reason: 'first_run_sensitive_file', record: fileSummary(record) });\n    }\n  }\n\n  if (RESET_BASELINES || !state.dailyFileBaseline) {\n    state.dailyFileBaseline = { initialized_at: new Date().toISOString(), records: current };\n    baseline.initialized = true;\n    if (ALERT_ON_FIRST_RUN_FINDINGS) findings.push(...firstRunFindings);\n    return { findings, baseline };\n  }\n\n  const previous = state.dailyFileBaseline.records || {};\n  for (const key of Object.keys(current)) {\n    const record = current[key];\n    const old = previous[key];\n    if (!old) {\n      findings.push({ severity: fileSeverity(record, 'new_record'), source: 'file-watchdog', reason: 'new_record', record: record });\n      continue;\n    }\n    if (record.kind === 'CRITICAL_FILE' && String(old.hash || '') !== String(record.hash || '')) {\n      findings.push({ severity: fileSeverity(record, 'changed'), source: 'file-watchdog', reason: 'critical_file_hash_changed', old_record: old, record: record });\n    }\n  }\n\n  for (const key of Object.keys(previous)) {\n    if (!current[key]) {\n      const old = previous[key];\n      if (old.kind === 'CRITICAL_FILE' || old.kind === 'MU_FILE') {\n        findings.push({ severity: 'warning', source: 'file-watchdog', reason: 'sensitive_record_removed', old_record: old });\n      }\n    }\n  }\n\n  state.dailyFileBaseline = { initialized_at: state.dailyFileBaseline.initialized_at, updated_at: new Date().toISOString(), records: current };\n  baseline.updated = true;\n  return { findings, baseline };\n}\n\nfunction analyzeLocal(local) {\n  const findings = [];\n  if (!local || local.status !== 'ok') {\n    findings.push({ severity: 'warning', source: 'local-watchdog', reason: 'local_log_warning', message: local && local.message ? local.message : 'Local Watchdog summary is not ok.' });\n  }\n  const samples = local && Array.isArray(local.samples) ? local.samples : [];\n  for (const sample of samples) {\n    const severity = String(sample.severity || 'info').toLowerCase();\n    if (severity === 'critical' || severity === 'warning') {\n      findings.push({ severity, source: 'local-watchdog', reason: 'local_event_sample', event: sample });\n    }\n  }\n  return findings;\n}\n\nconst db = analyzeDb(payload.db_watchdog || {});\nconst file = analyzeFile(payload.file_watchdog || {});\nconst localFindings = analyzeLocal(payload.local_watchdog || {});\nconst findings = [...localFindings, ...db.findings, ...file.findings];\nconst hasCritical = findings.some(function(f) { return f.severity === 'critical'; });\nconst hasWarning = findings.some(function(f) { return f.severity === 'warning'; });\nconst severity = hasCritical ? 'critical' : (hasWarning ? 'warning' : 'info');\n\nreturn [{\n  json: Object.assign({}, payload, {\n    severity,\n    findings,\n    local_findings: localFindings,\n    db_findings: db.findings,\n    file_findings: file.findings,\n    baseline: {\n      db: db.baseline,\n      file: file.baseline\n    },\n    analyzed_at: new Date().toISOString()\n  })\n}];"
+      },
+      "id": "e7e3bcca-c217-45a2-ab3e-7490b0356288",
+      "name": "Analyze Daily Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = items[0] && items[0].json ? items[0].json : {};\n\nfunction escapeHtml(value) {\n  return String(value === undefined || value === null ? '' : value)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n}\n\nfunction asJson(value) {\n  return escapeHtml(JSON.stringify(value || {}, null, 2));\n}\n\nfunction severityColor(severity) {\n  if (severity === 'critical') return '#b42318';\n  if (severity === 'warning') return '#b54708';\n  return '#027a48';\n}\n\nfunction rowsFromObject(obj) {\n  const entries = Object.entries(obj || {}).sort(function(a, b) { return Number(b[1]) - Number(a[1]); });\n  if (!entries.length) return '<tr><td colspan=\"2\"><em>None</em></td></tr>';\n  return entries.map(function(entry) {\n    return '<tr><td style=\"padding:4px 8px;border-bottom:1px solid #ddd;\"><code>' + escapeHtml(entry[0]) + '</code></td><td style=\"padding:4px 8px;border-bottom:1px solid #ddd;text-align:right;\">' + escapeHtml(entry[1]) + '</td></tr>';\n  }).join('');\n}\n\nfunction findingList(findings) {\n  if (!findings.length) return '<p><em>No critical or warning findings.</em></p>';\n  return '<ul>' + findings.map(function(finding) {\n    const record = finding.record || finding.old_record || finding.event || {};\n    const label = record.path || record.key_name || record.event_type || finding.message || '';\n    return '<li><strong>' + escapeHtml(finding.severity || '') + '</strong> '\n      + escapeHtml(finding.source || '') + ' / ' + escapeHtml(finding.reason || '')\n      + (label ? ' - <code>' + escapeHtml(label) + '</code>' : '')\n      + '</li>';\n  }).join('') + '</ul>';\n}\n\nconst severity = String(input.severity || 'info').toLowerCase();\nconst local = input.local_watchdog || {};\nconst db = input.db_watchdog || {};\nconst file = input.file_watchdog || {};\nconst window = input.window || {};\nconst findings = Array.isArray(input.findings) ? input.findings : [];\nconst subject = '[BB Watchdog Daily] - ' + severity.toUpperCase() + ' - local=' + (local.event_count || 0) + ' db=' + (db.record_count || 0) + ' file=' + (file.record_count || 0);\nconst preStyle = 'white-space:pre-wrap;background:#f6f8fa;padding:12px;border:1px solid #d0d7de;border-radius:6px;overflow:auto;';\n\nconst html = [\n  '<div style=\"font-family:Arial,Helvetica,sans-serif;color:#1d2939;line-height:1.45;\">',\n  '<h2 style=\"margin:0 0 8px;color:' + severityColor(severity) + ';\">BB Watchdog Daily Summary</h2>',\n  '<p><strong>Severity:</strong> <span style=\"color:' + severityColor(severity) + ';font-weight:bold;\">' + escapeHtml(severity.toUpperCase()) + '</span></p>',\n  '<p><strong>Host:</strong> ' + escapeHtml(input.host_id || '') + ' &nbsp; <strong>Window:</strong> ' + escapeHtml(window.from_utc || '') + ' - ' + escapeHtml(window.to_utc || '') + '</p>',\n  '<p><strong>Received:</strong> ' + escapeHtml(input.received_at || '') + ' &nbsp; <strong>Analyzed:</strong> ' + escapeHtml(input.analyzed_at || '') + '</p>',\n  '<h3>Totals</h3>',\n  '<table cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%;max-width:760px;border:1px solid #ddd;\">',\n  '<tr><th style=\"text-align:left;padding:6px 8px;background:#f7f7f7;\">Section</th><th style=\"text-align:right;padding:6px 8px;background:#f7f7f7;\">Count</th><th style=\"text-align:left;padding:6px 8px;background:#f7f7f7;\">Status</th></tr>',\n  '<tr><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">Local events</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;text-align:right;\">' + escapeHtml(local.event_count || 0) + '</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">' + escapeHtml(local.status || '') + '</td></tr>',\n  '<tr><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">DB records</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;text-align:right;\">' + escapeHtml(db.record_count || 0) + '</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">' + escapeHtml(db.status || '') + '</td></tr>',\n  '<tr><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">File records</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;text-align:right;\">' + escapeHtml(file.record_count || 0) + '</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">' + escapeHtml(file.status || '') + '</td></tr>',\n  '</table>',\n  '<h3>Findings</h3>',\n  findingList(findings),\n  '<h3>Local Events by Severity</h3>',\n  '<table cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%;max-width:520px;border:1px solid #ddd;\">' + rowsFromObject(local.by_severity || {}) + '</table>',\n  '<h3>Local Events by Type</h3>',\n  '<table cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%;max-width:760px;border:1px solid #ddd;\">' + rowsFromObject(local.by_event_type || {}) + '</table>',\n  '<h3>Baseline</h3>',\n  '<pre style=\"' + preStyle + '\">' + asJson(input.baseline || {}) + '</pre>',\n  '<h3>Raw Summary</h3>',\n  '<pre style=\"' + preStyle + '\">' + asJson({ local_watchdog: local, db_watchdog: db, file_watchdog: file, findings: findings }) + '</pre>',\n  '<p style=\"color:#667085;font-size:12px;margin-top:24px;\">This mail is generated by the n8n workflow \"BB Watchdog Daily Summary\". The watchdog observes only and does not modify the shop.</p>',\n  '</div>'\n].join('');\n\nreturn [{ json: { subject, html, severity, event: input } }];"
+      },
+      "id": "1e1e3e78-a61e-4c03-b44c-a935792b23b4",
+      "name": "Build Daily Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "patrick.schmitz@buecherbuechse.de, it@buecherbuechse.de",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "51d58eda-4f31-4497-ba21-0903b1614e99",
+      "name": "Send Security Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        960,
+        0
+      ],
+      "webhookId": "4099b076-4bd5-42d4-9598-7b79bbddee6b",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily Summary Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify Daily Push",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Daily Push": {
+      "main": [
+        [
+          {
+            "node": "Analyze Daily Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Daily Summary": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Email": {
+      "main": [
+        [
+          {
+            "node": "Send Security Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "global": {
+      "dailyDbBaseline": {
+        "initialized_at": "2026-07-02T18:16:17.109Z",
+        "updated_at": "2026-08-12T04:10:22.585Z",
+        "records": {
+          "admin_user|1|admin": {
+            "record_type": "admin_user",
+            "key_name": "1",
+            "label": "admin",
+            "value_hash": "c6d52a03d1ed4c83e5ec67eb2e8522b474601aa38e47def9b70c2a87fdace927",
+            "details": "id=1 login=admin email=lisa.strauss@outlook.de registered=2018-11-27 12:51:22 meta_key=wp_capabilities"
+          },
+          "admin_user|34|Lisa": {
+            "record_type": "admin_user",
+            "key_name": "34",
+            "label": "Lisa",
+            "value_hash": "ca1006be9efd4ae4d8103f18dda3bd70d3ea551566757f593c265ce7d35c62b6",
+            "details": "id=34 login=Lisa email=lisa@buecherbuechse.de registered=2019-01-23 10:28:00 meta_key=wp_capabilities"
+          },
+          "admin_user|72|Christoph": {
+            "record_type": "admin_user",
+            "key_name": "72",
+            "label": "Christoph",
+            "value_hash": "6692665a9ff0d8e76a5d3fb79b5d5c1f5a5cd5c5e022a0d79d427e6858c4ff05",
+            "details": "id=72 login=Christoph email=christoph.strauss@outlook.de registered=2019-01-28 19:41:29 meta_key=wp_capabilities"
+          },
+          "admin_user|30328|patrick.schmitz": {
+            "record_type": "admin_user",
+            "key_name": "30328",
+            "label": "patrick.schmitz",
+            "value_hash": "23a14295c9255538fe66167d83a7d451de8111216a387138fdc84d6ecf315f47",
+            "details": "id=30328 login=patrick.schmitz email=patrick.schmitz@buecherbuechse.de registered=2023-01-11 17:29:53 meta_key=wp_capabilities"
+          },
+          "admin_user|32065|maxim.heidt": {
+            "record_type": "admin_user",
+            "key_name": "32065",
+            "label": "maxim.heidt",
+            "value_hash": "48c2d5afb5073f6fc744463c3511087d6fff922f5380fa91c71422687c7047a7",
+            "details": "id=32065 login=maxim.heidt email=maxim.heidt@buecherbuechse.de registered=2023-01-27 19:20:51 meta_key=wp_capabilities"
+          },
+          "admin_user|62317|marc.hemmer@buecherbuechse.de": {
+            "record_type": "admin_user",
+            "key_name": "62317",
+            "label": "marc.hemmer@buecherbuechse.de",
+            "value_hash": "2e7f181bbbff2889c1a70ac96faa5a4ed6b75455f1927daf7d8c2e05945cc5a9",
+            "details": "id=62317 login=marc.hemmer@buecherbuechse.de email=marc.hemmer@buecherbuechse.de registered=2023-09-20 11:03:39 meta_key=wp_capabilities"
+          },
+          "admin_user|121806|julia.peters@buecherbuechse.de": {
+            "record_type": "admin_user",
+            "key_name": "121806",
+            "label": "julia.peters@buecherbuechse.de",
+            "value_hash": "07f553e99345778fd6c6f5e3b25249a0434d4febec8903526b835990d16eeb0c",
+            "details": "id=121806 login=julia.peters@buecherbuechse.de email=julia.peters@buecherbuechse.de registered=2024-11-22 18:37:03 meta_key=wp_capabilities"
+          },
+          "admin_user|136996|jesse.balsam@buecherbuechse.de": {
+            "record_type": "admin_user",
+            "key_name": "136996",
+            "label": "jesse.balsam@buecherbuechse.de",
+            "value_hash": "61fedf2e61a2a70c7c5fddcdc4822379c4e546ae667e942399b7ac1b0ced5b13",
+            "details": "id=136996 login=jesse.balsam@buecherbuechse.de email=jesse.balsam@buecherbuechse.de registered=2025-05-07 04:32:02 meta_key=wp_capabilities"
+          },
+          "watched_option|_transient_woocommerce_webhook_ids_status_active|_transient_woocommerce_webhook_ids_status_active": {
+            "record_type": "watched_option",
+            "key_name": "_transient_woocommerce_webhook_ids_status_active",
+            "label": "_transient_woocommerce_webhook_ids_status_active",
+            "value_hash": "c119aea93836bb8ccf8ea4508d9333566fda529b6b7a5be3b8e58d0795b6c528",
+            "details": "a:4:{i:0;i:35;i:1;i:34;i:2;i:20;i:3;i:18;}"
+          },
+          "watched_option|active_plugins|active_plugins": {
+            "record_type": "watched_option",
+            "key_name": "active_plugins",
+            "label": "active_plugins",
+            "value_hash": "e0b2421f81baf9346436a90cefb099dd0187df56e79a6ecb1448574251cedc86",
+            "details": "a:49:{i:0;s:68:\"action-scheduler-high-volume-master/action-scheduler-high-volume.php\";i:1;s:35:\"admetrics-data-studio/admetrics.php\";i:2;s:47:\"automatewoo-birthdays/automatewoo-birthdays.php\";i:3;s:27:\"automatewoo/automatewoo.php\";i:4;s:27:\"cdn-enabler/cdn-enabler.php\";i:5;s:53:\"checkout-for-woocommerce/checkout-for-woocommerce.php\";i:6;s:31:\"code-snippets/code-snippets.php\";i:7;s:58:\"deactivate-admin-password-mails/admin_notification_off.php\";i:8;s:22:\"font-awesome/index.php\";i:9;s:35:\"gtm-server-side/gtm-server-side.php\";i:10;s:53:\"index-wp-mysql-for-speed/index-wp-mysql-for-speed.php\";i:11;s:33:\"instagram-feed/instagram-feed.php\";i:12;s:33:\"ips-order-cart/ips-order-cart.php\";i:13;s:33:\"ip"
+          },
+          "watched_option|admin_email|admin_email": {
+            "record_type": "watched_option",
+            "key_name": "admin_email",
+            "label": "admin_email",
+            "value_hash": "760123b411bc3336a5400f9929bc469ba58b433b47b72226be12b2415c77e22b",
+            "details": "backoffice@buecherbuechse.de"
+          },
+          "watched_option|code_snippets_settings|code_snippets_settings": {
+            "record_type": "watched_option",
+            "key_name": "code_snippets_settings",
+            "label": "code_snippets_settings",
+            "value_hash": "0e7005b1f5843b70b36db9fd9806203cd7ef656fa73b463f924b939f2378616a",
+            "details": "a:3:{s:7:\"general\";a:6:{s:19:\"activate_by_default\";b:1;s:21:\"snippet_scope_enabled\";b:1;s:11:\"enable_tags\";b:1;s:18:\"enable_description\";b:1;s:13:\"disable_prism\";b:0;s:18:\"complete_uninstall\";b:0;}s:18:\"description_editor\";a:3:{s:4:\"rows\";i:5;s:12:\"use_full_mce\";b:1;s:13:\"media_buttons\";b:0;}s:6:\"editor\";a:8:{s:5:\"theme\";s:7:\"default\";s:16:\"indent_with_tabs\";b:1;s:8:\"tab_size\";i:4;s:11:\"indent_unit\";i:4;s:10:\"wrap_lines\";b:1;s:12:\"line_numbers\";b:1;s:19:\"auto_close_brackets\";b:1;s:27:\"highlight_selection_matches\";b:1;}}"
+          },
+          "watched_option|code_snippets_version|code_snippets_version": {
+            "record_type": "watched_option",
+            "key_name": "code_snippets_version",
+            "label": "code_snippets_version",
+            "value_hash": "c6ca5c049c05d2d1c3bca4546cbbc83c2ab0124ee8c160d1e1b4fe39e3fee3ee",
+            "details": "3.7.0"
+          },
+          "watched_option|default_role|default_role": {
+            "record_type": "watched_option",
+            "key_name": "default_role",
+            "label": "default_role",
+            "value_hash": "1f62becb1363bc86f7c3bf1f35196457b2d01ba085946a374854b4727f98df29",
+            "details": "subscriber"
+          },
+          "watched_option|home|home": {
+            "record_type": "watched_option",
+            "key_name": "home",
+            "label": "home",
+            "value_hash": "cc2a6ced0a68093a4e62b8536a1b282ac3e9051ed82e1efcc335b656a1e8c9a2",
+            "details": "https://old.buecherbuechse.de"
+          },
+          "watched_option|ironikus_webhook_pro_license|ironikus_webhook_pro_license": {
+            "record_type": "watched_option",
+            "key_name": "ironikus_webhook_pro_license",
+            "label": "ironikus_webhook_pro_license",
+            "value_hash": "ed4e9c28c751b1bfda4507c7906b8227e6772a2dc62254a1a1b15f43417dfd09",
+            "details": "a:3:{s:3:\"key\";s:32:\"bfccdccfdbff45a1f6a78d06bf6d7bea\";s:7:\"expires\";s:19:\"2023-12-17 23:59:59\";s:6:\"status\";s:5:\"valid\";}"
+          },
+          "watched_option|ironikus_webhook_webhooks|ironikus_webhook_webhooks": {
+            "record_type": "watched_option",
+            "key_name": "ironikus_webhook_webhooks",
+            "label": "ironikus_webhook_webhooks",
+            "value_hash": "07d78c4ec1fbf4f1de1e0257f29250d78b6e83d3d9c973f6b429c21df728d865",
+            "details": "a:2:{s:6:\"action\";a:8:{s:11:\"create_user\";a:1:{s:12:\"user_created\";a:6:{s:10:\"permission\";s:14:\"manage_options\";s:12:\"date_created\";s:19:\"2022-12-17 15:22:31\";s:7:\"api_key\";s:64:\"rtuhawzlhvmuyjy4blkpjntr66q0iyadkhzj05flvcx5lncersrpxqj5bdwnt7ts\";s:11:\"integration\";s:9:\"wordpress\";s:12:\"webhook_name\";s:11:\"create_user\";s:16:\"webhook_url_name\";s:12:\"user_created\";}}s:11:\"delete_user\";a:1:{s:12:\"user_deleted\";a:6:{s:10:\"permission\";s:14:\"manage_options\";s:12:\"date_created\";s:19:\"2022-12-17 15:23:13\";s:7:\"api_key\";s:64:\"ttkn4m43tl3nbheap5xybvpahfnzk4pv738h9b0kezwweppy7qwdeup8x2ckrnqp\";s:11:\"integration\";s:9:\"wordpress\";s:12:\"webhook_name\";s:11:\"delete_user\";s:16:\"webhook_url_name\";s:12:\"user_dele"
+          },
+          "watched_option|ppcp-last-webhook|ppcp-last-webhook": {
+            "record_type": "watched_option",
+            "key_name": "ppcp-last-webhook",
+            "label": "ppcp-last-webhook",
+            "value_hash": "a4b1570d3b13e7a720dc66c2cf174b83271eaf5bc7e16302446b60988efec07b",
+            "details": "a:2:{s:2:\"id\";s:38:\"WH-6DP02680UE2264110-7Y963334KG782543R\";s:13:\"received_time\";i:1675260339;}"
+          },
+          "watched_option|ppcp-webhook|ppcp-webhook": {
+            "record_type": "watched_option",
+            "key_name": "ppcp-webhook",
+            "label": "ppcp-webhook",
+            "value_hash": "e8a3adf82d94a6a5cfaa96bf03c5b3f82ae5eba62b24c51d32d893eab5fe31f9",
+            "details": "a:3:{s:3:\"url\";s:56:\"https://old.buecherbuechse.de/wp-json/paypal/v1/incoming\";s:11:\"event_types\";a:12:{i:0;O:8:\"stdClass\":2:{s:4:\"name\";s:23:\"CHECKOUT.ORDER.APPROVED\";s:11:\"description\";s:36:\"An order has been approved by buyer.\";}i:1;O:8:\"stdClass\":2:{s:4:\"name\";s:24:\"CHECKOUT.ORDER.COMPLETED\";s:11:\"description\";s:70:\"Webhook event emitted after all the purchase_units have been processed\";}i:2;O:8:\"stdClass\":2:{s:4:\"name\";s:34:\"CHECKOUT.PAYMENT-APPROVAL.REVERSED\";s:11:\"description\";s:35:\"Payment approval has been reversed.\";}i:3;O:8:\"stdClass\":2:{s:4:\"name\";s:24:\"PAYMENT.CAPTURE.REFUNDED\";s:11:\"description\";s:37:\"A merchant refunds a payment capture.\";}i:4;O:8:\"stdClass\":2:{s:4:\"name\";s:28"
+          },
+          "watched_option|siteurl|siteurl": {
+            "record_type": "watched_option",
+            "key_name": "siteurl",
+            "label": "siteurl",
+            "value_hash": "cc2a6ced0a68093a4e62b8536a1b282ac3e9051ed82e1efcc335b656a1e8c9a2",
+            "details": "https://old.buecherbuechse.de"
+          },
+          "watched_option|users_can_register|users_can_register": {
+            "record_type": "watched_option",
+            "key_name": "users_can_register",
+            "label": "users_can_register",
+            "value_hash": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+            "details": "0"
+          },
+          "watched_option|wc_stripe_wh_live_pending_webhooks|wc_stripe_wh_live_pending_webhooks": {
+            "record_type": "watched_option",
+            "key_name": "wc_stripe_wh_live_pending_webhooks",
+            "label": "wc_stripe_wh_live_pending_webhooks",
+            "value_hash": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+            "details": "1"
+          },
+          "watched_option|wp_user_roles|wp_user_roles": {
+            "record_type": "watched_option",
+            "key_name": "wp_user_roles",
+            "label": "wp_user_roles",
+            "value_hash": "1ec5e2a97c615d0aa00b19f586e985f8c4df57b6556d29ad6242035480e319c8",
+            "details": "a:13:{s:13:\"administrator\";a:2:{s:4:\"name\";s:13:\"Administrator\";s:12:\"capabilities\";a:409:{s:13:\"switch_themes\";b:1;s:11:\"edit_themes\";b:1;s:16:\"activate_plugins\";b:1;s:12:\"edit_plugins\";b:1;s:10:\"edit_users\";b:1;s:10:\"edit_files\";b:1;s:14:\"manage_options\";b:1;s:17:\"moderate_comments\";b:1;s:17:\"manage_categories\";b:1;s:12:\"manage_links\";b:1;s:12:\"upload_files\";b:1;s:6:\"import\";b:1;s:15:\"unfiltered_html\";b:1;s:10:\"edit_posts\";b:1;s:17:\"edit_others_posts\";b:1;s:20:\"edit_published_posts\";b:1;s:13:\"publish_posts\";b:1;s:10:\"edit_pages\";b:1;s:4:\"read\";b:1;s:8:\"level_10\";b:1;s:7:\"level_9\";b:1;s:7:\"level_8\";b:1;s:7:\"level_7\";b:1;s:7:\"level_6\";b:1;s:7:\"level_5\";b:1;s:7:\"level_4\";b:1;s:7:\"level_3\";b:1"
+          },
+          "watched_option|wpwhpro_activate_debug_mode|wpwhpro_activate_debug_mode": {
+            "record_type": "watched_option",
+            "key_name": "wpwhpro_activate_debug_mode",
+            "label": "wpwhpro_activate_debug_mode",
+            "value_hash": "9390298f3fb0c5b160498935d79cb139aef28e1c47358b4bbba61862b9c26e59",
+            "details": "no"
+          },
+          "watched_option|wpwhpro_activate_whitelist|wpwhpro_activate_whitelist": {
+            "record_type": "watched_option",
+            "key_name": "wpwhpro_activate_whitelist",
+            "label": "wpwhpro_activate_whitelist",
+            "value_hash": "9390298f3fb0c5b160498935d79cb139aef28e1c47358b4bbba61862b9c26e59",
+            "details": "no"
+          },
+          "watched_option|wpwhpro_autoclean_logs|wpwhpro_autoclean_logs": {
+            "record_type": "watched_option",
+            "key_name": "wpwhpro_autoclean_logs",
+            "label": "wpwhpro_autoclean_logs",
+            "value_hash": "0a9361cc2b183f4952a9ef46dcd348d348103c0f8553ba437603487b28e11e2f",
+            "details": "2days"
+          },
+          "watched_option|wpwhpro_deactivate_no_conflict_mode|wpwhpro_deactivate_no_conflict_mode": {
+            "record_type": "watched_option",
+            "key_name": "wpwhpro_deactivate_no_conflict_mode",
+            "label": "wpwhpro_deactivate_no_conflict_mode",
+            "value_hash": "9390298f3fb0c5b160498935d79cb139aef28e1c47358b4bbba61862b9c26e59",
+            "details": "no"
+          },
+          "watched_option|wpwhpro_deactivate_post_delay|wpwhpro_deactivate_post_delay": {
+            "record_type": "watched_option",
+            "key_name": "wpwhpro_deactivate_post_delay",
+            "label": "wpwhpro_deactivate_post_delay",
+            "value_hash": "9390298f3fb0c5b160498935d79cb139aef28e1c47358b4bbba61862b9c26e59",
+            "details": "no"
+          },
+          "watched_option|wpwhpro_load_local_integrations|wpwhpro_load_local_integrations": {
+            "record_type": "watched_option",
+            "key_name": "wpwhpro_load_local_integrations",
+            "label": "wpwhpro_load_local_integrations",
+            "value_hash": "9390298f3fb0c5b160498935d79cb139aef28e1c47358b4bbba61862b9c26e59",
+            "details": "no"
+          },
+          "watched_option|wpwhpro_reset_data|wpwhpro_reset_data": {
+            "record_type": "watched_option",
+            "key_name": "wpwhpro_reset_data",
+            "label": "wpwhpro_reset_data",
+            "value_hash": "9390298f3fb0c5b160498935d79cb139aef28e1c47358b4bbba61862b9c26e59",
+            "details": "no"
+          },
+          "watched_option|wpwhpro_show_sub_menu|wpwhpro_show_sub_menu": {
+            "record_type": "watched_option",
+            "key_name": "wpwhpro_show_sub_menu",
+            "label": "wpwhpro_show_sub_menu",
+            "value_hash": "9390298f3fb0c5b160498935d79cb139aef28e1c47358b4bbba61862b9c26e59",
+            "details": "no"
+          },
+          "watched_option|wpwhpro_wizard|wpwhpro_wizard": {
+            "record_type": "watched_option",
+            "key_name": "wpwhpro_wizard",
+            "label": "wpwhpro_wizard",
+            "value_hash": "eebbf6457e46a7f63acdf9b97390f790ba443d60cfa44b607da7e5c40aa1cc1d",
+            "details": "complete"
+          },
+          "wpwebhooks_table|wp_wpwhpro_flows|wp_wpwhpro_flows": {
+            "record_type": "wpwebhooks_table",
+            "key_name": "wp_wpwhpro_flows",
+            "label": "wp_wpwhpro_flows",
+            "value_hash": "f9a2b219bf41f995c9aaec009cce050025494bee3044c4a9e8ce51416499d269",
+            "details": "WP Webhooks table exists"
+          },
+          "wpwebhooks_table|wp_wpwhpro_authentication|wp_wpwhpro_authentication": {
+            "record_type": "wpwebhooks_table",
+            "key_name": "wp_wpwhpro_authentication",
+            "label": "wp_wpwhpro_authentication",
+            "value_hash": "debef802423a437643130fb0272ea5338b35b69b4d9636354390ebddd1e383ae",
+            "details": "WP Webhooks table exists"
+          },
+          "wpwebhooks_table|wp_wpwhpro_flows_logs|wp_wpwhpro_flows_logs": {
+            "record_type": "wpwebhooks_table",
+            "key_name": "wp_wpwhpro_flows_logs",
+            "label": "wp_wpwhpro_flows_logs",
+            "value_hash": "0a16cf514ac9e1808a304a7bc645551972d20ddbf764e9246fa596a03746344b",
+            "details": "WP Webhooks table exists"
+          },
+          "wpwebhooks_table|wp_wpwhpro_data_mapping|wp_wpwhpro_data_mapping": {
+            "record_type": "wpwebhooks_table",
+            "key_name": "wp_wpwhpro_data_mapping",
+            "label": "wp_wpwhpro_data_mapping",
+            "value_hash": "ee148bdf7a3ce7aa2c53125c2c4ce9586e7b92814b8fc86aaa5e7a626d00cb4f",
+            "details": "WP Webhooks table exists"
+          },
+          "wpwebhooks_table|wp_wpwhpro_logs|wp_wpwhpro_logs": {
+            "record_type": "wpwebhooks_table",
+            "key_name": "wp_wpwhpro_logs",
+            "label": "wp_wpwhpro_logs",
+            "value_hash": "2990dd057b018cf990e39946832559b2cfb18e9ac542881dba5e6d417be5f6ef",
+            "details": "WP Webhooks table exists"
+          },
+          "suspicious_option|edd_sl_b59cd696d0fa065fd721f82a30fc64ac|edd_sl_b59cd696d0fa065fd721f82a30fc64ac": {
+            "record_type": "suspicious_option",
+            "key_name": "edd_sl_b59cd696d0fa065fd721f82a30fc64ac",
+            "label": "edd_sl_b59cd696d0fa065fd721f82a30fc64ac",
+            "value_hash": "bef3f01347feffd0a0e73345ddbdf9564ce2879bcd5d2e776d6e163996262bc9",
+            "details": "a:2:{s:7:\"timeout\";i:1771223873;s:5:\"value\";s:319429:\"{\"new_version\":\"6.3.1\",\"stable_version\":\"6.3.1\",\"name\":\"WP Webhooks Pro\",\"slug\":\"wp-webhooks-pro\",\"url\":\"https:\\/\\/wp-webhooks.com\\/downloads\\/wp-webhooks-pro\\/?changelog=1\",\"last_updated\":\"2026-02-09 08:43:01\",\"homepage\":\"https:\\/\\/wp-webhooks.com\\/downloads\\/wp-webhooks-pro\\/\",\"package\":\"https:\\/\\/wp-webhooks.com\\/edd-sl\\/package_download\\/MTc3MTI5OTQ3MzpiZmNjZGNjZmRiZmY0NWExZjZhNzhkMDZiZjZkN2JlYToxODM6MDFiMGNjOGJlODExMmNhNTZjMzIwNDY2NTNiM2QxY2M6aHR0cHNALy9idWVjaGVyYnVlY2hzZS5kZTow\",\"download_link\":\"https:\\/\\/wp-webhooks.com\\/edd-sl\\/package_download\\/MTc3MTI5OTQ3MzpiZmNjZGNjZmRiZmY0NWExZjZhNzhkMDZiZjZkN2JlYToxODM6MDFiMGNjOGJlODExMmNhNT"
+          },
+          "suspicious_option|imfsQueryMonitor-Log-20241221|imfsQueryMonitor-Log-20241221": {
+            "record_type": "suspicious_option",
+            "key_name": "imfsQueryMonitor-Log-20241221",
+            "label": "imfsQueryMonitor-Log-20241221",
+            "value_hash": "34ae446255066c8c723668eb8ffc0ebc381af1ba91ab4823b35c699b5c8eb120",
+            "details": "{\"gathercount\":3,\"querycount\":785,\"start\":1734819345,\"end\":1734820245,\"mintime\":112,\"queries\":{\"a97ed4113a028faa\":{\"f\":\"SELECT session_value FROM wp_woocommerce_sessions WHERE session_key = ?s? \",\"a\":false,\"n\":8,\"t\":4404,\"mint\":355,\"maxt\":732,\"e\":[{\"id\":\"1\",\"select_type\":\"SIMPLE\",\"table\":\"wp_woocommerce_sessions\",\"type\":\"const\",\"possible_keys\":\"session_key\",\"key\":\"session_key\",\"key_len\":\"128\",\"ref\":\"const\",\"rows\":\"1\",\"Extra\":\"\"}],\"ts\":[563,720,732,355,648,450,484,452],\"q\":\"SELECT session_value FROM wp_woocommerce_sessions WHERE session_key = 't_35673499e394e541c7c556daec9f65'\",\"c\":\"require('wp-blog-header.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-set"
+          },
+          "suspicious_option|imfsQueryMonitor-Log-monitor2|imfsQueryMonitor-Log-monitor2": {
+            "record_type": "suspicious_option",
+            "key_name": "imfsQueryMonitor-Log-monitor2",
+            "label": "imfsQueryMonitor-Log-monitor2",
+            "value_hash": "8da92d66490efb09a324798b041b98977efc8b4e6d2c401c05224dd8c83979a2",
+            "details": "{\"gathercount\":2374,\"querycount\":249993,\"start\":1734470061,\"end\":1734470380,\"mintime\":87,\"queries\":{\"a97ed4113a028faa\":{\"f\":\"SELECT session_value FROM wp_woocommerce_sessions WHERE session_key = ?s? \",\"a\":false,\"n\":140,\"t\":105026,\"mint\":171,\"maxt\":16389,\"e\":[{\"id\":\"1\",\"select_type\":\"SIMPLE\",\"table\":\"wp_woocommerce_sessions\",\"type\":\"const\",\"possible_keys\":\"session_key\",\"key\":\"session_key\",\"key_len\":\"128\",\"ref\":\"const\",\"rows\":\"1\",\"Extra\":\"\"}],\"ts\":[464,535,16389,342,1956,345,620,345,3998,213,387,193,1684,387,400,422,349,241,346,252,597,442,314,225,613,290,401,338,212,421,597,200,597,306,204,2769,466,290,289,891,406,522,345,699,771,600,365,182,339,436,3633,1259,346,190,554,353,404,321,521,349,4"
+          }
+        }
+      },
+      "dailyFileBaseline": {
+        "initialized_at": "2026-07-02T18:16:17.111Z",
+        "updated_at": "2026-08-12T04:10:22.586Z",
+        "records": {
+          "PLUGIN_DIR|wp-content/plugins/action-scheduler-high-volume-master": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/action-scheduler-high-volume-master",
+            "size": "0",
+            "mtime": "1667303288",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/admetrics-data-studio": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/admetrics-data-studio",
+            "size": "0",
+            "mtime": "1758052370",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/automatewoo": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/automatewoo",
+            "size": "0",
+            "mtime": "1758059551",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/automatewoo-birthdays": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/automatewoo-birthdays",
+            "size": "0",
+            "mtime": "1726607081",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/cdn-enabler": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/cdn-enabler",
+            "size": "0",
+            "mtime": "1716266972",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/checkout-for-woocommerce": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/checkout-for-woocommerce",
+            "size": "0",
+            "mtime": "1758064503",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/code-snippets": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/code-snippets",
+            "size": "0",
+            "mtime": "1758052642",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/deactivate-admin-password-mails": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/deactivate-admin-password-mails",
+            "size": "0",
+            "mtime": "1752591109",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/duracelltomi-google-tag-manager": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/duracelltomi-google-tag-manager",
+            "size": "0",
+            "mtime": "1758053610",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/font-awesome": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/font-awesome",
+            "size": "0",
+            "mtime": "1758052837",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/free-gifts-for-woocommerce": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/free-gifts-for-woocommerce",
+            "size": "0",
+            "mtime": "1758056016",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/gtm-server-side": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/gtm-server-side",
+            "size": "0",
+            "mtime": "1758053441",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/index-wp-mysql-for-speed": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/index-wp-mysql-for-speed",
+            "size": "0",
+            "mtime": "1758053780",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/instagram-feed": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/instagram-feed",
+            "size": "0",
+            "mtime": "1769850974",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/ips-order-cart": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/ips-order-cart",
+            "size": "0",
+            "mtime": "1780869113",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/ips-order-flow": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/ips-order-flow",
+            "size": "0",
+            "mtime": "1777371923",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/ips-order-mediacleanup": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/ips-order-mediacleanup",
+            "size": "0",
+            "mtime": "1779900216",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/ips-order-submanager": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/ips-order-submanager",
+            "size": "0",
+            "mtime": "1781962657",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/klaviyo": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/klaviyo",
+            "size": "0",
+            "mtime": "1758054065",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/litespeed-cache": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/litespeed-cache",
+            "size": "0",
+            "mtime": "1769853990",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/loco-translate": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/loco-translate",
+            "size": "0",
+            "mtime": "1758054257",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/mollie-payments-for-woocommerce": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/mollie-payments-for-woocommerce",
+            "size": "0",
+            "mtime": "1758064695",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/object-cache-pro": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/object-cache-pro",
+            "size": "0",
+            "mtime": "1759965297",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/one-stop-shop-woocommerce": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/one-stop-shop-woocommerce",
+            "size": "0",
+            "mtime": "1758052923",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/paypal-for-woocommerce": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/paypal-for-woocommerce",
+            "size": "0",
+            "mtime": "1657363766",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/paypal-woocommerce-4.5.21": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/paypal-woocommerce-4.5.21",
+            "size": "0",
+            "mtime": "1734859241",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/product-video-gallery-slider-for-woocommerce": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/product-video-gallery-slider-for-woocommerce",
+            "size": "0",
+            "mtime": "1758056348",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/pymntpl-paypal-woocommerce": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/pymntpl-paypal-woocommerce",
+            "size": "0",
+            "mtime": "1758065195",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/query-monitor": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/query-monitor",
+            "size": "0",
+            "mtime": "1758571963",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/reserved-stock-pro": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/reserved-stock-pro",
+            "size": "0",
+            "mtime": "1758061707",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/shortpixel-image-optimiser": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/shortpixel-image-optimiser",
+            "size": "0",
+            "mtime": "1769850909",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/the-events-calendar": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/the-events-calendar",
+            "size": "0",
+            "mtime": "1769852568",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/the-events-calendar_off": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/the-events-calendar_off",
+            "size": "0",
+            "mtime": "1764165038",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/tiktok-for-business": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/tiktok-for-business",
+            "size": "0",
+            "mtime": "1758056482",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/under-construction-page": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/under-construction-page",
+            "size": "0",
+            "mtime": "1758055005",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/updraftplus": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/updraftplus",
+            "size": "0",
+            "mtime": "1758055203",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/user-role-editor": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/user-role-editor",
+            "size": "0",
+            "mtime": "1758055279",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/wc-cancel-order-pro": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/wc-cancel-order-pro",
+            "size": "0",
+            "mtime": "1758066191",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/wc-shipping-method-description": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/wc-shipping-method-description",
+            "size": "0",
+            "mtime": "1662268144",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce",
+            "size": "0",
+            "mtime": "1768243712",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/WooCommerce-8.0.1-beta2": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/WooCommerce-8.0.1-beta2",
+            "size": "0",
+            "mtime": "1745603452",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-conditional-shipping-and-payments": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-conditional-shipping-and-payments",
+            "size": "0",
+            "mtime": "1758062369",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-gateway-amazon-payments-advanced": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-gateway-amazon-payments-advanced",
+            "size": "0",
+            "mtime": "1769853817",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-gateway-paypal-express-checkout": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-gateway-paypal-express-checkout",
+            "size": "0",
+            "mtime": "1634419473",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-gateway-stripe": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-gateway-stripe",
+            "size": "0",
+            "mtime": "1786005308",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-germanized": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-germanized",
+            "size": "0",
+            "mtime": "1758064087",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-germanized-pro": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-germanized-pro",
+            "size": "0",
+            "mtime": "1758064223",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-memberships": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-memberships",
+            "size": "0",
+            "mtime": "1758062252",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-paypal-payments": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-paypal-payments",
+            "size": "0",
+            "mtime": "1758065441",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-product-bundles": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-product-bundles",
+            "size": "0",
+            "mtime": "1758060102",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-product-feeds": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-product-feeds",
+            "size": "0",
+            "mtime": "1758059896",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-subscriptions": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-subscriptions",
+            "size": "0",
+            "mtime": "1758063697",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-subscriptions-cancel-subscription-confirmation-master": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-subscriptions-cancel-subscription-confirmation-master",
+            "size": "0",
+            "mtime": "1610336842",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woocommerce-waitlist": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woocommerce-waitlist",
+            "size": "0",
+            "mtime": "1758064774",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woo-jtl-connector": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woo-jtl-connector",
+            "size": "0",
+            "mtime": "1761291883",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woo-order-add": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woo-order-add",
+            "size": "0",
+            "mtime": "1764537010",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woo-order-cart": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woo-order-cart",
+            "size": "0",
+            "mtime": "1758626918",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woo-order-export-lite": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woo-order-export-lite",
+            "size": "0",
+            "mtime": "1758052463",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woo-order-flow": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woo-order-flow",
+            "size": "0",
+            "mtime": "1773485876",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woo-order-label": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woo-order-label",
+            "size": "0",
+            "mtime": "1764166552",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woo-order-shipping": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woo-order-shipping",
+            "size": "0",
+            "mtime": "1759864586",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/woo-order-submanager": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/woo-order-submanager",
+            "size": "0",
+            "mtime": "1770026174",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/wordpress-seo": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/wordpress-seo",
+            "size": "0",
+            "mtime": "1758062613",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/wp-2fa": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/wp-2fa",
+            "size": "0",
+            "mtime": "1782010128",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/wpb-portfolio": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/wpb-portfolio",
+            "size": "0",
+            "mtime": "1726608985",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/wp-mail-smtp": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/wp-mail-smtp",
+            "size": "0",
+            "mtime": "1758055841",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/yith-event-tickets-for-woocommerce-premium": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/yith-event-tickets-for-woocommerce-premium",
+            "size": "0",
+            "mtime": "1758059362",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/yith-woocommerce-affiliates-premium": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/yith-woocommerce-affiliates-premium",
+            "size": "0",
+            "mtime": "1779364795",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/yith-woocommerce-customize-myaccount-page": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/yith-woocommerce-customize-myaccount-page",
+            "size": "0",
+            "mtime": "1758059799",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/yith-woocommerce-frequently-bought-together-premium": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/yith-woocommerce-frequently-bought-together-premium",
+            "size": "0",
+            "mtime": "1758059973",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/yith-woocommerce-gift-cards-premium": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/yith-woocommerce-gift-cards-premium",
+            "size": "0",
+            "mtime": "1758059453",
+            "hash": "-"
+          },
+          "PLUGIN_DIR|wp-content/plugins/yith-woocommerce-wishlist": {
+            "kind": "PLUGIN_DIR",
+            "path": "wp-content/plugins/yith-woocommerce-wishlist",
+            "size": "0",
+            "mtime": "1758055937",
+            "hash": "-"
+          },
+          "MU_FILE|wp-content/mu-plugins/index-wp-mysql-for-speed-update-filter.php": {
+            "kind": "MU_FILE",
+            "path": "wp-content/mu-plugins/index-wp-mysql-for-speed-update-filter.php",
+            "size": "3765",
+            "mtime": "1758068034",
+            "hash": "83c7c1643fcbfb3aa3b7725422229b4821172f2b1449055c6b4bbdb0c2a7a8b4"
+          },
+          "MU_FILE|wp-content/mu-plugins/local-watchdog.php": {
+            "kind": "MU_FILE",
+            "path": "wp-content/mu-plugins/local-watchdog.php",
+            "size": "27408",
+            "mtime": "1783014033",
+            "hash": "b8f443d1861569b1351ffd5d5c794e61dcb7c5981fa992bd235bc9412f262a87"
+          },
+          "MU_FILE|wp-content/mu-plugins/log-endpoint-change.php": {
+            "kind": "MU_FILE",
+            "path": "wp-content/mu-plugins/log-endpoint-change.php",
+            "size": "353",
+            "mtime": "1781612296",
+            "hash": "0956f9b25e668ab2191fe4cef7fa906e3521147243bc3164d4f267ed9eee18cc"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/0c562439-c6a8-4e49-896a-c2d2bf546c67.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/0c562439-c6a8-4e49-896a-c2d2bf546c67.php",
+            "size": "2527",
+            "mtime": "1721120594",
+            "hash": "2ef883fbcc5e08a700289ad2bd8b2cfd68561061a9400e90d49c70664b6747c8"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/232f3fb1-2133-4a35-bff9-a884cc555a63.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/232f3fb1-2133-4a35-bff9-a884cc555a63.php",
+            "size": "2218",
+            "mtime": "1721133862",
+            "hash": "0324cb58c6449fb360e8bc6a24cfac1d6c731eef4b3d67ec68fe5e3bfc2323b3"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/2b91ccd9-aec7-4bf9-b5f6-4494088223a5.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/2b91ccd9-aec7-4bf9-b5f6-4494088223a5.php",
+            "size": "15053",
+            "mtime": "1721136859",
+            "hash": "a742dc2450bcc0a555cdc1f48e4c845882ca2402de201c32cd5186f779ede972"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/2cd8d2db-d4b0-4d87-a112-b86fbc861ede.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/2cd8d2db-d4b0-4d87-a112-b86fbc861ede.php",
+            "size": "1701",
+            "mtime": "1721117773",
+            "hash": "3b1be11d8cb9cfd1f21574607ebc65cb2e499efe71e0d9d8cb839b7f3dbb78e8"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/2e881fbb-3f04-467a-b86e-1e4c66f50a91.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/2e881fbb-3f04-467a-b86e-1e4c66f50a91.php",
+            "size": "1548",
+            "mtime": "1721115847",
+            "hash": "27fece6fb21983cf562ad2d139278b6eea98b2b8a8e96f0199a3265bf9c5257b"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/414fb75d-8898-44b3-823f-9fb91163809a.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/414fb75d-8898-44b3-823f-9fb91163809a.php",
+            "size": "3518",
+            "mtime": "1721136984",
+            "hash": "de45d47bd020ba95b6bc84a0313db945acff88450d12735a0b1aaeab8fe88957"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/7ab48094-9869-4206-a8b2-6346bb37cd6b.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/7ab48094-9869-4206-a8b2-6346bb37cd6b.php",
+            "size": "2801",
+            "mtime": "1721099778",
+            "hash": "39976d297f68484b800ca939c8d41c768657a8e50a5b2b3724b449bb0751c698"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/7d35a325-a321-4e09-8721-c8832846af84.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/7d35a325-a321-4e09-8721-c8832846af84.php",
+            "size": "2094",
+            "mtime": "1721120329",
+            "hash": "6f4b7c60116d777e273c48be4c43be009a52e8b65622951078a1d6aadd925385"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/8207d1d0-3664-4bed-8027-324bf6de4aa6.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/8207d1d0-3664-4bed-8027-324bf6de4aa6.php",
+            "size": "2218",
+            "mtime": "1721117102",
+            "hash": "d488ee4248d3ca340839b697fe0bf2d90bc31a57a7a8bdda87ba59df33b41bc7"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/8ac2914e-ec91-47d9-908b-290647a0f055.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/8ac2914e-ec91-47d9-908b-290647a0f055.php",
+            "size": "2112",
+            "mtime": "1721118133",
+            "hash": "43afd79599d0278af9fc6aa11820d74b6a76e0e0cee9ffc4dc1b64b3f3d20322"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/99800567-7936-4dae-a49a-cae7b2b558b1.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/99800567-7936-4dae-a49a-cae7b2b558b1.php",
+            "size": "3176",
+            "mtime": "1721116483",
+            "hash": "187eefdf917135649ed73080966d1e63b21b1c51279db805c2fcc9e174ee72ca"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/b327b6ab-a519-40eb-8336-5f986e948a24.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/b327b6ab-a519-40eb-8336-5f986e948a24.php",
+            "size": "2229",
+            "mtime": "1721116775",
+            "hash": "4281690d7d465d40b74f6b6fadc0b7e6a2eae59202259459cd649c621f4ad972"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/e8605a8c-4f25-40e9-a734-79fbd383758e.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/e8605a8c-4f25-40e9-a734-79fbd383758e.php",
+            "size": "7762",
+            "mtime": "1721133287",
+            "hash": "7d4cf598baf8a916f3d1364150f413f26b95a0935f18277ad357dd04f6d7e7d7"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/ec43ba45-0025-4f16-a5cf-71ed4a7f8021.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/ec43ba45-0025-4f16-a5cf-71ed4a7f8021.php",
+            "size": "2082",
+            "mtime": "1721118750",
+            "hash": "a205de25897d4c02da5dbd3bc24bdea7c969676e6c87c36b6378009a470be25f"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/ece08368-2a06-4794-b279-2614d4c4c394.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/ece08368-2a06-4794-b279-2614d4c4c394.php",
+            "size": "2323",
+            "mtime": "1721099691",
+            "hash": "034316ef4f95b1080cc23de59715a2a6a5cebb2dfd50b76f10bca678a1a1d191"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/borlabs-cookie/1/f030c294-56e5-4b97-8c3c-d4b4d9a8fb3b.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/borlabs-cookie/1/f030c294-56e5-4b97-8c3c-d4b4d9a8fb3b.php",
+            "size": "2270",
+            "mtime": "1721118095",
+            "hash": "7ce067301202bbd620e379d5a581d6dd73529869647ab202a599cf548dfbe359"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/ips-mediacleanup-recovery/index.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/ips-mediacleanup-recovery/index.php",
+            "size": "28",
+            "mtime": "1779668872",
+            "hash": "bd48c24ce4500e60d2524571756787283f0d3fbfa50b116331309c09773f0cd1"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/local-watchdog/index.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/local-watchdog/index.php",
+            "size": "28",
+            "mtime": "1782203525",
+            "hash": "bd48c24ce4500e60d2524571756787283f0d3fbfa50b116331309c09773f0cd1"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/mailchimp-for-wp/debug-log.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/mailchimp-for-wp/debug-log.php",
+            "size": "24263961",
+            "mtime": "1693631214",
+            "hash": "cfff88da60747bb73d1bb9a61698c897b47662769a77630d1f1f65dcf2e91a22"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/storeabill-1a9e809839/index.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/storeabill-1a9e809839/index.php",
+            "size": "0",
+            "mtime": "1610336843",
+            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "UPLOAD_EXEC|wp-content/uploads/wc-shiptastic-b8ae30d9c3/index.php": {
+            "kind": "UPLOAD_EXEC",
+            "path": "wp-content/uploads/wc-shiptastic-b8ae30d9c3/index.php",
+            "size": "0",
+            "mtime": "1771262871",
+            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "CRITICAL_FILE|wp-config.php": {
+            "kind": "CRITICAL_FILE",
+            "path": "wp-config.php",
+            "size": "4236",
+            "mtime": "1783014079",
+            "hash": "5cd63ca1ab69f634a065fdf450d61fc119c7f988ac45c498eea9ccb97e2c2018"
+          },
+          "CRITICAL_FILE|.htaccess": {
+            "kind": "CRITICAL_FILE",
+            "path": ".htaccess",
+            "size": "3839",
+            "mtime": "1782017025",
+            "hash": "9c55369f9afebdfa17628666eddaee82c829cc14f0961aee5de73a83daf24333"
+          },
+          "CRITICAL_FILE|wp-content/.htaccess": {
+            "kind": "CRITICAL_FILE",
+            "path": "wp-content/.htaccess",
+            "size": "309",
+            "mtime": "1782017025",
+            "hash": "952bda04948ff5fec539b2a55e62e21da9910e658de4653f5ae6fe701daab2dc"
+          }
+        }
+      }
+    }
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "4c84d9f2-8efd-4b70-8240-1fd851063bfe",
+  "activeVersionId": "4c84d9f2-8efd-4b70-8240-1fd851063bfe",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-07-02T17:57:49.803Z",
+      "createdAt": "2026-07-02T17:57:49.803Z",
+      "role": "workflow:owner",
+      "workflowId": "VG10cQCHSDJZkuTw",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-07-02T17:59:01.000Z",
+    "createdAt": "2026-07-02T17:58:40.399Z",
+    "versionId": "4c84d9f2-8efd-4b70-8240-1fd851063bfe",
+    "workflowId": "VG10cQCHSDJZkuTw",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "watchdog-daily-summary-bb",
+          "options": {
+            "noResponseBody": true
+          }
+        },
+        "id": "f1c2c620-ad08-4db2-9d26-285a630fccaa",
+        "name": "Daily Summary Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "webhookId": "f2a552f3-d34f-48a6-9b0d-7055e7a1d001"
+      },
+      {
+        "parameters": {
+          "jsCode": "const crypto = require('crypto');\n\nconst WATCHDOG_SECRET = '02194db639f32b2e643946d783fae76f74c1b49049efcbcb233c415b812e3f130c4db368b186f5fc2ce354e9e0f07ba7';\nconst REQUIRE_SIGNATURE = true;\nconst MAX_CLOCK_SKEW_SECONDS = 6 * 60 * 60;\nconst EXPECTED_SOURCE = 'daily-watchdog-summary-agent';\n\nfunction getHeader(headers, name) {\n  const target = String(name).toLowerCase();\n  for (const pair of Object.entries(headers || {})) {\n    const key = pair[0];\n    const value = pair[1];\n    if (String(key).toLowerCase() === target) {\n      return Array.isArray(value) ? String(value[0] || '') : String(value || '');\n    }\n  }\n  return '';\n}\n\nfunction getRawBody(input) {\n  if (typeof input.rawBody === 'string') return input.rawBody;\n  if (typeof input.raw_body === 'string') return input.raw_body;\n  if (typeof input.bodyRaw === 'string') return input.bodyRaw;\n  if (typeof input.body === 'string') return input.body;\n  if (input.body && typeof input.body.rawBody === 'string') return input.body.rawBody;\n  return JSON.stringify(input.body || {});\n}\n\nfunction parsePayload(input, rawBody) {\n  if (input.body && typeof input.body === 'object' && !Array.isArray(input.body)) return input.body;\n  if (typeof input.body === 'string' && input.body.trim() !== '') return JSON.parse(input.body);\n  if (typeof rawBody === 'string' && rawBody.trim() !== '') return JSON.parse(rawBody);\n  return input;\n}\n\nfunction safeTimingEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left));\n  const rightBuffer = Buffer.from(String(right));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\n\nconst input = items[0] && items[0].json ? items[0].json : {};\nconst headers = input.headers || {};\nconst signature = getHeader(headers, 'x-bb-watchdog-signature');\nconst timestampHeader = getHeader(headers, 'x-bb-watchdog-timestamp');\nconst rawBody = getRawBody(input);\nconst payload = parsePayload(input, rawBody);\n\nif (REQUIRE_SIGNATURE) {\n  if (!WATCHDOG_SECRET || WATCHDOG_SECRET.indexOf('CHANGE_ME') === 0) {\n    throw new Error('Daily Watchdog secret is not configured in n8n.');\n  }\n  if (!signature) throw new Error('Missing X-BB-Watchdog-Signature header.');\n  const expected = 'sha256=' + crypto.createHmac('sha256', WATCHDOG_SECRET).update(rawBody).digest('hex');\n  if (!safeTimingEqual(signature, expected)) throw new Error('Invalid Daily Watchdog signature.');\n}\n\nif (EXPECTED_SOURCE && payload.source !== EXPECTED_SOURCE) {\n  throw new Error('Unexpected watchdog source: ' + String(payload.source || ''));\n}\n\nconst nowSeconds = Math.floor(Date.now() / 1000);\nconst payloadSeconds = Number(payload.timestamp_epoch || timestampHeader || 0);\nif (payloadSeconds > 0 && Math.abs(nowSeconds - payloadSeconds) > MAX_CLOCK_SKEW_SECONDS) {\n  throw new Error('Daily Watchdog payload timestamp outside accepted clock skew.');\n}\n\nif (!payload.local_watchdog || !payload.db_watchdog || !payload.file_watchdog) {\n  throw new Error('Daily Watchdog payload is missing one or more sections.');\n}\n\nreturn [{\n  json: Object.assign({}, payload, {\n    received_at: new Date().toISOString(),\n    n8n_watchdog: {\n      signature_required: REQUIRE_SIGNATURE,\n      signature_valid: REQUIRE_SIGNATURE ? true : null,\n      workflow: 'BB Watchdog Daily Summary'\n    }\n  })\n}];"
+        },
+        "id": "3272fbc4-facf-4677-8012-50bd09f18036",
+        "name": "Verify Daily Push",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          240,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const KNOWN_ADMIN_IDS = new Set(['1', '34', '72', '30328', '32065', '62317', '121806', '136996']);\nconst ALLOWED_MU_FILES = new Set(['wp-content/mu-plugins/local-watchdog.php']);\nconst RESET_BASELINES = false;\nconst ALERT_ON_FIRST_RUN_FINDINGS = true;\n\nconst state = $getWorkflowStaticData('global');\nconst payload = items[0] && items[0].json ? items[0].json : {};\n\nfunction stableDbKey(row) {\n  return [row.record_type || 'unknown', row.key_name || '', row.label || ''].join('|');\n}\n\nfunction dbSummary(row) {\n  return {\n    record_type: row.record_type || 'unknown',\n    key_name: row.key_name || '',\n    label: row.label || '',\n    value_hash: row.value_hash || '',\n    details: row.details || ''\n  };\n}\n\nfunction dbSeverity(row, reason) {\n  if (row.record_type === 'admin_user') return 'critical';\n  if (row.record_type === 'watched_option' && row.key_name === 'active_plugins') return 'critical';\n  if (row.record_type === 'suspicious_option') return 'critical';\n  if (row.record_type === 'wpwebhooks_table') return 'warning';\n  if (reason === 'changed') return 'warning';\n  return 'warning';\n}\n\nfunction fileKey(record) {\n  return String(record.kind || 'UNKNOWN') + '|' + String(record.path || '');\n}\n\nfunction fileSummary(record) {\n  return {\n    kind: String(record.kind || 'UNKNOWN'),\n    path: String(record.path || ''),\n    size: String(record.size || ''),\n    mtime: String(record.mtime || ''),\n    hash: String(record.hash || '')\n  };\n}\n\nfunction fileSeverity(record, reason) {\n  if (record.kind === 'ERROR') return 'critical';\n  if (record.kind === 'IOC_FILE') return 'critical';\n  if (record.kind === 'UPLOAD_EXEC') return 'critical';\n  if (record.kind === 'MU_FILE' && !ALLOWED_MU_FILES.has(record.path)) return 'critical';\n  if (record.kind === 'PLUGIN_DIR' && reason === 'new_record') return 'critical';\n  if (record.kind === 'CRITICAL_FILE' && reason === 'changed') return 'critical';\n  return 'warning';\n}\n\nfunction analyzeDb(section) {\n  const findings = [];\n  const baseline = { initialized: false, updated: false };\n  if (!section || section.status !== 'ok') {\n    findings.push({ severity: 'critical', source: 'db-watchdog', reason: 'agent_error', message: section && section.error_output ? section.error_output : 'DB watchdog did not return a valid payload.' });\n    return { findings, baseline };\n  }\n\n  const rows = section.payload && Array.isArray(section.payload.records) ? section.payload.records : [];\n  const current = {};\n  for (const row of rows) current[stableDbKey(row)] = dbSummary(row);\n\n  const firstRunFindings = [];\n  for (const row of rows) {\n    if (row.record_type === 'admin_user' && !KNOWN_ADMIN_IDS.has(String(row.key_name))) {\n      firstRunFindings.push({ severity: 'critical', source: 'db-watchdog', reason: 'admin_not_in_allowlist', record: dbSummary(row) });\n    }\n    if (row.record_type === 'suspicious_option') {\n      firstRunFindings.push({ severity: 'critical', source: 'db-watchdog', reason: 'suspicious_option_payload', record: dbSummary(row) });\n    }\n  }\n\n  if (RESET_BASELINES || !state.dailyDbBaseline) {\n    state.dailyDbBaseline = { initialized_at: new Date().toISOString(), records: current };\n    baseline.initialized = true;\n    if (ALERT_ON_FIRST_RUN_FINDINGS) findings.push(...firstRunFindings);\n    return { findings, baseline };\n  }\n\n  const previous = state.dailyDbBaseline.records || {};\n  for (const key of Object.keys(current)) {\n    const row = current[key];\n    const old = previous[key];\n    if (!old) {\n      findings.push({ severity: dbSeverity(row, 'new'), source: 'db-watchdog', reason: 'new_record', record: row });\n      continue;\n    }\n    if (String(old.value_hash || '') !== String(row.value_hash || '')) {\n      findings.push({ severity: dbSeverity(row, 'changed'), source: 'db-watchdog', reason: 'changed', old_record: old, record: row });\n    }\n  }\n\n  state.dailyDbBaseline = { initialized_at: state.dailyDbBaseline.initialized_at, updated_at: new Date().toISOString(), records: current };\n  baseline.updated = true;\n  return { findings, baseline };\n}\n\nfunction analyzeFile(section) {\n  const findings = [];\n  const baseline = { initialized: false, updated: false };\n  if (!section || section.status !== 'ok') {\n    findings.push({ severity: 'critical', source: 'file-watchdog', reason: 'agent_error', message: section && section.error_output ? section.error_output : 'File watchdog did not return a valid payload.' });\n    return { findings, baseline };\n  }\n\n  const records = section.payload && Array.isArray(section.payload.records) ? section.payload.records : [];\n  const current = {};\n  for (const record of records) current[fileKey(record)] = fileSummary(record);\n\n  const firstRunFindings = [];\n  for (const record of records) {\n    if (record.kind === 'ERROR' || record.kind === 'IOC_FILE' || record.kind === 'UPLOAD_EXEC' || (record.kind === 'MU_FILE' && !ALLOWED_MU_FILES.has(record.path))) {\n      firstRunFindings.push({ severity: fileSeverity(record, 'first_run'), source: 'file-watchdog', reason: 'first_run_sensitive_file', record: fileSummary(record) });\n    }\n  }\n\n  if (RESET_BASELINES || !state.dailyFileBaseline) {\n    state.dailyFileBaseline = { initialized_at: new Date().toISOString(), records: current };\n    baseline.initialized = true;\n    if (ALERT_ON_FIRST_RUN_FINDINGS) findings.push(...firstRunFindings);\n    return { findings, baseline };\n  }\n\n  const previous = state.dailyFileBaseline.records || {};\n  for (const key of Object.keys(current)) {\n    const record = current[key];\n    const old = previous[key];\n    if (!old) {\n      findings.push({ severity: fileSeverity(record, 'new_record'), source: 'file-watchdog', reason: 'new_record', record: record });\n      continue;\n    }\n    if (record.kind === 'CRITICAL_FILE' && String(old.hash || '') !== String(record.hash || '')) {\n      findings.push({ severity: fileSeverity(record, 'changed'), source: 'file-watchdog', reason: 'critical_file_hash_changed', old_record: old, record: record });\n    }\n  }\n\n  for (const key of Object.keys(previous)) {\n    if (!current[key]) {\n      const old = previous[key];\n      if (old.kind === 'CRITICAL_FILE' || old.kind === 'MU_FILE') {\n        findings.push({ severity: 'warning', source: 'file-watchdog', reason: 'sensitive_record_removed', old_record: old });\n      }\n    }\n  }\n\n  state.dailyFileBaseline = { initialized_at: state.dailyFileBaseline.initialized_at, updated_at: new Date().toISOString(), records: current };\n  baseline.updated = true;\n  return { findings, baseline };\n}\n\nfunction analyzeLocal(local) {\n  const findings = [];\n  if (!local || local.status !== 'ok') {\n    findings.push({ severity: 'warning', source: 'local-watchdog', reason: 'local_log_warning', message: local && local.message ? local.message : 'Local Watchdog summary is not ok.' });\n  }\n  const samples = local && Array.isArray(local.samples) ? local.samples : [];\n  for (const sample of samples) {\n    const severity = String(sample.severity || 'info').toLowerCase();\n    if (severity === 'critical' || severity === 'warning') {\n      findings.push({ severity, source: 'local-watchdog', reason: 'local_event_sample', event: sample });\n    }\n  }\n  return findings;\n}\n\nconst db = analyzeDb(payload.db_watchdog || {});\nconst file = analyzeFile(payload.file_watchdog || {});\nconst localFindings = analyzeLocal(payload.local_watchdog || {});\nconst findings = [...localFindings, ...db.findings, ...file.findings];\nconst hasCritical = findings.some(function(f) { return f.severity === 'critical'; });\nconst hasWarning = findings.some(function(f) { return f.severity === 'warning'; });\nconst severity = hasCritical ? 'critical' : (hasWarning ? 'warning' : 'info');\n\nreturn [{\n  json: Object.assign({}, payload, {\n    severity,\n    findings,\n    local_findings: localFindings,\n    db_findings: db.findings,\n    file_findings: file.findings,\n    baseline: {\n      db: db.baseline,\n      file: file.baseline\n    },\n    analyzed_at: new Date().toISOString()\n  })\n}];"
+        },
+        "id": "e7e3bcca-c217-45a2-ab3e-7490b0356288",
+        "name": "Analyze Daily Summary",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const input = items[0] && items[0].json ? items[0].json : {};\n\nfunction escapeHtml(value) {\n  return String(value === undefined || value === null ? '' : value)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n}\n\nfunction asJson(value) {\n  return escapeHtml(JSON.stringify(value || {}, null, 2));\n}\n\nfunction severityColor(severity) {\n  if (severity === 'critical') return '#b42318';\n  if (severity === 'warning') return '#b54708';\n  return '#027a48';\n}\n\nfunction rowsFromObject(obj) {\n  const entries = Object.entries(obj || {}).sort(function(a, b) { return Number(b[1]) - Number(a[1]); });\n  if (!entries.length) return '<tr><td colspan=\"2\"><em>None</em></td></tr>';\n  return entries.map(function(entry) {\n    return '<tr><td style=\"padding:4px 8px;border-bottom:1px solid #ddd;\"><code>' + escapeHtml(entry[0]) + '</code></td><td style=\"padding:4px 8px;border-bottom:1px solid #ddd;text-align:right;\">' + escapeHtml(entry[1]) + '</td></tr>';\n  }).join('');\n}\n\nfunction findingList(findings) {\n  if (!findings.length) return '<p><em>No critical or warning findings.</em></p>';\n  return '<ul>' + findings.map(function(finding) {\n    const record = finding.record || finding.old_record || finding.event || {};\n    const label = record.path || record.key_name || record.event_type || finding.message || '';\n    return '<li><strong>' + escapeHtml(finding.severity || '') + '</strong> '\n      + escapeHtml(finding.source || '') + ' / ' + escapeHtml(finding.reason || '')\n      + (label ? ' - <code>' + escapeHtml(label) + '</code>' : '')\n      + '</li>';\n  }).join('') + '</ul>';\n}\n\nconst severity = String(input.severity || 'info').toLowerCase();\nconst local = input.local_watchdog || {};\nconst db = input.db_watchdog || {};\nconst file = input.file_watchdog || {};\nconst window = input.window || {};\nconst findings = Array.isArray(input.findings) ? input.findings : [];\nconst subject = '[BB Watchdog Daily] - ' + severity.toUpperCase() + ' - local=' + (local.event_count || 0) + ' db=' + (db.record_count || 0) + ' file=' + (file.record_count || 0);\nconst preStyle = 'white-space:pre-wrap;background:#f6f8fa;padding:12px;border:1px solid #d0d7de;border-radius:6px;overflow:auto;';\n\nconst html = [\n  '<div style=\"font-family:Arial,Helvetica,sans-serif;color:#1d2939;line-height:1.45;\">',\n  '<h2 style=\"margin:0 0 8px;color:' + severityColor(severity) + ';\">BB Watchdog Daily Summary</h2>',\n  '<p><strong>Severity:</strong> <span style=\"color:' + severityColor(severity) + ';font-weight:bold;\">' + escapeHtml(severity.toUpperCase()) + '</span></p>',\n  '<p><strong>Host:</strong> ' + escapeHtml(input.host_id || '') + ' &nbsp; <strong>Window:</strong> ' + escapeHtml(window.from_utc || '') + ' - ' + escapeHtml(window.to_utc || '') + '</p>',\n  '<p><strong>Received:</strong> ' + escapeHtml(input.received_at || '') + ' &nbsp; <strong>Analyzed:</strong> ' + escapeHtml(input.analyzed_at || '') + '</p>',\n  '<h3>Totals</h3>',\n  '<table cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%;max-width:760px;border:1px solid #ddd;\">',\n  '<tr><th style=\"text-align:left;padding:6px 8px;background:#f7f7f7;\">Section</th><th style=\"text-align:right;padding:6px 8px;background:#f7f7f7;\">Count</th><th style=\"text-align:left;padding:6px 8px;background:#f7f7f7;\">Status</th></tr>',\n  '<tr><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">Local events</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;text-align:right;\">' + escapeHtml(local.event_count || 0) + '</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">' + escapeHtml(local.status || '') + '</td></tr>',\n  '<tr><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">DB records</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;text-align:right;\">' + escapeHtml(db.record_count || 0) + '</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">' + escapeHtml(db.status || '') + '</td></tr>',\n  '<tr><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">File records</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;text-align:right;\">' + escapeHtml(file.record_count || 0) + '</td><td style=\"padding:6px 8px;border-top:1px solid #ddd;\">' + escapeHtml(file.status || '') + '</td></tr>',\n  '</table>',\n  '<h3>Findings</h3>',\n  findingList(findings),\n  '<h3>Local Events by Severity</h3>',\n  '<table cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%;max-width:520px;border:1px solid #ddd;\">' + rowsFromObject(local.by_severity || {}) + '</table>',\n  '<h3>Local Events by Type</h3>',\n  '<table cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%;max-width:760px;border:1px solid #ddd;\">' + rowsFromObject(local.by_event_type || {}) + '</table>',\n  '<h3>Baseline</h3>',\n  '<pre style=\"' + preStyle + '\">' + asJson(input.baseline || {}) + '</pre>',\n  '<h3>Raw Summary</h3>',\n  '<pre style=\"' + preStyle + '\">' + asJson({ local_watchdog: local, db_watchdog: db, file_watchdog: file, findings: findings }) + '</pre>',\n  '<p style=\"color:#667085;font-size:12px;margin-top:24px;\">This mail is generated by the n8n workflow \"BB Watchdog Daily Summary\". The watchdog observes only and does not modify the shop.</p>',\n  '</div>'\n].join('');\n\nreturn [{ json: { subject, html, severity, event: input } }];"
+        },
+        "id": "1e1e3e78-a61e-4c03-b44c-a935792b23b4",
+        "name": "Build Daily Email",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          720,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "n8n@mail.buecherbuechse.de",
+          "toEmail": "patrick.schmitz@buecherbuechse.de, it@buecherbuechse.de",
+          "subject": "={{ $json.subject }}",
+          "html": "={{ $json.html }}",
+          "options": {}
+        },
+        "id": "51d58eda-4f31-4497-ba21-0903b1614e99",
+        "name": "Send Security Email",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          960,
+          0
+        ],
+        "webhookId": "4099b076-4bd5-42d4-9598-7b79bbddee6b",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Daily Summary Webhook": {
+        "main": [
+          [
+            {
+              "node": "Verify Daily Push",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Verify Daily Push": {
+        "main": [
+          [
+            {
+              "node": "Analyze Daily Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Analyze Daily Summary": {
+        "main": [
+          [
+            {
+              "node": "Build Daily Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Daily Email": {
+        "main": [
+          [
+            {
+              "node": "Send Security Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Patrick Schmitz",
+    "name": "Version 4c84d9f2",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": []
+}

@@ -1,0 +1,851 @@
+{
+  "updatedAt": "2026-08-07T08:47:42.158Z",
+  "createdAt": "2026-08-06T11:18:27.253Z",
+  "id": "kCu8iB4p1dN4j7VN",
+  "name": "Zauberbuechse-Goodie-Rabatt-CSV",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Zauberbüchse Goodie-Rabatt",
+        "formDescription": "CSV mit Bestellnummern hochladen (Spalte \"Name\"/\"Bestellnummer\" oder \"Id\")",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "CSV-Datei",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -3664,
+        944
+      ],
+      "id": "b85f6be7-4f23-46bb-8afe-6005bbd11a38",
+      "name": "CSV hochladen (Formular)",
+      "webhookId": "354bb68c-116a-41b8-a869-7c7c0ebc9872"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === HIER PFLEGEN ===\nconst CONFIG = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  // Goodie-Position, die rabattiert wird\n  zielSku: 'ZB-2026-08-02',\n\n  // Rabattsatz in Prozent auf diese Position (1–100)\n  rabattProzent: 20,\n\n  // Titel des Rabatts in der Bestellung.\n  // {code} = Rabattcode aus der CSV, {pct} = rabattProzent\n  rabattBeschreibungTemplate: 'Rabattcode {code} ({pct} % Goodie-Rabatt)',\n\n  // true = Position überspringen, wenn dort schon ein Rabatt gebucht ist (kein Doppelrabatt)\n  ueberspringenWennSchonRabattiert: true,\n\n  notifyCustomer: false,\n  staffNote: 'Automatischer Goodie-Rabatt auf ZB-2026-08-02.',\n\n  // Bestellungen ausschließen: 'BB-12345' oder numerische orderId. [] = keine.\n  ausnahmen: []\n};\n\nconst pct = Number(CONFIG.rabattProzent);\nif (!(pct > 0 && pct <= 100)) {\n  throw new Error('Config.rabattProzent muss zwischen 0 und 100 liegen, ist: ' + CONFIG.rabattProzent);\n}\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.config = CONFIG;\nstaticData.toFix = [];\nstaticData.skipped = [];\nstaticData.done = [];\n\n// CSV-Binary unverändert durchreichen\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3456,
+        944
+      ],
+      "id": "8b0b5959-dad4-45f3-b672-83c27a2adb28",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "CSV_Datei",
+        "options": {
+          "delimiter": ";"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -3264,
+        944
+      ],
+      "id": "a77e6d99-0e6f-4fdd-8dce-8dfd33bebf5b",
+      "name": "CSV parsen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Akzeptiert die Mapping-CSV (Bestellnummer;Email;Rabattcode),\n// einen Shopify-Orders-Export ODER eine einfache Liste von Bestellnummern.\nconst rows = $input.all().map(i => i.json);\n\nconst NAME_KEYS  = ['name', 'bestellnummer', 'bestellung', 'ordername', 'order name', 'order_name'];\nconst ID_KEYS    = ['id', 'orderid', 'order id', 'order_id'];\nconst CODE_KEYS  = ['rabattcode', 'rabatt-code', 'code', 'discount code', 'discount_code',\n                    'gutschein', 'gutschein_codes', 'gutscheincode'];\nconst EMAIL_KEYS = ['email', 'e-mail', 'customer: email', 'customer_email', 'kunde email'];\n\n// Header normalisieren: BOM weg, trimmen, lowercase\nconst normRow = (row) => {\n  const o = {};\n  for (const [k, v] of Object.entries(row || {})) {\n    o[String(k).replace(/^\\uFEFF/, '').trim().toLowerCase()] = v;\n  }\n  return o;\n};\n\nconst pick = (row, keys) => {\n  for (const k of keys) {\n    const v = row?.[k];\n    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();\n  }\n  return '';\n};\n\nlet lastId = null;\nconst seen = new Set();\nconst out = [];\n\nfor (const raw of rows) {\n  const row = normRow(raw);\n  let name  = pick(row, NAME_KEYS).replace(/^#/, '');\n  let id    = pick(row, ID_KEYS);\n  const code  = pick(row, CODE_KEYS);\n  const email = pick(row, EMAIL_KEYS);\n\n  // Fallback: CSV mit nur einer Spalte ohne bekannten Header\n  if (!name && !id) {\n    const first = Object.values(row).map(v => String(v ?? '').trim()).filter(Boolean)[0] || '';\n    if (/^\\d{6,}$/.test(first)) id = first;\n    else if (first) name = first.replace(/^#/, '');\n  }\n\n  if (id) lastId = id;\n  else if (name && lastId && rows.length > 1) id = lastId;\n\n  if (!id && !name) continue;\n\n  const key = id || name.toLowerCase();\n  if (seen.has(key)) continue;\n  seen.add(key);\n\n  out.push({\n    orderId: id ? Number(id) : null,\n    orderName: name || null,\n    rabattCode: code || null,\n    email: email || null\n  });\n}\n\nif (!out.length) {\n  throw new Error('Keine Bestellnummern in der CSV erkannt. Erwartet wird eine Spalte \"Bestellnummer\"/\"Name\" oder \"Id\".');\n}\n\nconst ohneCode = out.filter(o => !o.rabattCode).length;\nif (ohneCode === out.length) {\n  throw new Error('In der CSV wurde keine Spalte \"Rabattcode\" gefunden – ohne Code kann der Rabatt nicht zugeordnet werden.');\n}\n\nreturn out.map(o => ({ json: o }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3056,
+        944
+      ],
+      "id": "747cb856-a1dc-4e63-b8ba-9d27bb110bbb",
+      "name": "Bestellungen extrahieren (dedupe)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2864,
+        944
+      ],
+      "id": "72da0fe6-4f05-4ecf-bd66-609dd5a3cd99",
+      "name": "Token holen (CSV)",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// toFix leeren, Token durchreichen, alle Bestellungen weitergeben.\nconst staticData = $getWorkflowStaticData('global');\nstaticData.toFix = [];\nstaticData.skipped = [];\nstaticData.done = [];\n\nconst token = $json.access_token;\nconst orders = $('Bestellungen extrahieren (dedupe)').all().map(i => i.json);\n\nreturn orders.map(o => ({ json: { ...o, accessToken: token } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2656,
+        944
+      ],
+      "id": "d27aaf71-6aef-4317-ba13-76bedea943a8",
+      "name": "toFix leeren + Token durchreichen"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -3424,
+        1424
+      ],
+      "id": "ba511750-79b2-457b-b22b-f6044cb5d8cc",
+      "name": "Loop je Bestellung (CSV)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\nconst config = $getWorkflowStaticData('global').config;\nconst base = `https://${config.shop}.myshopify.com/admin/api/${config.apiVersion}`;\nconst fields = 'id,name,created_at,tags,total_discounts,line_items';\n\n// Mit orderId direkt, sonst über die Bestellnummer suchen.\nconst url = item.orderId\n  ? `${base}/orders/${item.orderId}.json?fields=${fields}`\n  : `${base}/orders.json?status=any&limit=2&name=${encodeURIComponent(item.orderName)}&fields=${fields}`;\n\nreturn { json: { ...item, url } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3280,
+        1584
+      ],
+      "id": "f35ac084-4e7f-44fe-8673-391fe7b6ecb9",
+      "name": "URL bauen (Bestellung)"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3072,
+        1584
+      ],
+      "id": "cb3eb27a-3cf0-4e5f-915b-77537efcf518",
+      "name": "GET einzelne Bestellung"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst body = response.body || response;\nconst order = body.order || (Array.isArray(body.orders) ? body.orders[0] : null);\n\nconst staticData = $getWorkflowStaticData('global');\nconst config = staticData.config;\nif (!Array.isArray(staticData.toFix)) staticData.toFix = [];\nif (!Array.isArray(staticData.skipped)) staticData.skipped = [];\n\nconst angefragt = $('URL bauen (Bestellung)').first().json;\nconst ZIEL = String(config.zielSku).trim().toLowerCase();\nconst num = (v) => Number(v || 0);\nconst norm = (v) => String(v ?? '').trim().replace(/^#/, '').toLowerCase();\nconst AUSNAHMEN = (Array.isArray(config.ausnahmen) ? config.ausnahmen : []).map(norm);\n\nconst skip = (grund, extra = {}) => {\n  staticData.skipped.push({\n    orderName: order?.name || angefragt.orderName || null,\n    orderId: order?.id || angefragt.orderId || null,\n    rabattCode: angefragt.rabattCode || null,\n    grund, ...extra\n  });\n};\n\nif (!order) {\n  skip('Bestellung über die API nicht gefunden');\n} else if (!angefragt.rabattCode) {\n  skip('Kein Rabattcode in der CSV-Zeile');\n} else if (AUSNAHMEN.length && (AUSNAHMEN.includes(norm(order.name)) || AUSNAHMEN.includes(norm(order.id)))) {\n  skip('Bestellung steht in Config.ausnahmen');\n} else {\n  const lineItems = order.line_items || [];\n  const aktiv = lineItems.filter(li =>\n    String(li.sku || '').trim().toLowerCase() === ZIEL && num(li.current_quantity) > 0);\n\n  if (!aktiv.length) {\n    skip(`Position ${config.zielSku} nicht aktiv in der Bestellung`);\n  } else {\n    const rabattSumme = (li) => (li.discount_allocations || [])\n      .reduce((s, a) => s + num(a.amount), 0);\n\n    const offen = config.ueberspringenWennSchonRabattiert\n      ? aktiv.filter(li => rabattSumme(li) <= 0)\n      : aktiv;\n\n    if (!offen.length) {\n      skip('Position ist bereits rabattiert', {\n        vorhandenerRabatt: aktiv.map(li => rabattSumme(li).toFixed(2)).join(', ')\n      });\n    } else {\n      staticData.toFix.push({\n        orderId: order.id,\n        orderName: order.name,\n        createdAt: order.created_at,\n        rabattCode: angefragt.rabattCode,\n        email: angefragt.email || null,\n        positionen: offen.map(li => ({\n          lineItemId: li.id,\n          title: li.title,\n          variantId: li.variant_id,\n          sku: li.sku,\n          preis: li.price,\n          quantity: li.quantity,\n          currentQuantity: li.current_quantity,\n          vorhandenerRabatt: rabattSumme(li).toFixed(2)\n        }))\n      });\n    }\n  }\n}\n\nreturn [{\n  json: {\n    collectedCount: staticData.toFix.length,\n    skippedCount: staticData.skipped.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2832,
+        1584
+      ],
+      "id": "b8e3a360-f2d5-4157-b69f-f00ce9f8cd43",
+      "name": "Position prüfen + pushen"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -2608,
+        1728
+      ],
+      "id": "781e92c9-992e-4602-99ff-218ef72fdfdc",
+      "name": "Wait (CSV Rate-Limit)",
+      "webhookId": "dddd1111-2222-3333-4444-555566667777"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kontrolle vor dem Schreiben: was wird rabattiert, was wurde übersprungen.\nconst staticData = $getWorkflowStaticData('global');\nconst config = staticData.config;\nconst collected = staticData.toFix || [];\nconst skipped = staticData.skipped || [];\n\nconst titel = (code) => String(config.rabattBeschreibungTemplate)\n  .replace('{code}', code || '')\n  .replace('{pct}', String(config.rabattProzent));\n\nconst rows = [{\n  json: {\n    ZUSAMMENFASSUNG: true,\n    zielSku: config.zielSku,\n    rabattProzent: config.rabattProzent,\n    rabattBeschreibungTemplate: config.rabattBeschreibungTemplate,\n    anzahlBestellungen: collected.length,\n    anzahlPositionen: collected.reduce((s, o) => s + o.positionen.length, 0),\n    anzahlUebersprungen: skipped.length\n  }\n}];\n\nfor (const order of collected) {\n  for (const pos of order.positionen) {\n    const brutto = Number(pos.preis) * Number(pos.currentQuantity || pos.quantity || 1);\n    const rabatt = brutto * Number(config.rabattProzent) / 100;\n    rows.push({\n      json: {\n        orderName: order.orderName,\n        orderId: order.orderId,\n        email: order.email,\n        rabattCode: order.rabattCode,\n        rabattTitel: titel(order.rabattCode),\n        createdAt: order.createdAt,\n        sku: pos.sku,\n        title: pos.title,\n        einzelpreis: pos.preis,\n        menge: pos.currentQuantity,\n        erwarteterRabatt: rabatt.toFixed(2),\n        lineItemId: pos.lineItemId,\n        orderGid: `gid://shopify/Order/${order.orderId}`,\n        lineItemGid: `gid://shopify/CalculatedLineItem/${pos.lineItemId}`\n      }\n    });\n  }\n}\n\nfor (const s of skipped) {\n  rows.push({ json: { UEBERSPRUNGEN: true, ...s } });\n}\n\nreturn rows;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3184,
+        1184
+      ],
+      "id": "9c9427a0-eb67-4c48-93a0-692e19ddf4cb",
+      "name": "Vorschau: gefundene Positionen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Bereitet je zu rabattierende Position EIN Item vor\nconst staticData = $getWorkflowStaticData('global');\nconst collected = staticData.toFix || [];\n\nconst out = [];\nfor (const order of collected) {\n  for (const pos of order.positionen) {\n    out.push({\n      json: {\n        orderId: order.orderId,\n        orderName: order.orderName,\n        orderGid: `gid://shopify/Order/${order.orderId}`,\n        rabattCode: order.rabattCode,\n        email: order.email || null,\n        lineItemId: pos.lineItemId,\n        // Fallback, falls die CalculatedOrder keine lineItems liefert\n        lineItemGidFallback: `gid://shopify/CalculatedLineItem/${pos.lineItemId}`,\n        sku: pos.sku,\n        preis: pos.preis,\n        quantity: pos.currentQuantity || pos.quantity\n      }\n    });\n  }\n}\n\nif (!out.length) {\n  return [{ json: { WARNUNG: 'Keine Position zum Rabattieren gefunden', anzahl: 0 } }];\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3184,
+        1376
+      ],
+      "id": "ad3600c4-b4cb-4c6e-98f2-59aee9c25a00",
+      "name": "Korrektur-Items vorbereiten"
+    },
+    {
+      "parameters": {
+        "jsCode": "// TESTGATE: verarbeitet nur die erste gefundene Position.\n// Für den Vollauf diesen Node deaktivieren oder löschen.\nreturn $input.all().slice(0, 1);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2672,
+        1264
+      ],
+      "id": "b0b2ead1-9496-4cc6-b824-47b9308b01ab",
+      "name": "Test-Limiter (1 Position)",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2240,
+        944
+      ],
+      "id": "cefdf290-5a66-4b6e-a19e-b060b6e9eae1",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst config = staticData.config;\nconst done = staticData.done || [];\nconst skipped = staticData.skipped || [];\n\nconst rows = [{\n  json: {\n    ZUSAMMENFASSUNG: true,\n    zielSku: config.zielSku,\n    rabattProzent: config.rabattProzent,\n    erfolgreichRabattiert: done.length,\n    uebersprungen: skipped.length\n  }\n}];\n\nfor (const d of done) rows.push({ json: { ERFOLG: true, ...d } });\nfor (const s of skipped) rows.push({ json: { UEBERSPRUNGEN: true, ...s } });\n\nreturn rows;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1936,
+        928
+      ],
+      "id": "b49afc56-cbda-4feb-861d-095b7ba7d1f8",
+      "name": "Report"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2128,
+        1088
+      ],
+      "id": "9e6248d3-db9e-476b-93a1-19aa3f782025",
+      "name": "Token holen 2",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Loop Over Items').item.json;\n\nconst body = {\n  query: `mutation orderEditBegin($id: ID!) {\n    orderEditBegin(id: $id) {\n      calculatedOrder {\n        id\n        lineItems(first: 100) {\n          edges { node { id sku quantity title } }\n        }\n      }\n      userErrors { field message }\n    }\n  }`,\n  variables: { id: item.orderGid }\n};\n\nreturn [{\n  json: {\n    accessToken: $('Token holen 2').item.json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1920,
+        1088
+      ],
+      "id": "1dd8c33c-8c75-4b7d-9a75-56624932d9ad",
+      "name": "Query bauen (orderEditBegin)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1712,
+        1088
+      ],
+      "id": "0ee92f14-c2eb-45e5-a9b0-8a22e94c719a",
+      "name": "orderEditBegin"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst begin = resp?.data?.orderEditBegin;\nconst errs = begin?.userErrors || [];\nif (errs.length) throw new Error('orderEditBegin userErrors: ' + JSON.stringify(errs));\n\nconst calcOrderId = begin?.calculatedOrder?.id;\nif (!calcOrderId) throw new Error('Keine calculatedOrder.id erhalten: ' + JSON.stringify(resp));\n\nconst loopItem = $('Loop Over Items').item.json;\nconst config = $getWorkflowStaticData('global').config;\nconst ZIEL = String(config.zielSku).trim().toLowerCase();\n\nconst nodes = (begin?.calculatedOrder?.lineItems?.edges || []).map(e => e.node);\n\n// 1. Treffer über die aus der REST-lineItemId gebaute GID\nlet ziel = nodes.find(n => String(n.id) === loopItem.lineItemGidFallback);\n// 2. sonst über die SKU\nif (!ziel) ziel = nodes.find(n => String(n.sku || '').trim().toLowerCase() === ZIEL);\n// 3. sonst Fallback auf die konstruierte GID (falls lineItems leer zurückkommt)\nconst lineItemGid = ziel ? ziel.id : loopItem.lineItemGidFallback;\n\nif (!ziel && !nodes.length) {\n  console.log('Warnung: calculatedOrder.lineItems leer, nutze konstruierte GID');\n} else if (!ziel) {\n  throw new Error(`Position ${config.zielSku} nicht in der CalculatedOrder gefunden. Vorhanden: `\n    + nodes.map(n => n.sku).join(', '));\n}\n\nreturn [{\n  json: {\n    calcOrderId,\n    lineItemGid,\n    sku: ziel?.sku || loopItem.sku,\n    quantity: ziel?.quantity ?? loopItem.quantity,\n    orderName: loopItem.orderName,\n    orderGid: loopItem.orderGid,\n    rabattCode: loopItem.rabattCode,\n    email: loopItem.email || null,\n    preis: loopItem.preis\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1520,
+        1088
+      ],
+      "id": "05b4d4e4-985d-4cc0-8262-88f6780ea218",
+      "name": "CalcOrder + Zielposition auslesen"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\nconst config = $getWorkflowStaticData('global').config;\n\nif (!item.rabattCode) {\n  throw new Error(`Kein Rabattcode für Bestellung ${item.orderName} – Abbruch vor dem Schreiben.`);\n}\n\n// Rabattcode MUSS im Titel stehen, damit er in der Bestellung zuordenbar ist\nconst beschreibung = String(config.rabattBeschreibungTemplate)\n  .replace('{code}', item.rabattCode)\n  .replace('{pct}', String(config.rabattProzent));\n\nconst body = {\n  query: `mutation orderEditAddLineItemDiscount($id: ID!, $lineItemId: ID!, $discount: OrderEditAppliedDiscountInput!) {\n    orderEditAddLineItemDiscount(id: $id, lineItemId: $lineItemId, discount: $discount) {\n      calculatedLineItem {\n        id\n        sku\n        quantity\n        discountedUnitPriceSet { shopMoney { amount currencyCode } }\n      }\n      addedDiscountStagedChange { id description }\n      userErrors { field message }\n    }\n  }`,\n  variables: {\n    id: item.calcOrderId,\n    lineItemId: item.lineItemGid,\n    discount: {\n      percentValue: Number(config.rabattProzent),\n      description: beschreibung\n    }\n  }\n};\n\nreturn {\n  json: {\n    ...item,\n    rabattBeschreibung: beschreibung,\n    accessToken: $('Token holen 2').item.json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2128,
+        1312
+      ],
+      "id": "134e435f-e4e1-4989-b437-71d52e08cc7b",
+      "name": "Query bauen (Rabatt)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1936,
+        1312
+      ],
+      "id": "43819253-4e6e-4ca4-97f3-f0b582719222",
+      "name": "orderEditAddLineItemDiscount"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst add = resp?.data?.orderEditAddLineItemDiscount;\nconst errs = add?.userErrors || [];\nif (errs.length) throw new Error('orderEditAddLineItemDiscount userErrors: ' + JSON.stringify(errs));\n\nconst prev = $('Query bauen (Rabatt)').item.json;\n\nreturn [{\n  json: {\n    ...prev,\n    gqlBody: undefined,\n    accessToken: undefined,\n    rabattierterEinzelpreis: add?.calculatedLineItem?.discountedUnitPriceSet?.shopMoney?.amount ?? null,\n    waehrung: add?.calculatedLineItem?.discountedUnitPriceSet?.shopMoney?.currencyCode ?? null,\n    rabattTitel: add?.addedDiscountStagedChange?.description ?? prev.rabattBeschreibung ?? null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1728,
+        1312
+      ],
+      "id": "58e1f7d3-b6fd-4e8e-8f9f-15705c8ed5e8",
+      "name": "Rabatt-Ergebnis prüfen"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\nconst config = $getWorkflowStaticData('global').config;\n\nconst body = {\n  query: `mutation orderEditCommit($id: ID!, $notifyCustomer: Boolean, $staffNote: String) {\n    orderEditCommit(id: $id, notifyCustomer: $notifyCustomer, staffNote: $staffNote) {\n      order { id name }\n      userErrors { field message }\n    }\n  }`,\n  variables: {\n    id: item.calcOrderId,\n    notifyCustomer: config.notifyCustomer === true,\n    staffNote: `${config.staffNote} ${config.rabattProzent} % auf ${config.zielSku}, Code: ${item.rabattCode}`\n  }\n};\n\nreturn {\n  json: {\n    ...item,\n    accessToken: $('Token holen 2').item.json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1536,
+        1312
+      ],
+      "id": "7ea87ed8-aa8b-4311-9274-ca1c78b83b29",
+      "name": "Query bauen (Commit)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2144,
+        1520
+      ],
+      "id": "c0248488-98b7-47c6-8ec7-3d31d5c51555",
+      "name": "orderEditCommit (NotifyCustomer = FALSE)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst commit = resp?.data?.orderEditCommit;\nconst errs = commit?.userErrors || [];\nif (errs.length) throw new Error('orderEditCommit userErrors: ' + JSON.stringify(errs));\n\nconst prev = $('Rabatt-Ergebnis prüfen').item.json;\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.done)) staticData.done = [];\nstaticData.done.push({\n  orderName: prev.orderName,\n  email: prev.email || null,\n  rabattCode: prev.rabattCode,\n  sku: prev.sku,\n  menge: prev.quantity,\n  preisVorher: prev.preis,\n  rabattierterEinzelpreis: prev.rabattierterEinzelpreis,\n  rabattTitel: prev.rabattTitel\n});\n\nreturn [{\n  json: {\n    status: 'OK',\n    orderName: prev.orderName,\n    rabattCode: prev.rabattCode,\n    sku: prev.sku,\n    rabattierterEinzelpreis: prev.rabattierterEinzelpreis,\n    waehrung: prev.waehrung,\n    committedOrder: commit?.order || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1952,
+        1520
+      ],
+      "id": "e604daf5-ae6f-40a2-87e4-c61b7ed11362",
+      "name": "Commit-Ergebnis prüfen"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1744,
+        1520
+      ],
+      "id": "665a4bd9-fa5d-4047-9195-f7392f3d1977",
+      "name": "Wait (Rate-Limit)",
+      "webhookId": "eeee1111-2222-3333-4444-555566667777"
+    },
+    {
+      "parameters": {
+        "content": "## Front: CSV einlesen und Positionen sammeln\n\nErwartete CSV (Semikolon, aus dem Mapping-Schritt):\n`Bestellnummer;Email;Rabattcode`\n\nEbenfalls erkannt: Shopify-Orders-Exporte (`Name` + `Id`, `Id` per forward-fill) und einfache Bestellnummern-Listen. Ohne `Id` wird die Bestellung über `orders.json?name=...` aufgelöst.\n\nGesammelt wird nur, was `Config.zielSku` **aktiv** enthält (`current_quantity > 0`) **und** eine Rabattcode-Spalte hat. Bereits rabattierte Positionen werden bei `ueberspringenWennSchonRabattiert: true` übersprungen – schützt vor Doppelrabatt bei Mehrfachläufen.",
+        "height": 320,
+        "width": 460
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2928,
+        560
+      ],
+      "id": "925ae6e6-1f6f-4cd7-9dce-9f2f564b8f66",
+      "name": "Sticky Front"
+    },
+    {
+      "parameters": {
+        "content": "## Rabattierung je Position\n\n`orderEditBegin` → `orderEditAddLineItemDiscount` (percentValue **20**) → `orderEditCommit` mit `notifyCustomer: false`.\n\nDer **Rabattcode aus der CSV** wandert in die `description` des Rabatts:\n`Rabattcode {code} (20 % Goodie-Rabatt)` → sichtbar in der Bestellung und in `discount_applications` als `type: manual` mit `title = <Rabattcode ...>`. Damit ist die Korrektur pro Bestellung dem Code zuordenbar.\n\nOhne Rabattcode wird die Bestellung übersprungen (Front) bzw. der Lauf bricht vor dem Schreiben ab.\n\n**Test-Limiter** verarbeitet nur die erste Position. Für den Vollauf deaktivieren.",
+        "height": 340,
+        "width": 460
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2288,
+        528
+      ],
+      "id": "6ef97a44-4c24-4ba1-92ce-ee1e2e16407d",
+      "name": "Sticky Rabatt"
+    }
+  ],
+  "connections": {
+    "CSV hochladen (Formular)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "CSV parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV parsen": {
+      "main": [
+        [
+          {
+            "node": "Bestellungen extrahieren (dedupe)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellungen extrahieren (dedupe)": {
+      "main": [
+        [
+          {
+            "node": "Token holen (CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen (CSV)": {
+      "main": [
+        [
+          {
+            "node": "toFix leeren + Token durchreichen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "toFix leeren + Token durchreichen": {
+      "main": [
+        [
+          {
+            "node": "Loop je Bestellung (CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop je Bestellung (CSV)": {
+      "main": [
+        [
+          {
+            "node": "Vorschau: gefundene Positionen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Korrektur-Items vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "URL bauen (Bestellung)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "URL bauen (Bestellung)": {
+      "main": [
+        [
+          {
+            "node": "GET einzelne Bestellung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET einzelne Bestellung": {
+      "main": [
+        [
+          {
+            "node": "Position prüfen + pushen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Position prüfen + pushen": {
+      "main": [
+        [
+          {
+            "node": "Wait (CSV Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (CSV Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop je Bestellung (CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Korrektur-Items vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Test-Limiter (1 Position)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test-Limiter (1 Position)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Token holen 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 2": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (orderEditBegin)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (orderEditBegin)": {
+      "main": [
+        [
+          {
+            "node": "orderEditBegin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderEditBegin": {
+      "main": [
+        [
+          {
+            "node": "CalcOrder + Zielposition auslesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CalcOrder + Zielposition auslesen": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Rabatt)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (Rabatt)": {
+      "main": [
+        [
+          {
+            "node": "orderEditAddLineItemDiscount",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderEditAddLineItemDiscount": {
+      "main": [
+        [
+          {
+            "node": "Rabatt-Ergebnis prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rabatt-Ergebnis prüfen": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Commit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (Commit)": {
+      "main": [
+        [
+          {
+            "node": "orderEditCommit (NotifyCustomer = FALSE)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderEditCommit (NotifyCustomer = FALSE)": {
+      "main": [
+        [
+          {
+            "node": "Commit-Ergebnis prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit-Ergebnis prüfen": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "3390e20f-8a2f-43ab-8e78-0c91e6b88154",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-08-06T11:18:27.260Z",
+      "createdAt": "2026-08-06T11:18:27.260Z",
+      "role": "workflow:owner",
+      "workflowId": "kCu8iB4p1dN4j7VN",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

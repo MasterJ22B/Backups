@@ -1,0 +1,313 @@
+{
+  "updatedAt": "2026-03-08T13:16:48.104Z",
+  "createdAt": "2026-03-08T13:05:10.489Z",
+  "id": "NOmJZSlbcetosNUN",
+  "name": "Vormerker Bericht für Verlage",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "6b7946ca-4280-440c-824c-2bd79b0d27c3",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "fromEmail": "BOTANICA \n Vormerkerliste <workflows@buecherbuechse.de>",
+        "toEmail": "christoph@buecherbuechse.de,lisa@buecherbuechse.de, programm@leaf-verlag.de, programm@cinna-verlag.de",
+        "subject": "=BOTANICA | Vormerkerliste zum {{ $now.toFormat('dd.MM.yyyy') }}",
+        "html": "=\n{{ $json.table }}",
+        "options": {
+          "replyTo": "it@buecherbuechse.de"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        624,
+        0
+      ],
+      "id": "67131cc6-f8ed-4f69-adf1-c8e867c8e9b2",
+      "name": "Send email",
+      "webhookId": "1308c829-0c74-4655-8acf-559ec957b759",
+      "retryOnFail": true,
+      "alwaysOutputData": false,
+      "credentials": {
+        "smtp": {
+          "id": "ZzNsJGHozTJiS4R6",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "convertToHtmlTable",
+        "options": {
+          "headerAttributes": "style=\"background-color:black;text-color:white;\"",
+          "rowAttributes": "style=\"border-bottom:1pt solid black;\""
+        }
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "ed22d786-7c19-4e2c-97b8-b51229a4413f",
+      "name": "Generiere HTML-Datentabelle"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* ==========================================================\n   PARAMETER: Root-Kategorien (IDs) -> bitte anpassen\n   ========================================================== */\nDECLARE @RootKategorie TABLE (kKategorie INT PRIMARY KEY);\nINSERT INTO @RootKategorie (kKategorie)\nVALUES (188), (190);   -- TODO: eure Kategorie-IDs\n\nDECLARE @Heute date = CAST(GETDATE() AS date);\n\nIF OBJECT_ID('tempdb..#Basis') IS NOT NULL\n    DROP TABLE #Basis;\n\n/* ==========================================================\n   Kategorien inkl. Unterkategorien\n   ========================================================== */\n;WITH KategorieBaum AS\n(\n    SELECT kKategorie\n    FROM dbo.tKategorie\n    WHERE kKategorie IN (SELECT kKategorie FROM @RootKategorie)\n\n    UNION ALL\n\n    SELECT k.kKategorie\n    FROM dbo.tKategorie k\n    JOIN KategorieBaum kb\n        ON k.kOberKategorie = kb.kKategorie\n),\n\n/* ==========================================================\n   Artikel-Mapping: Positionsartikel -> Masterartikel\n   ========================================================== */\nArtikelMap AS\n(\n    SELECT\n        a.kArtikel AS kArtikelPos,\n        CASE\n            WHEN a.kVaterArtikel > 0 THEN a.kVaterArtikel\n            ELSE a.kArtikel\n        END AS kArtikelMaster\n    FROM dbo.tArtikel a\n),\n\n/* ==========================================================\n   Masterartikel, die in den (Unter-)Kategorien liegen\n   ========================================================== */\nArtikelInKategorie AS\n(\n    SELECT DISTINCT\n        am.kArtikelMaster\n    FROM dbo.tKategorieArtikel ka\n    JOIN ArtikelMap am\n        ON am.kArtikelPos = ka.kArtikel\n    JOIN KategorieBaum kb\n        ON kb.kKategorie = ka.kKategorie\n),\n\n/* ==========================================================\n   Eigenes Feld \"Erscheinungstermin\"\n   ========================================================== */\nErscheinung AS\n(\n    SELECT\n        aa.kArtikel AS kArtikelMaster,\n        MAX(\n            \n                TRY_CONVERT(datetime, aas.cWertVarchar, 104) -- dd.mm.yyyy\n            )\n         AS Erscheinungstermin\n    FROM dbo.tArtikelAttribut aa\n    JOIN dbo.tAttribut at\n        ON at.kAttribut = aa.kAttribut\n    JOIN dbo.tAttributSprache ats\n        ON ats.kAttribut = at.kAttribut\n       AND ats.kSprache = 0\n    JOIN dbo.tArtikelAttributSprache aas\n        ON aas.kArtikelAttribut = aa.kArtikelAttribut\n       AND aas.kSprache = 0\n    WHERE ats.cName = 'Erscheinungstermin'\n    GROUP BY aa.kArtikel\n),\n\n/* ==========================================================\n   Relevante Artikel\n   ========================================================== */\nRelevanteArtikel AS\n(\n    SELECT\n        a.kArtikel AS kArtikelMaster,\n        vsa.cArtNr,\n        vsa.cName,\n        a.cISBN\n    FROM dbo.tArtikel a\n    JOIN dbo.vStandardArtikel vsa\n        ON vsa.kArtikel = a.kArtikel\n    JOIN ArtikelInKategorie aik\n        ON aik.kArtikelMaster = a.kArtikel\n    JOIN Erscheinung e\n        ON e.kArtikelMaster = a.kArtikel\n    WHERE\n        a.kVaterArtikel = 0\n        AND CAST(e.Erscheinungstermin AS date) > @Heute\n)\n\n/* ==========================================================\n   Basisdaten vorbereiten:\n   - 1 Datensatz pro Artikel + normalisierte Kundengruppe\n   - Partnerbuchhandlung + Geschäftskunden + Händler = B2B\n   - Endkunden = B2C\n   ========================================================== */\nSELECT\n    ra.cArtNr AS ArtNr,\n    ra.cName AS Artikel,\n    ra.cISBN AS ISBN,\n  CAST(e.Erscheinungstermin AS date) AS Erscheinungstermin,\n    CASE\n        WHEN ISNULL(kg.cName, '') IN ('Partnerbuchhandlung', 'Geschäftskunden', 'Händler')\n            THEN 'B2B'\n        WHEN ISNULL(kg.cName, '') = 'Endkunden'\n            THEN 'B2C'\n        WHEN kg.cName IS NULL OR LTRIM(RTRIM(kg.cName)) = ''\n            THEN '(ohne Kundengruppe)'\n        ELSE kg.cName\n    END AS Kundengruppe,\n    SUM(ap.fAnzahl) AS Menge_Bestellt\nINTO #Basis\nFROM Verkauf.tAuftragPosition ap\nJOIN Verkauf.tAuftrag ao\n    ON ao.kAuftrag = ap.kAuftrag\nJOIN dbo.tArtikel aPos\n    ON aPos.kArtikel = ap.kArtikel\nCROSS APPLY\n(\n    SELECT CASE\n        WHEN aPos.kVaterArtikel > 0 THEN aPos.kVaterArtikel\n        ELSE aPos.kArtikel\n    END AS kArtikelMaster\n) m\nJOIN RelevanteArtikel ra\n    ON ra.kArtikelMaster = m.kArtikelMaster\nJOIN Erscheinung e\n    ON e.kArtikelMaster = ra.kArtikelMaster\nJOIN dbo.tKunde k\n    ON k.kKunde = ao.kKunde\nLEFT JOIN dbo.tKundenGruppe kg\n    ON kg.kKundenGruppe = k.kKundenGruppe\nWHERE\n    ap.kArtikel > 0\n    -- Optional: nur offene Vormerker\n    -- AND EXISTS\n    -- (\n    --     SELECT 1\n    --     FROM Verkauf.tAuftragPositionEckdaten ape\n    --     WHERE ape.kAuftragPosition = ap.kAuftragPosition\n    --       AND COALESCE(ape.fAnzahlOffen, 0) > 0\n    -- )\nGROUP BY\n    ra.cArtNr,\n    ra.cName,\n    ra.cISBN,\n    CAST(e.Erscheinungstermin AS date),\n    CASE\n        WHEN ISNULL(kg.cName, '') IN ('Partnerbuchhandlung', 'Geschäftskunden', 'Händler')\n            THEN 'B2B'\n        WHEN ISNULL(kg.cName, '') = 'Endkunden'\n            THEN 'B2C'\n        WHEN kg.cName IS NULL OR LTRIM(RTRIM(kg.cName)) = ''\n            THEN '(ohne Kundengruppe)'\n        ELSE kg.cName\n    END;\n\n/* ==========================================================\n   Dynamische Spaltenliste für Kundengruppen erzeugen\n   ========================================================== */\nDECLARE @cols nvarchar(max);\nDECLARE @sql  nvarchar(max);\n\nSELECT @cols =\n    STUFF((\n        SELECT DISTINCT\n            ',' + QUOTENAME(Kundengruppe)\n        FROM #Basis\n        FOR XML PATH(''), TYPE\n    ).value('.', 'nvarchar(max)'), 1, 1, '');\n\nIF @cols IS NULL OR @cols = ''\nBEGIN\n    SELECT\n        ArtNr,\n        Artikel,\n        ISBN,\n        Erscheinungstermin,\n        SUM(Menge_Bestellt) AS Gesamtmenge\n    FROM #Basis\n    GROUP BY\n        ArtNr,\n        Artikel,\n        ISBN,\n        Erscheinungstermin\n    ORDER BY\n        Erscheinungstermin,\n        ArtNr;\nEND\nELSE\nBEGIN\n    SET @sql = N'\n    SELECT\n        p.ArtNr,\n        p.Artikel,\n        p.ISBN,\n        p.Erscheinungstermin,\n        g.Gesamtmenge,\n        ' + @cols + '\n    FROM\n    (\n        SELECT\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin,\n            Kundengruppe,\n            Menge_Bestellt\n        FROM #Basis\n    ) src\n    PIVOT\n    (\n        SUM(Menge_Bestellt)\n        FOR Kundengruppe IN (' + @cols + ')\n    ) p\n    INNER JOIN\n    (\n        SELECT\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin,\n            SUM(Menge_Bestellt) AS Gesamtmenge\n        FROM #Basis\n        GROUP BY\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin\n    ) g\n        ON  g.ArtNr = p.ArtNr\n        AND g.Artikel = p.Artikel\n        AND g.ISBN = p.ISBN\n        AND g.Erscheinungstermin = p.Erscheinungstermin\n    ORDER BY\n        p.Erscheinungstermin,\n        p.ArtNr;';\n\n    EXEC sp_executesql @sql;\nEND"
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "9bac5c03-d0b9-4235-a846-d91e413e5345",
+      "name": "JTL Vormerker Verlage abrufen",
+      "retryOnFail": true,
+      "alwaysOutputData": false,
+      "credentials": {
+        "microsoftSql": {
+          "id": "FPNARNNGeU5o4IlA",
+          "name": "Microsoft SQL account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "JTL Vormerker Verlage abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generiere HTML-Datentabelle": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL Vormerker Verlage abrufen": {
+      "main": [
+        [
+          {
+            "node": "Generiere HTML-Datentabelle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 2,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "52b3d148-653f-4d5a-ad62-6b7e037f47c6",
+  "activeVersionId": "52b3d148-653f-4d5a-ad62-6b7e037f47c6",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-08T13:05:10.493Z",
+      "createdAt": "2026-03-08T13:05:10.493Z",
+      "role": "workflow:owner",
+      "workflowId": "NOmJZSlbcetosNUN",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-03-08T13:16:50.000Z",
+    "createdAt": "2026-03-08T13:16:48.104Z",
+    "versionId": "52b3d148-653f-4d5a-ad62-6b7e037f47c6",
+    "workflowId": "NOmJZSlbcetosNUN",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "weeks",
+                "triggerAtDay": [
+                  1
+                ],
+                "triggerAtHour": 8
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "id": "6b7946ca-4280-440c-824c-2bd79b0d27c3",
+        "name": "Schedule Trigger"
+      },
+      {
+        "parameters": {
+          "fromEmail": "BOTANICA \n Vormerkerliste <workflows@buecherbuechse.de>",
+          "toEmail": "christoph@buecherbuechse.de,lisa@buecherbuechse.de, programm@leaf-verlag.de, programm@cinna-verlag.de",
+          "subject": "=BOTANICA | Vormerkerliste zum {{ $now.toFormat('dd.MM.yyyy') }}",
+          "html": "=\n{{ $json.table }}",
+          "options": {
+            "replyTo": "it@buecherbuechse.de"
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          624,
+          0
+        ],
+        "id": "67131cc6-f8ed-4f69-adf1-c8e867c8e9b2",
+        "name": "Send email",
+        "webhookId": "1308c829-0c74-4655-8acf-559ec957b759",
+        "retryOnFail": true,
+        "alwaysOutputData": false,
+        "credentials": {
+          "smtp": {
+            "id": "ZzNsJGHozTJiS4R6",
+            "name": "SMTP account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "convertToHtmlTable",
+          "options": {
+            "headerAttributes": "style=\"background-color:black;text-color:white;\"",
+            "rowAttributes": "style=\"border-bottom:1pt solid black;\""
+          }
+        },
+        "type": "n8n-nodes-base.html",
+        "typeVersion": 1.2,
+        "position": [
+          416,
+          0
+        ],
+        "id": "ed22d786-7c19-4e2c-97b8-b51229a4413f",
+        "name": "Generiere HTML-Datentabelle"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "/* ==========================================================\n   PARAMETER: Root-Kategorien (IDs) -> bitte anpassen\n   ========================================================== */\nDECLARE @RootKategorie TABLE (kKategorie INT PRIMARY KEY);\nINSERT INTO @RootKategorie (kKategorie)\nVALUES (188), (190);   -- TODO: eure Kategorie-IDs\n\nDECLARE @Heute date = CAST(GETDATE() AS date);\n\nIF OBJECT_ID('tempdb..#Basis') IS NOT NULL\n    DROP TABLE #Basis;\n\n/* ==========================================================\n   Kategorien inkl. Unterkategorien\n   ========================================================== */\n;WITH KategorieBaum AS\n(\n    SELECT kKategorie\n    FROM dbo.tKategorie\n    WHERE kKategorie IN (SELECT kKategorie FROM @RootKategorie)\n\n    UNION ALL\n\n    SELECT k.kKategorie\n    FROM dbo.tKategorie k\n    JOIN KategorieBaum kb\n        ON k.kOberKategorie = kb.kKategorie\n),\n\n/* ==========================================================\n   Artikel-Mapping: Positionsartikel -> Masterartikel\n   ========================================================== */\nArtikelMap AS\n(\n    SELECT\n        a.kArtikel AS kArtikelPos,\n        CASE\n            WHEN a.kVaterArtikel > 0 THEN a.kVaterArtikel\n            ELSE a.kArtikel\n        END AS kArtikelMaster\n    FROM dbo.tArtikel a\n),\n\n/* ==========================================================\n   Masterartikel, die in den (Unter-)Kategorien liegen\n   ========================================================== */\nArtikelInKategorie AS\n(\n    SELECT DISTINCT\n        am.kArtikelMaster\n    FROM dbo.tKategorieArtikel ka\n    JOIN ArtikelMap am\n        ON am.kArtikelPos = ka.kArtikel\n    JOIN KategorieBaum kb\n        ON kb.kKategorie = ka.kKategorie\n),\n\n/* ==========================================================\n   Eigenes Feld \"Erscheinungstermin\"\n   ========================================================== */\nErscheinung AS\n(\n    SELECT\n        aa.kArtikel AS kArtikelMaster,\n        MAX(\n            \n                TRY_CONVERT(datetime, aas.cWertVarchar, 104) -- dd.mm.yyyy\n            )\n         AS Erscheinungstermin\n    FROM dbo.tArtikelAttribut aa\n    JOIN dbo.tAttribut at\n        ON at.kAttribut = aa.kAttribut\n    JOIN dbo.tAttributSprache ats\n        ON ats.kAttribut = at.kAttribut\n       AND ats.kSprache = 0\n    JOIN dbo.tArtikelAttributSprache aas\n        ON aas.kArtikelAttribut = aa.kArtikelAttribut\n       AND aas.kSprache = 0\n    WHERE ats.cName = 'Erscheinungstermin'\n    GROUP BY aa.kArtikel\n),\n\n/* ==========================================================\n   Relevante Artikel\n   ========================================================== */\nRelevanteArtikel AS\n(\n    SELECT\n        a.kArtikel AS kArtikelMaster,\n        vsa.cArtNr,\n        vsa.cName,\n        a.cISBN\n    FROM dbo.tArtikel a\n    JOIN dbo.vStandardArtikel vsa\n        ON vsa.kArtikel = a.kArtikel\n    JOIN ArtikelInKategorie aik\n        ON aik.kArtikelMaster = a.kArtikel\n    JOIN Erscheinung e\n        ON e.kArtikelMaster = a.kArtikel\n    WHERE\n        a.kVaterArtikel = 0\n        AND CAST(e.Erscheinungstermin AS date) > @Heute\n)\n\n/* ==========================================================\n   Basisdaten vorbereiten:\n   - 1 Datensatz pro Artikel + normalisierte Kundengruppe\n   - Partnerbuchhandlung + Geschäftskunden + Händler = B2B\n   - Endkunden = B2C\n   ========================================================== */\nSELECT\n    ra.cArtNr AS ArtNr,\n    ra.cName AS Artikel,\n    ra.cISBN AS ISBN,\n  CAST(e.Erscheinungstermin AS date) AS Erscheinungstermin,\n    CASE\n        WHEN ISNULL(kg.cName, '') IN ('Partnerbuchhandlung', 'Geschäftskunden', 'Händler')\n            THEN 'B2B'\n        WHEN ISNULL(kg.cName, '') = 'Endkunden'\n            THEN 'B2C'\n        WHEN kg.cName IS NULL OR LTRIM(RTRIM(kg.cName)) = ''\n            THEN '(ohne Kundengruppe)'\n        ELSE kg.cName\n    END AS Kundengruppe,\n    SUM(ap.fAnzahl) AS Menge_Bestellt\nINTO #Basis\nFROM Verkauf.tAuftragPosition ap\nJOIN Verkauf.tAuftrag ao\n    ON ao.kAuftrag = ap.kAuftrag\nJOIN dbo.tArtikel aPos\n    ON aPos.kArtikel = ap.kArtikel\nCROSS APPLY\n(\n    SELECT CASE\n        WHEN aPos.kVaterArtikel > 0 THEN aPos.kVaterArtikel\n        ELSE aPos.kArtikel\n    END AS kArtikelMaster\n) m\nJOIN RelevanteArtikel ra\n    ON ra.kArtikelMaster = m.kArtikelMaster\nJOIN Erscheinung e\n    ON e.kArtikelMaster = ra.kArtikelMaster\nJOIN dbo.tKunde k\n    ON k.kKunde = ao.kKunde\nLEFT JOIN dbo.tKundenGruppe kg\n    ON kg.kKundenGruppe = k.kKundenGruppe\nWHERE\n    ap.kArtikel > 0\n    -- Optional: nur offene Vormerker\n    -- AND EXISTS\n    -- (\n    --     SELECT 1\n    --     FROM Verkauf.tAuftragPositionEckdaten ape\n    --     WHERE ape.kAuftragPosition = ap.kAuftragPosition\n    --       AND COALESCE(ape.fAnzahlOffen, 0) > 0\n    -- )\nGROUP BY\n    ra.cArtNr,\n    ra.cName,\n    ra.cISBN,\n    CAST(e.Erscheinungstermin AS date),\n    CASE\n        WHEN ISNULL(kg.cName, '') IN ('Partnerbuchhandlung', 'Geschäftskunden', 'Händler')\n            THEN 'B2B'\n        WHEN ISNULL(kg.cName, '') = 'Endkunden'\n            THEN 'B2C'\n        WHEN kg.cName IS NULL OR LTRIM(RTRIM(kg.cName)) = ''\n            THEN '(ohne Kundengruppe)'\n        ELSE kg.cName\n    END;\n\n/* ==========================================================\n   Dynamische Spaltenliste für Kundengruppen erzeugen\n   ========================================================== */\nDECLARE @cols nvarchar(max);\nDECLARE @sql  nvarchar(max);\n\nSELECT @cols =\n    STUFF((\n        SELECT DISTINCT\n            ',' + QUOTENAME(Kundengruppe)\n        FROM #Basis\n        FOR XML PATH(''), TYPE\n    ).value('.', 'nvarchar(max)'), 1, 1, '');\n\nIF @cols IS NULL OR @cols = ''\nBEGIN\n    SELECT\n        ArtNr,\n        Artikel,\n        ISBN,\n        Erscheinungstermin,\n        SUM(Menge_Bestellt) AS Gesamtmenge\n    FROM #Basis\n    GROUP BY\n        ArtNr,\n        Artikel,\n        ISBN,\n        Erscheinungstermin\n    ORDER BY\n        Erscheinungstermin,\n        ArtNr;\nEND\nELSE\nBEGIN\n    SET @sql = N'\n    SELECT\n        p.ArtNr,\n        p.Artikel,\n        p.ISBN,\n        p.Erscheinungstermin,\n        g.Gesamtmenge,\n        ' + @cols + '\n    FROM\n    (\n        SELECT\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin,\n            Kundengruppe,\n            Menge_Bestellt\n        FROM #Basis\n    ) src\n    PIVOT\n    (\n        SUM(Menge_Bestellt)\n        FOR Kundengruppe IN (' + @cols + ')\n    ) p\n    INNER JOIN\n    (\n        SELECT\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin,\n            SUM(Menge_Bestellt) AS Gesamtmenge\n        FROM #Basis\n        GROUP BY\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin\n    ) g\n        ON  g.ArtNr = p.ArtNr\n        AND g.Artikel = p.Artikel\n        AND g.ISBN = p.ISBN\n        AND g.Erscheinungstermin = p.Erscheinungstermin\n    ORDER BY\n        p.Erscheinungstermin,\n        p.ArtNr;';\n\n    EXEC sp_executesql @sql;\nEND"
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          208,
+          0
+        ],
+        "id": "9bac5c03-d0b9-4235-a846-d91e413e5345",
+        "name": "JTL Vormerker Verlage abrufen",
+        "retryOnFail": true,
+        "alwaysOutputData": false,
+        "credentials": {
+          "microsoftSql": {
+            "id": "FPNARNNGeU5o4IlA",
+            "name": "Microsoft SQL account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "JTL Vormerker Verlage abrufen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generiere HTML-Datentabelle": {
+        "main": [
+          [
+            {
+              "node": "Send email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "JTL Vormerker Verlage abrufen": {
+        "main": [
+          [
+            {
+              "node": "Generiere HTML-Datentabelle",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Christoph Strauss",
+    "name": "Version 52b3d148",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": [
+    {
+      "updatedAt": "2026-03-08T13:05:09.107Z",
+      "createdAt": "2026-03-08T13:05:09.107Z",
+      "id": "7yj1m1x4xrHvUucU",
+      "name": "Verlage"
+    }
+  ]
+}

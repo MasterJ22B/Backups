@@ -1,0 +1,177 @@
+{
+  "updatedAt": "2026-07-09T07:35:09.704Z",
+  "createdAt": "2026-06-17T07:27:40.456Z",
+  "id": "GtZLkJr6TSUFV2PA",
+  "name": "Shopify-Bestellung-Versandpositionen-Check",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        832,
+        256
+      ],
+      "id": "96017de0-3b2d-4029-b0c0-c71a127c8c5d",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1008,
+        256
+      ],
+      "id": "be206418-da64-4057-b034-a340f31168a2",
+      "name": "Token holen ",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const shop = 'vdzvc0-nd';\n\n// >>> HIER die Bestell-ID händisch eintragen <<<\nconst orderId = '7492893606003';\n\nconst url = `https://${shop}.myshopify.com/admin/api/2024-10/orders/${orderId}.json`;\n\nreturn [{\n  json: {\n    orderUrl: url,\n    accessToken: $('Token holen ').item.json.access_token\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        256
+      ],
+      "id": "a9fdf2f3-d352-4625-a67b-04a468961383",
+      "name": "Bestell-ID + URL setzen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.orderUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1344,
+        256
+      ],
+      "id": "1db710a5-0d18-4ffa-a141-62d64754a8c1",
+      "name": "GET Bestellung ",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const order = $input.first().json.order || {};\nconst shippingLines = order.shipping_lines || [];\n\n// Alle Versandpositionen aus shipping_lines sammeln\nconst versandpositionen = shippingLines.map(sl => ({\n  shippingLineId: sl.id,\n  title: sl.title,\n  code: sl.code,\n  price: sl.price,\n  source: sl.source,\n  isRemoved: sl.is_removed,\n  steuersaetze: (sl.tax_lines || []).map(tl => ({\n    title: tl.title,\n    rate: tl.rate,\n    price: tl.price,\n  })),\n}));\n\nreturn [{\n  json: {\n    orderId: order.id,\n    orderName: order.name,\n    hatVersandpositionen: versandpositionen.length > 0,\n    anzahlVersandpositionen: versandpositionen.length,\n    versandpositionen,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        256
+      ],
+      "id": "c62f0676-456b-41ac-9101-40d11374b65a",
+      "name": "Versandpositionen prüfen "
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen ": {
+      "main": [
+        [
+          {
+            "node": "Bestell-ID + URL setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestell-ID + URL setzen": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellung ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Bestellung ": {
+      "main": [
+        [
+          {
+            "node": "Versandpositionen prüfen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "01620033-3645-45b0-8774-4fda727b9944",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-06-17T07:27:40.461Z",
+      "createdAt": "2026-06-17T07:27:40.461Z",
+      "role": "workflow:owner",
+      "workflowId": "GtZLkJr6TSUFV2PA",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

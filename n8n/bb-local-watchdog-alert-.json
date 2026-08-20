@@ -1,0 +1,136 @@
+{
+  "updatedAt": "2026-06-23T13:16:26.954Z",
+  "createdAt": "2026-06-23T08:49:21.312Z",
+  "id": "i2jPC4J7udWQnC2I",
+  "name": "BB Local Watchdog Alert",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "local-watchdog-bb",
+        "options": {
+          "noResponseBody": true
+        }
+      },
+      "id": "5ad39b2d-8859-4044-9d2d-3cab374b6e83",
+      "name": "Local Watchdog Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        848,
+        576
+      ],
+      "webhookId": "0f1df71e-4563-49df-901a-0d7f4f066961"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nconst WATCHDOG_SECRET = '02194db639f32b2e643946d783fae76f74c1b49049efcbcb233c415b812e3f130c4db368b186f5fc2ce354e9e0f07ba7';\nconst REQUIRE_SIGNATURE = true;\n\nconst ALERTABLE_EVENTS = new Set([\n  'user_register',\n  'user_role_changed',\n  'user_role_added',\n  'user_meta_capabilities_added',\n  'user_meta_capabilities_changed',\n  'watched_user_meta_added',\n  'watched_user_meta_changed',\n  'watched_user_meta_deleted',\n  'plugin_activated',\n  'plugin_deactivated',\n  'rest_sensitive_route',\n  'admin_sensitive_action',\n  'wp_login'\n]);\n\nconst OPTION_EVENTS = new Set([\n  'watched_option_changed',\n  'watched_option_added',\n  'watched_option_deleted'\n]);\n\nconst HIGH_SIGNAL_OPTIONS = new Set([\n  'active_plugins',\n  'siteurl',\n  'home',\n  'admin_email',\n  'users_can_register',\n  'default_role',\n  'rewrite_rules',\n  'recently_activated'\n]);\n\nfunction getHeader(headers, name) {\n  const target = String(name).toLowerCase();\n  for (const pair of Object.entries(headers || {})) {\n    const key = pair[0];\n    const value = pair[1];\n    if (String(key).toLowerCase() === target) {\n      return Array.isArray(value) ? String(value[0] || '') : String(value || '');\n    }\n  }\n  return '';\n}\n\nfunction getRawBody(input) {\n  if (typeof input.rawBody === 'string') return input.rawBody;\n  if (typeof input.raw_body === 'string') return input.raw_body;\n  if (typeof input.bodyRaw === 'string') return input.bodyRaw;\n  if (typeof input.body === 'string') return input.body;\n  if (input.body && typeof input.body.rawBody === 'string') return input.body.rawBody;\n  return JSON.stringify(input.body || {});\n}\n\nfunction parseEvent(input, rawBody) {\n  if (input.body && typeof input.body === 'object' && !Array.isArray(input.body)) return input.body;\n  if (typeof input.body === 'string' && input.body.trim() !== '') return JSON.parse(input.body);\n  if (typeof rawBody === 'string' && rawBody.trim() !== '') return JSON.parse(rawBody);\n  return input;\n}\n\nfunction safeTimingEqual(left, right) {\n  const leftBuffer = Buffer.from(String(left));\n  const rightBuffer = Buffer.from(String(right));\n  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);\n}\n\nfunction isHighSignalOption(option) {\n  const name = String(option || '');\n  return HIGH_SIGNAL_OPTIONS.has(name)\n    || name.indexOf('webhook') !== -1\n    || name.indexOf('wpwhpro_') === 0\n    || name.match(/(^|_)user_roles$/);\n}\n\nconst input = items[0] && items[0].json ? items[0].json : {};\nconst headers = input.headers || {};\nconst signature = getHeader(headers, 'x-local-watchdog-signature');\nconst rawBody = getRawBody(input);\nconst rawBodyAvailable = typeof input.rawBody === 'string'\n  || typeof input.raw_body === 'string'\n  || typeof input.bodyRaw === 'string'\n  || typeof input.body === 'string';\n\nif (REQUIRE_SIGNATURE) {\n  if (!WATCHDOG_SECRET || WATCHDOG_SECRET.indexOf('CHANGE_ME') === 0) {\n    throw new Error('Local Watchdog secret is not configured in the n8n Verify + Normalize node.');\n  }\n  if (!signature) throw new Error('Missing X-Local-Watchdog-Signature header.');\n\n  const expected = 'sha256=' + crypto.createHmac('sha256', WATCHDOG_SECRET).update(rawBody).digest('hex');\n  if (!safeTimingEqual(signature, expected)) throw new Error('Invalid Local Watchdog signature.');\n}\n\nconst event = parseEvent(input, rawBody);\nconst severity = String(event.severity || 'info').toLowerCase();\nconst eventType = String(event.event_type || 'unknown');\nconst option = event.data && event.data.option ? String(event.data.option) : '';\nconst restMethod = String((event.data && event.data.method) || '').toUpperCase();\nconst restRoute = String((event.data && event.data.route) || '').replace(/\\/$/, '');\n\nif (eventType === 'watched_option_changed' && option === 'cron') return [];\n\nif (eventType === 'rest_sensitive_route' && restMethod === 'GET' && restRoute === '/wp/v2/users') return [];\n\nconst optionShouldAlert = OPTION_EVENTS.has(eventType) && isHighSignalOption(option);\nconst shouldAlert = ALERTABLE_EVENTS.has(eventType)\n  || optionShouldAlert\n  || (severity === 'critical' && !OPTION_EVENTS.has(eventType));\n\nif (!shouldAlert) return [];\n\nreturn [{\n  json: Object.assign({}, event, {\n    severity: severity,\n    event_type: eventType,\n    received_at: new Date().toISOString(),\n    n8n_watchdog: {\n      signature_required: REQUIRE_SIGNATURE,\n      signature_valid: REQUIRE_SIGNATURE ? true : null,\n      raw_body_available: rawBodyAvailable,\n      workflow: 'BB Local Watchdog Alert'\n    }\n  })\n}];"
+      },
+      "id": "b4c69a9b-f370-44b3-b096-e265be9b301f",
+      "name": "Verify + Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const event = items[0] && items[0].json ? items[0].json : {};\n\nfunction escapeHtml(value) {\n  return String(value === undefined || value === null ? '' : value)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n}\n\nfunction asJson(value) {\n  if (value === undefined || value === null) return '';\n  return escapeHtml(JSON.stringify(value, null, 2));\n}\n\nfunction row(label, value) {\n  return '<tr><th style=\"text-align:left;padding:6px 10px;border-bottom:1px solid #ddd;background:#f7f7f7;width:190px;vertical-align:top;\">'\n    + escapeHtml(label)\n    + '</th><td style=\"padding:6px 10px;border-bottom:1px solid #ddd;vertical-align:top;\">'\n    + (value || '')\n    + '</td></tr>';\n}\n\nfunction severityColor(severity) {\n  if (severity === 'critical') return '#b42318';\n  if (severity === 'warning') return '#b54708';\n  if (severity === 'notice') return '#175cd3';\n  return '#344054';\n}\n\nconst site = event.site || {};\nconst request = event.request || {};\nconst actor = event.actor || {};\nconst data = event.data || {};\nconst snapshot = event.snapshot || {};\nconst admins = Array.isArray(snapshot.admins) ? snapshot.admins : [];\nconst backtrace = Array.isArray(event.backtrace) ? event.backtrace : [];\nconst severity = String(event.severity || 'info').toLowerCase();\nconst eventType = String(event.event_type || 'unknown');\nconst siteHost = site.home_url || site.site_url || 'unknown-site';\nconst targetUser = data.user && (data.user.user_login || data.user.user_id) ? (data.user.user_login || data.user.user_id) : (data.user_login || '');\n\nconst adminsHtml = admins.length\n  ? '<ul>' + admins.map(function(admin) {\n      return '<li>#' + escapeHtml(admin.user_id) + ' ' + escapeHtml(admin.user_login)\n        + (admin.user_email ? ' &lt;' + escapeHtml(admin.user_email) + '&gt;' : '')\n        + (admin.user_registered ? ' (registered ' + escapeHtml(admin.user_registered) + ')' : '')\n        + '</li>';\n    }).join('') + '</ul>'\n  : '<em>Keine Admin-Snapshot-Daten im Event.</em>';\n\nconst backtraceHtml = backtrace.length\n  ? '<ol>' + backtrace.slice(0, 12).map(function(frame) {\n      return '<li><code>' + escapeHtml([frame.class, frame.type, frame.function].filter(Boolean).join(''))\n        + '</code><br><small>' + escapeHtml(frame.file || '')\n        + (frame.line ? ':' + escapeHtml(frame.line) : '')\n        + '</small></li>';\n    }).join('') + '</ol>'\n  : '<em>Kein Backtrace im Event.</em>';\n\nconst subject = ['[BB Watchdog]', severity.toUpperCase(), eventType, targetUser ? 'target=' + targetUser : ''].filter(Boolean).join(' - ');\nconst preStyle = 'white-space:pre-wrap;background:#f6f8fa;padding:12px;border:1px solid #d0d7de;border-radius:6px;overflow:auto;';\n\nconst html = [\n  '<div style=\"font-family:Arial,Helvetica,sans-serif;color:#1d2939;line-height:1.45;\">',\n  '<h2 style=\"margin:0 0 8px;color:' + severityColor(severity) + ';\">BB Local Watchdog Alert</h2>',\n  '<p style=\"margin:0 0 16px;\"><strong>Severity:</strong> <span style=\"color:' + severityColor(severity) + ';font-weight:bold;\">' + escapeHtml(severity.toUpperCase()) + '</span> &nbsp; <strong>Event:</strong> <code>' + escapeHtml(eventType) + '</code></p>',\n  '<table cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%;max-width:980px;border:1px solid #ddd;margin-bottom:18px;\">',\n  row('Event ID', escapeHtml(event.event_id || '')),\n  row('Event time UTC', escapeHtml(event.timestamp_utc || '')),\n  row('Received by n8n', escapeHtml(event.received_at || '')),\n  row('Site', escapeHtml(siteHost)),\n  row('Request URI', '<code>' + escapeHtml(request.uri || '') + '</code>'),\n  row('Method', escapeHtml(request.method || '')),\n  row('IP', escapeHtml(request.ip || request.remote_addr || '')),\n  row('User-Agent', escapeHtml(request.user_agent || '')),\n  row('Context', escapeHtml(['admin=' + request.is_admin, 'rest=' + request.is_rest, 'ajax=' + request.is_ajax, 'cron=' + request.is_cron, 'wp_cli=' + request.is_wp_cli].join(' | '))),\n  row('Actor', actor.user_id ? '#' + escapeHtml(actor.user_id) + ' ' + escapeHtml(actor.user_login || '') + (actor.user_email ? ' &lt;' + escapeHtml(actor.user_email) + '&gt;' : '') + (actor.roles ? ' roles=' + escapeHtml((actor.roles || []).join(',')) : '') : 'anonymous / no current WP user'),\n  row('Target', escapeHtml(targetUser || '')),\n  row('Admin count in snapshot', escapeHtml(admins.length)),\n  '</table>',\n  '<h3>Event Data</h3>',\n  '<pre style=\"' + preStyle + '\">' + asJson(data) + '</pre>',\n  '<h3>Admin Snapshot</h3>',\n  adminsHtml,\n  '<h3>Snapshot Raw</h3>',\n  '<pre style=\"' + preStyle + '\">' + asJson(snapshot) + '</pre>',\n  '<h3>Backtrace</h3>',\n  backtraceHtml,\n  '<p style=\"color:#667085;font-size:12px;margin-top:24px;\">Hinweis: Dieses Mail kommt vom n8n Workflow \"BB Local Watchdog Alert\". Das MU-Plugin beobachtet nur und nimmt keine automatischen Änderungen am Shop vor.</p>',\n  '</div>'\n].join('');\n\nreturn [{ json: { subject: subject, html: html, event_type: eventType, severity: severity, event: event } }];"
+      },
+      "id": "35f13ae3-db85-402a-9813-c9ef83794fac",
+      "name": "Build Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "patrick.schmitz@buecherbuechse.de, it@buecherbuechse.de",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "d0e39370-9494-43e5-8535-274316824a06",
+      "name": "Send Security Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1568,
+        576
+      ],
+      "webhookId": "acf70480-d0e6-4389-bd22-d66ba3d99de2",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Local Watchdog Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify + Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify + Normalize": {
+      "main": [
+        [
+          {
+            "node": "Build Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Email": {
+      "main": [
+        [
+          {
+            "node": "Send Security Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "430c2f2b-fc03-41be-afe3-fca4a5601793",
+  "activeVersionId": null,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-06-23T08:49:21.316Z",
+      "createdAt": "2026-06-23T08:49:21.316Z",
+      "role": "workflow:owner",
+      "workflowId": "i2jPC4J7udWQnC2I",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

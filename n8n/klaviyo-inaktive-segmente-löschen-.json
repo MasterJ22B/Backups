@@ -1,0 +1,373 @@
+{
+  "updatedAt": "2026-04-01T07:39:45.384Z",
+  "createdAt": "2026-01-26T11:24:57.690Z",
+  "id": "EAVuFBIR07Av7d8lncwjk",
+  "name": "Klaviyo-Inaktive-Segmente-Löschen",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://a.klaviyo.com/api/segments/WBAuE9/profiles?",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1200,
+        -288
+      ],
+      "id": "25dfa7a1-65cc-403b-8a0e-e5a370c5452a",
+      "name": "Hole Profile aus \"inaktiv\" Segment "
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1) Wrapper aus dem HTTP-Node holen\nconst wrapper = $json;\nlet response = wrapper.data;\n\n// 2) Falls das innere 'data' ein String ist: parsen\nif (typeof response === 'string') {\n  try {\n    response = JSON.parse(response);\n  } catch (error) {\n    return [\n      {\n        json: {\n          found: false,\n          parseError: true,\n          errorMessage: String(error),\n          rawWrapper: wrapper,\n          deletedCount: $getWorkflowStaticData('global').deletedCount || 0,\n        },\n      },\n    ];\n  }\n}\n\n// 3) Workflow-weiten Counter holen\nconst staticData = $getWorkflowStaticData('global');\n\nif (typeof staticData.deletedCount !== 'number') {\n  staticData.deletedCount = 0;\n}\n\n// 4) Profiles aus der Klaviyo-Response ziehen\nconst profiles = Array.isArray(response.data) ? response.data : [];\n\n// 5) Abbruchbedingung: nichts mehr gefunden\nif (profiles.length === 0) {\n  return [\n    {\n      json: {\n        found: false,\n        message: 'Keine Profile mehr gefunden',\n        deletedCount: staticData.deletedCount,\n      },\n    },\n  ];\n}\n\n// 6) Anzahl der jetzt gefundenen Profile zum Counter addieren\nstaticData.deletedCount += profiles.length;\n\n// 7) Profile als Items zurückgeben\nreturn profiles.map(profile => {\n  const attrs = profile.attributes || {};\n\n  return {\n    json: {\n      found: true,\n      profileId: profile.id,\n      email: attrs.email,\n      deletedCount: staticData.deletedCount,\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -288
+      ],
+      "id": "f088ada6-4cae-4520-91a3-2b46f7866055",
+      "name": "Wandle Datensatz um"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        848,
+        -288
+      ],
+      "id": "b982ef24-b1a9-4b2d-8d48-961cefbddf3e",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// n8n Function node (Run Once for Each Item)\n// Erwartet pro Item: { profileId, email }\n\nconst profileId = $json.profileId?.trim();\nconst email = $json.email?.trim();\n\nif (!email && !profileId) {\n  throw new Error('Kein Identifier vorhanden: email oder profileId fehlt.');\n}\n\nreturn {\n  data: {\n    type: 'data-privacy-deletion-job',\n    attributes: {\n      profile: {\n        data: {\n          type: 'profile',\n          attributes: email ? { email } : { id: profileId },\n        },\n      },\n    },\n  },\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        -224
+      ],
+      "id": "c5dc319a-fe8d-40b0-980f-6e00a2c4856a",
+      "name": "Bereite vor für HTTP-Node1"
+    },
+    {
+      "parameters": {
+        "content": "## Trigger\nWorkflow-Start",
+        "height": 340,
+        "width": 280,
+        "color": 3
+      },
+      "id": "e11d9690-3cb7-42ce-abe8-16c6c25980ad",
+      "name": "Trigger",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2f28579d-f8c4-42ce-bfbe-1d2e01032f44",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1680,
+        -288
+      ],
+      "id": "b4774378-a059-4395-9cfe-52600579500d",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "const deletedCount = $json.deletedCount || 0;\n\nreturn [\n  {\n    json: {\n      success: true,\n      message: `Loop beendet. Insgesamt wurden ${deletedCount} Profile zur Löschung verarbeitet.`,\n      deletedCount,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1856,
+        -400
+      ],
+      "id": "c9c68a04-d158-4dad-acdd-30277108dda2",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "amount": 45
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2320,
+        -224
+      ],
+      "id": "bf39ae79-4085-4786-8b9b-ff1da3ac9671",
+      "name": "Wait",
+      "webhookId": "0c172e40-dc8c-4afd-bec5-741d3e195940"
+    },
+    {
+      "parameters": {
+        "content": "## LOOP\nDie Klaviyo API kann in einem Schwung nur 20 Profile \"fetchen\". Deshalb Loope ich den gesamten Löschprozess:\nDie Klaviyo-API holt 20 Profile -> Wandelt die Daten um und bereitet sie für den Löschvorgang vor -> Löscht die Profile -> Warte 30 Sekunden -> looped holt weitere 20 Profile\n\nInnerhalb der 30 Sekunden Wartezeit, sollte der Löschvorgang beendet sein, wodurch innerhalb Klaviyo die Profile im Segment \"nachrutschen\" ",
+        "height": 592,
+        "width": 1360,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        -592
+      ],
+      "id": "43ef89f6-3ade-4539-a9a5-0cf97241b359",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Fetch der Profile \n",
+        "height": 384,
+        "width": 416,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        -448
+      ],
+      "id": "8e111385-76d1-466d-a48e-d7bb8045b4f5",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Datenvorbereitung und Abbruchbedingung\n",
+        "height": 384,
+        "width": 384,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        -448
+      ],
+      "id": "454a56f2-0974-4caf-ae2e-9a9a46c87936",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Löschvorgang und Delay\n\n",
+        "height": 384,
+        "width": 432,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        -448
+      ],
+      "id": "9a0621bd-63c7-4a6b-954e-d5f1731fcd2a",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://a.klaviyo.com/api/data-privacy-deletion-jobs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "content-type",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            },
+            {
+              "name": "Authorization",
+              "value": "Klaviyo-API-Key pk_de38f80b88d55baa93e21af5752023014b"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2176,
+        -224
+      ],
+      "id": "c5b37661-4ec1-4aa6-81a6-61e9d7bbbb5a",
+      "name": "Löschen",
+      "retryOnFail": false
+    }
+  ],
+  "connections": {
+    "Hole Profile aus \"inaktiv\" Segment ": {
+      "main": [
+        [
+          {
+            "node": "Wandle Datensatz um",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wandle Datensatz um": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bereite vor für HTTP-Node1": {
+      "main": [
+        [
+          {
+            "node": "Löschen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bereite vor für HTTP-Node1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Hole Profile aus \"inaktiv\" Segment ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "f439b0c7-8bee-4024-b5e9-6aad611f58b5",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-01-26T11:24:57.698Z",
+      "createdAt": "2026-01-26T11:24:57.698Z",
+      "role": "workflow:owner",
+      "workflowId": "EAVuFBIR07Av7d8lncwjk",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

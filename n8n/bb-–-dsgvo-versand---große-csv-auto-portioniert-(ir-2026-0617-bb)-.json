@@ -1,0 +1,509 @@
+{
+  "updatedAt": "2026-07-08T09:28:57.691Z",
+  "createdAt": "2026-06-17T22:47:47.377Z",
+  "id": "aw0veIjUy8OLe00a",
+  "name": "BB – DSGVO-Versand - große CSV auto-portioniert (IR-2026-0617-BB)",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "DSGVO-Versand – große CSV (auto-portioniert)",
+        "formDescription": "Die komplette Klaviyo-Export-CSV hochladen. Der Workflow zerlegt sie selbst in 1.000er-Portionen.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "CSV-Datei",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e9d1c0fb-878d-46ef-87b6-60202c84e7c6",
+      "name": "CSV hochladen",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        432
+      ],
+      "webhookId": "f8e8df0a-165b-4787-b260-f087ea0b62de"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "CSV_Datei",
+        "options": {}
+      },
+      "id": "720c35bd-8dc6-4241-8670-c61fc5a195d8",
+      "name": "CSV einlesen",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        224,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 100,
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "d6b93792-bdd4-4adf-a42e-5dff20b2b133",
+      "name": "Portionen à 10.000",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n_15ce24a1-4c6e-49ed-bd62-74572b3e9065",
+              "name": "email",
+              "type": "string",
+              "value": "={{ $json['﻿Email'].toString().trim().toLowerCase() }}"
+            },
+            {
+              "id": "n_f8b6d36f-0e17-4e00-bdcd-19380ef14da1",
+              "name": "incident_ref",
+              "type": "string",
+              "value": "IR-2026-06-17-BB"
+            },
+            {
+              "id": "n_c96d1e07-fab6-4a84-ad5e-558dc28dbce1",
+              "name": "unique_id",
+              "type": "string",
+              "value": "={{ 'IR-2026-06-17-BB:' + $json['﻿Email'].toString().trim().toLowerCase() }}"
+            },
+            {
+              "id": "n_1391248c-d833-4a4c-961e-94ae48784b7e",
+              "name": "time",
+              "type": "string",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9c61f01f-354b-4c6a-85df-891ba510a690",
+      "name": "Felder vorbereiten",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "n_dc700db2-7380-4e24-928f-c6da630a29bf",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b9114fc5-c210-4630-bc69-7add5c3d36e4",
+      "name": "nur mit E-Mail",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/events",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "revision",
+              "value": "2024-10-15"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: { type: 'event', attributes: { metric: { data: { type: 'metric', attributes: { name: 'Security Notification' } } }, profile: { data: { type: 'profile', attributes: { email: $json.email} } }, properties: { incident_ref: $json.incident_ref, notification_type: 'gdpr_art34', source: 'n8n' }, unique_id: $json.unique_id, time: $json.time } } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 40,
+              "batchInterval": 2000
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "c98f66fa-68c9-4bd6-8251-f7a1e709ba74",
+      "name": "Klaviyo Create Event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        432
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "L47zefy2BPhvhQcx",
+          "name": "Klaviyo Header Auth"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n_06d3558d-cd12-49c2-b8e0-806ed2d0d456",
+              "name": "email",
+              "type": "string",
+              "value": "={{ $('Felder vorbereiten').item.json.email }}"
+            },
+            {
+              "id": "n_42ede07c-4e27-46ab-84bb-ac701ddb60ba",
+              "name": "http_status",
+              "type": "number",
+              "value": "={{ $json.statusCode }}"
+            },
+            {
+              "id": "n_fb89d4b1-2137-4653-b1f4-1639ac2ef79c",
+              "name": "ok",
+              "type": "boolean",
+              "value": "={{ $json.statusCode >= 200 && $json.statusCode < 300 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7df50a8c-9079-403f-beb9-362750c16241",
+      "name": "Ergebnis aufbereiten",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s=$getWorkflowStaticData('global');\ns.ok=s.ok||0;s.fail=s.fail||0;s.failRows=s.failRows||[];\nfor(const it of $input.all()){const j=it.json;\n  if(j.ok){s.ok++;}else{s.fail++;if(s.failRows.length<5000){s.failRows.push({email:j.email,http_status:j.http_status,sent_at:j.sent_at});}}\n}\nreturn $input.all();"
+      },
+      "id": "4f3800ab-66ee-4dfc-b590-2afe78886af3",
+      "name": "Ergebnis sammeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        432
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "15dd4168-4487-44e8-b41f-b536ce3a2de8",
+      "name": "Kurz pausieren",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        512
+      ],
+      "webhookId": "215ebf7a-b538-4aa1-95e5-dd5e896a695d"
+    },
+    {
+      "parameters": {
+        "jsCode": "const s=$getWorkflowStaticData('global');\nconst summary={zeile:'ZUSAMMENFASSUNG',total_ok:s.ok||0,total_fail:s.fail||0,finished_at:new Date().toISOString()};\nconst fails=(s.failRows||[]).map(r=>({json:{zeile:'FEHLER',email:r.email,http_status:r.http_status,sent_at:r.sent_at}}));\ns.ok=0;s.fail=0;s.failRows=[];\nreturn [{json:summary},...fails];"
+      },
+      "id": "a5a7e66d-66d2-48b4-b368-a037a258dfc7",
+      "name": "Log finalisieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "fileName": "=versand_log_{{ $now.toISODate() }}.csv",
+          "headerRow": true
+        }
+      },
+      "id": "53111d57-1d47-4289-b1e9-0adc9542292e",
+      "name": "Log als CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## So läuft's\n\n1. **Eine** komplette Klaviyo-Export-CSV hochladen.\n2. *CSV einlesen* parst alle Zeilen.\n3. *Portionen à 10.000* zerlegt sie und schickt sie portionsweise durch den Versand (Loop). Zwischen den Portionen 3 s Pause.\n4. Am Ende: ein **Log-CSV** (Zusammenfassung + Fehlerzeilen).\n\nErwartete Spalten: `Email`, `First Name`.",
+        "height": 300,
+        "width": 400,
+        "color": 5
+      },
+      "id": "ccc47c51-53c6-4efb-aa6d-2799c556f5a7",
+      "name": "Sticky Flow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## ⚠ Wichtig: Ausführungszeit\n\nDas Portionieren begrenzt den **Speicher**, aber **nicht** die Gesamt-Laufzeit. 150k Events brauchen wegen Klaviyos Limit ~45–60 Min – ggf. über dem n8n-Cloud-Limit eines kleinen Plans.\n\nDank `unique_id` ist ein erneuter Lauf **wiederhol-sicher** (keine Doppel-Mails). Für echtes Weitermachen-ab-Zeile (Offset-Checkpoint) erweitere ich den Workflow gern.",
+        "height": 300,
+        "width": 400,
+        "color": 3
+      },
+      "id": "eda547b3-8ba0-4f3f-8e31-683ddcb8651f",
+      "name": "Sticky Scale",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Credential, Log & Nachweis\n\nKlaviyo *Header Auth* am Node *Klaviyo Create Event*.\n\n**Log-CSV** = Zusammenfassung (ok/fehler) + Fehlerzeilen. Der **vollständige** Pro-Empfänger-Nachweis ist die `Security Notification`-Event-Liste in Klaviyo (mit Zeitstempel).\n\nErst mit 5 Test-Adressen (`+test`) und Flow im Test-Modus prüfen.",
+        "height": 300,
+        "width": 400,
+        "color": 4
+      },
+      "id": "6320b313-5410-46d7-a366-2e6437225c4a",
+      "name": "Sticky Log",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "fileName": "=status_log_{{ $now.toISODate() }}.csv",
+          "headerRow": true
+        }
+      },
+      "id": "1d473e69-4eb7-4749-a80c-5d0936caaa55",
+      "name": "Log als CSV1",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        576,
+        -64
+      ]
+    }
+  ],
+  "connections": {
+    "CSV hochladen": {
+      "main": [
+        [
+          {
+            "node": "CSV einlesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV einlesen": {
+      "main": [
+        [
+          {
+            "node": "Portionen à 10.000",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Portionen à 10.000": {
+      "main": [
+        [
+          {
+            "node": "Log finalisieren",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log als CSV1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Felder vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Felder vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "nur mit E-Mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "nur mit E-Mail": {
+      "main": [
+        [
+          {
+            "node": "Klaviyo Create Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo Create Event": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis aufbereiten": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis sammeln": {
+      "main": [
+        [
+          {
+            "node": "Kurz pausieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kurz pausieren": {
+      "main": [
+        [
+          {
+            "node": "Portionen à 10.000",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log finalisieren": {
+      "main": [
+        [
+          {
+            "node": "Log als CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "dabf0102-5efa-4c04-80ad-cdbb69d92caa",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-06-17T22:47:47.382Z",
+      "createdAt": "2026-06-17T22:47:47.382Z",
+      "role": "workflow:owner",
+      "workflowId": "aw0veIjUy8OLe00a",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

@@ -1,0 +1,474 @@
+{
+  "updatedAt": "2026-06-17T22:26:07.275Z",
+  "createdAt": "2026-06-17T19:28:23.423Z",
+  "id": "q3TYuoNhkxPoCoE0",
+  "name": "DSGVO Art.34 – Klaviyo Security Notification",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "options": {
+          "fileName": "=security_notification_log_{{ $now.toISODate() }}.csv",
+          "headerRow": true
+        }
+      },
+      "id": "6869b3c8-8c99-4193-b059-c693e84d45aa",
+      "name": "Als CSV exportieren",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        688,
+        1680
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n_24179fdb-dc4d-40e3-b7ee-9ba313651f68",
+              "name": "list_id",
+              "type": "string",
+              "value": "UwubXi"
+            },
+            {
+              "id": "n_266ebba5-d9f6-4f8c-82da-994d82a025af",
+              "name": "incident_ref",
+              "type": "string",
+              "value": "IR-2026-06-17-BB"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dcfb529b-d750-436f-a7c2-eee26b3f7534",
+      "name": "Konfiguration1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -880,
+        1680
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://a.klaviyo.com/api/lists/{{ $json.list_id }}/profiles/?page[size]=50&fields[profile]=email,first_name",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{$response.body.links.next}}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.links.next }}",
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "id": "7f48aa06-ce8f-40d9-aaac-6f27a4bf5420",
+      "name": "Profile aus Liste laden1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -656,
+        1680
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "L47zefy2BPhvhQcx",
+          "name": "Klaviyo Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "id": "d7b2bd9c-de5d-42b5-ae1f-5a148177c3c2",
+      "name": "Profile aufteilen1",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -432,
+        1680
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "n_36599a21-27c0-46b4-b6c7-7e04991cdbd3",
+              "leftValue": "={{ $json.attributes.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "be2fcb5c-4510-4b0f-b2a4-244c168697c0",
+      "name": "nur mit E-Mail1",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        1680
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n_6f35997f-6c81-4f52-88d8-bc94b6f1401b",
+              "name": "email",
+              "type": "string",
+              "value": "={{ $json.attributes.email.toString().trim().toLowerCase() }}"
+            },
+            {
+              "id": "n_95fee929-7f74-4e12-ba24-4009c5d35dbf",
+              "name": "first_name",
+              "type": "string",
+              "value": "={{ ($json.attributes.first_name ?? '').toString().trim() }}"
+            },
+            {
+              "id": "n_58a53f5b-8532-4b9f-bd19-1ec872507914",
+              "name": "incident_ref",
+              "type": "string",
+              "value": "IR-2026-0617-BB"
+            },
+            {
+              "id": "n_c330d20f-d166-4b58-8d55-ce864cf11334",
+              "name": "unique_id",
+              "type": "string",
+              "value": "={{ 'IR-2026-0617-BB:' + $json.attributes.email.toString().trim().toLowerCase() }}"
+            },
+            {
+              "id": "n_d24bb8da-09bc-47a2-9480-c7bb1bcddef7",
+              "name": "time",
+              "type": "string",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "84e3af98-4184-4f5a-a2f7-4e5407535c73",
+      "name": "Felder vorbereiten1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        16,
+        1680
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/events",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "revision",
+              "value": "2025-10-15"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: { type: 'event', attributes: { metric: { data: { type: 'metric', attributes: { name: 'Security Notification' } } }, profile: { data: { type: 'profile', attributes: { email: $json.email, first_name: $json.first_name } } }, properties: { incident_ref: $json.incident_ref, notification_type: 'gdpr_art34', source: 'n8n' }, unique_id: $json.unique_id, time: $json.time } } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchInterval": 1500
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "f1bcfb69-6d1e-409a-966a-bed8714cede2",
+      "name": "Klaviyo Create Event1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        1680
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "L47zefy2BPhvhQcx",
+          "name": "Klaviyo Header Auth"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n_213b86c2-406f-455a-b771-5ba231c0a5a5",
+              "name": "email",
+              "type": "string",
+              "value": "={{ $('Felder vorbereiten1').item.json.email }}"
+            },
+            {
+              "id": "n_88724900-c83e-456f-b837-480c002d01bb",
+              "name": "http_status",
+              "type": "number",
+              "value": "={{ $json.statusCode }}"
+            },
+            {
+              "id": "n_7c53958e-fc7d-4120-b73f-d2d78bec7c80",
+              "name": "ok",
+              "type": "boolean",
+              "value": "={{ $json.statusCode >= 200 && $json.statusCode < 300 }}"
+            },
+            {
+              "id": "n_d0f6aa26-bf47-49a7-8730-7dff76af24df",
+              "name": "sent_at",
+              "type": "string",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c6e45f08-824a-40cd-bde7-08b9fe52fd6e",
+      "name": "Ergebnis aufbereiten1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        464,
+        1680
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1) Credential (Klaviyo)\n\nEin *Header Auth*-Credential anlegen und an **beiden** HTTP-Nodes auswählen:\n- Name: `Authorization`\n- Value: `Klaviyo-API-Key pk_DEIN_PRIVATE_KEY`\n\nDerselbe Key liest die Liste **und** schreibt die Events.\nKey nie direkt in den Workflow schreiben.",
+        "height": 300,
+        "width": 360,
+        "color": 5
+      },
+      "id": "0bc939a9-081d-45d9-aa11-06930f9b3ac1",
+      "name": "Sticky Cred1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -896,
+        1264
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2) Listen-ID eintragen\n\nKlaviyo → Audiences → Lists & Segments → Liste öffnen.\nDie ID steht in der URL (bzw. über die API).\nIn *Konfiguration* bei `list_id` eintragen.\n\n**Segment statt Liste?** In *Profile aus Liste laden* die URL auf\n`/api/segments/{{ $json.list_id }}/profiles/` ändern.",
+        "height": 300,
+        "width": 360,
+        "color": 5
+      },
+      "id": "71ee10d0-0649-408e-8207-2c06a3a9b2b2",
+      "name": "Sticky List1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -528,
+        1264
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3) Warum trotzdem ein Event?\n\nEine Liste/Segment triggert sonst nur einen **listen-getriggerten** Flow – der ist **nicht** transaktional markierbar (nur per Support).\n\nHier wird je Profil das Metrik-Event `Security Notification` gefeuert → dein **metrik-getriggerter, transaktionaler** Flow läuft an und erreicht auch Kontakte ohne Marketing-Opt-in.\n\n`unique_id` = idempotent: kein Doppelversand bei erneutem Lauf.",
+        "height": 340,
+        "width": 380,
+        "color": 4
+      },
+      "id": "7cf21766-c171-48d2-820b-9495e756756f",
+      "name": "Sticky Why1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        80,
+        1232
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4) Audit-Trail, CSV & Test\n\n**CSV-Download:** Der Node *Als CSV exportieren* erzeugt eine Datei `security_notification_log_<datum>.csv` (Spalten: email, http_status, ok, sent_at). Nach dem Lauf in der **Execution** den Node öffnen → Binärdatei herunterladen.\n\n**Zusätzlicher Nachweis:** Jedes Profil hat zudem ein `Security Notification`-Event mit Zeitstempel in Klaviyo.\n\n**Vor dem Scharfschalten:** mit Test-Liste (eigene Adresse) laufen lassen, Flow im Test-Modus, transaktionale Markierung prüfen, dann gestaffelt. Workflow ist **inaktiv**.",
+        "height": 380,
+        "width": 380,
+        "color": 3
+      },
+      "id": "e4618978-b2dd-4991-9547-2b9ea878368e",
+      "name": "Sticky Test1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1104,
+        1840
+      ]
+    }
+  ],
+  "connections": {
+    "Konfiguration1": {
+      "main": [
+        [
+          {
+            "node": "Profile aus Liste laden1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Profile aus Liste laden1": {
+      "main": [
+        [
+          {
+            "node": "Profile aufteilen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Profile aufteilen1": {
+      "main": [
+        [
+          {
+            "node": "nur mit E-Mail1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "nur mit E-Mail1": {
+      "main": [
+        [
+          {
+            "node": "Felder vorbereiten1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Felder vorbereiten1": {
+      "main": [
+        [
+          {
+            "node": "Klaviyo Create Event1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo Create Event1": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis aufbereiten1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis aufbereiten1": {
+      "main": [
+        [
+          {
+            "node": "Als CSV exportieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "71273f4b-1f44-45ea-ad5f-ae7311b80d00",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-06-17T19:28:23.435Z",
+      "createdAt": "2026-06-17T19:28:23.435Z",
+      "role": "workflow:owner",
+      "workflowId": "q3TYuoNhkxPoCoE0",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

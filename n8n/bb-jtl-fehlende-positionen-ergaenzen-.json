@@ -1,0 +1,820 @@
+{
+  "updatedAt": "2026-07-30T09:05:16.316Z",
+  "createdAt": "2026-07-30T09:03:53.929Z",
+  "id": "zz9NwQYFuf2QkZFy",
+  "name": "BB-JTL-Fehlende-Positionen-ergaenzen",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "2541af2c-9241-407d-bde3-bb49a5093378",
+        "formTitle": "JTL-Positionsabgleich (Migration)",
+        "formDescription": "CSV mit Auftragsnummern hochladen (eine Spalte 'Name' bzw. Auftragsnr.)",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "CSV-Datei",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [
+        128,
+        32
+      ],
+      "id": "72a85c8d-2aaf-4d69-95a5-2afb5460a749",
+      "name": "CSV hochladen (Formular)",
+      "webhookId": "2541af2c-9241-407d-bde3-bb49a5093378"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === ZENTRALE CONFIG ===\n// Positions-Typen aus JTL, die NICHT nach Shopify uebernommen werden sollen.\n// Abgleich erfolgt spaeter case-insensitive gegen den JTL-Positionstyp bzw. Titel.\nconst SKIP_TYPES = ['versand', 'karton', 'verpackung', 'rabatt', 'gutschein'];\n\n// SKUs, die generell ignoriert werden sollen (optional pflegen)\nconst SKIP_SKUS = [];\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.config = { SKIP_TYPES, SKIP_SKUS };\n\n// CSV-Binary unveraendert durchreichen\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        32
+      ],
+      "id": "251e36a0-12b8-4429-97fe-04f62f34899b",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "CSV-Datei",
+        "options": {
+          "delimiter": ","
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        464,
+        32
+      ],
+      "id": "26dab9af-a554-4e79-998f-a19829627a9b",
+      "name": "CSV parsen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Erwartet eine Spalte mit der Auftragsnummer.\n// Akzeptiert 'Name', 'Auftragsnr', 'Auftragsnummer' oder 'orderName'.\nconst items = $input.all().map(i => i.json);\n\nconst seen = new Set();\nconst orders = [];\n\nfor (const row of items) {\n  const raw = String(\n    row['Name'] ?? row['Auftragsnr'] ?? row['Auftragsnummer'] ?? row['orderName'] ?? ''\n  ).trim();\n  if (!raw) continue;\n  if (seen.has(raw)) continue;\n  seen.add(raw);\n  orders.push({ auftragsNr: raw });\n}\n\nreturn orders.map(o => ({ json: o }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        32
+      ],
+      "id": "0b8210a3-86c4-427f-a3eb-4dc782d8c314",
+      "name": "Auftragsnummern extrahieren (dedupe)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        32
+      ],
+      "id": "eebf639f-b58c-4b6d-a6da-9511b229bf78",
+      "name": "Token holen (CSV)",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// toAdd einmalig leeren, Token durchreichen, alle Auftragsnummern weitergeben.\nconst staticData = $getWorkflowStaticData('global');\nstaticData.toAdd = [];\n\nconst token = $json.access_token;\nconst orders = $('Auftragsnummern extrahieren (dedupe)').all().map(i => i.json);\n\nreturn orders.map(o => ({\n  json: { ...o, accessToken: token }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        32
+      ],
+      "id": "69230625-6b5d-4614-991b-c541bec21a66",
+      "name": "toAdd leeren + Token durchreichen"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1296,
+        32
+      ],
+      "id": "c448d71f-7949-4499-98ad-d9d88c4a5749",
+      "name": "Loop je Auftrag (Sammeln)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- PLATZHALTER: SQL wird separat gemeinsam finalisiert.\n-- Ziel: ALLE Positionen (roh) des Auftrags liefern.\n-- Erwartete Ausgabespalten (mind.): sku, titel, menge, einzelpreis, positionstyp\n-- Parameter: {{ $json.auftragsNr }} = allgemeine JTL-Auftragsnummer\nSELECT\n  '' AS sku,\n  '' AS titel,\n  1  AS menge,\n  0  AS einzelpreis,\n  '' AS positionstyp\nWHERE 1 = 0;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        1520,
+        48
+      ],
+      "id": "40652b7f-b1aa-42c7-8597-420e0284294c",
+      "name": "JTL: alle Positionen (roh)",
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rohe JTL-Positionen filtern: unerwuenschte Typen/SKUs raus.\n// Ergebnis wird pro Auftrag in staticData.toAdd gesammelt (SKU noch nicht aufgeloest).\nconst staticData = $getWorkflowStaticData('global');\nconst cfg = staticData.config || { SKIP_TYPES: [], SKIP_SKUS: [] };\nif (!Array.isArray(staticData.toAdd)) staticData.toAdd = [];\n\nconst auftragsNr = $('Loop je Auftrag (Sammeln)').item.json.auftragsNr;\nconst rows = $input.all().map(i => i.json);\n\nconst skipTypes = (cfg.SKIP_TYPES || []).map(s => String(s).toLowerCase());\nconst skipSkus  = (cfg.SKIP_SKUS  || []).map(s => String(s).toLowerCase());\n\nconst positionen = [];\nfor (const r of rows) {\n  const sku   = String(r.sku || '').trim();\n  const titel = String(r.titel || '').trim();\n  const typ   = String(r.positionstyp || '').toLowerCase();\n  const titelLc = titel.toLowerCase();\n\n  // Typ-Filter: gegen positionstyp UND Titel pruefen\n  const isSkipType = skipTypes.some(t => typ.includes(t) || titelLc.includes(t));\n  if (isSkipType) continue;\n\n  // SKU-Filter\n  if (sku && skipSkus.includes(sku.toLowerCase())) continue;\n\n  // Ohne SKU kann keine echte Variante aufgeloest werden -> markieren, spaeter sichtbar\n  positionen.push({\n    sku,\n    titel,\n    menge: Number(r.menge) || 1,\n    einzelpreis: r.einzelpreis\n  });\n}\n\nif (positionen.length > 0) {\n  staticData.toAdd.push({ auftragsNr, positionen });\n}\n\nreturn [{ json: { auftragsNr, gefiltertePositionen: positionen.length, gesammelt: staticData.toAdd.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1728,
+        48
+      ],
+      "id": "9b561568-0a60-4fd2-9b71-ae6bdd126f7c",
+      "name": "Positionen filtern + sammeln"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1920,
+        48
+      ],
+      "id": "c7d2a1bf-911b-417a-bf1a-f3ee9b86d4b3",
+      "name": "Wait (Sammeln Rate-Limit)",
+      "webhookId": "d3000000-0000-0000-0000-000000000002"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loest je gesammelter Position die Shopify-Variante ueber SKU auf\n// und erzeugt EIN Item pro zu ergaenzender Position.\nconst staticData = $getWorkflowStaticData('global');\nconst collected = staticData.toAdd || [];\n\nconst out = [];\nfor (const order of collected) {\n  for (const pos of order.positionen) {\n    out.push({\n      json: {\n        auftragsNr: order.auftragsNr,\n        sku: pos.sku,\n        titel: pos.titel,\n        menge: pos.menge,\n        einzelpreis: pos.einzelpreis\n      }\n    });\n  }\n}\n\nif (!out.length) {\n  return [{ json: { WARNUNG: 'toAdd ist leer \\u2013 keine Positionen zu ergaenzen' } }];\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        512
+      ],
+      "id": "82000542-c94d-4b60-a5c0-8158302f820c",
+      "name": "Ergaenzungs-Items vorbereiten"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        336,
+        512
+      ],
+      "id": "990d40c6-2763-47cb-9bd6-2a94fc5ad0f2",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        560,
+        512
+      ],
+      "id": "d83affd3-2443-42f0-b06a-7aedf00753fb",
+      "name": "Token holen 2",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// SKU -> ProductVariant-GID + Order-GID aufloesen.\n// 1) Variante ueber SKU per GraphQL productVariants(query:\"sku:...\") suchen\n// 2) Order-GID ueber Auftragsnummer (Shopify order name) suchen\nconst item = $input.item.json;\nconst sku = String(item.sku || '').trim();\nconst auftragsNr = String(item.auftragsNr || '').trim();\n\n// Shopify-Order-Name benoetigt fuehrendes '#', falls nicht vorhanden\nconst orderName = auftragsNr.startsWith('#') ? auftragsNr : `#${auftragsNr}`;\n\nconst body = {\n  query: `query resolve($skuQuery: String!, $orderQuery: String!) {\n    productVariants(first: 1, query: $skuQuery) {\n      edges { node { id sku title } }\n    }\n    orders(first: 1, query: $orderQuery) {\n      edges { node { id name } }\n    }\n  }`,\n  variables: {\n    skuQuery: `sku:${sku}`,\n    orderQuery: `name:${orderName}`\n  }\n};\n\nreturn {\n  json: {\n    ...item,\n    orderName,\n    accessToken: $('Token holen 2').item.json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        512
+      ],
+      "id": "14d8a239-d997-4bf2-81c6-f6454cfb3199",
+      "name": "Query bauen (SKU + Order aufloesen)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        992,
+        512
+      ],
+      "id": "ace001ea-c4b2-4184-99d7-9c95f4ccd607",
+      "name": "SKU + Order aufloesen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst variantEdge = resp?.data?.productVariants?.edges?.[0]?.node || null;\nconst orderEdge   = resp?.data?.orders?.edges?.[0]?.node || null;\n\nconst src = $('Query bauen (SKU + Order aufloesen)').item.json;\n\nif (!variantEdge) {\n  throw new Error(`Keine Variante fuer SKU '${src.sku}' gefunden (Auftrag ${src.auftragsNr})`);\n}\nif (!orderEdge) {\n  throw new Error(`Keine Bestellung fuer '${src.orderName}' gefunden`);\n}\n\nreturn {\n  json: {\n    auftragsNr: src.auftragsNr,\n    orderName: src.orderName,\n    sku: src.sku,\n    menge: src.menge,\n    variantId: variantEdge.id,\n    orderGid: orderEdge.id,\n    accessToken: src.accessToken\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1216,
+        512
+      ],
+      "id": "afc0dc32-4b0f-406d-810f-d80726680e4c",
+      "name": "Aufloesung pruefen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\n\nconst body = {\n  query: `mutation orderEditBegin($id: ID!) { orderEditBegin(id: $id) { calculatedOrder { id } userErrors { field message } } }`,\n  variables: { id: item.orderGid }\n};\n\nreturn {\n  json: {\n    ...item,\n    gqlBody: JSON.stringify(body)\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        512
+      ],
+      "id": "54b4bfb4-c058-4353-969e-dab0a32df109",
+      "name": "Query bauen (orderEditBegin)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1648,
+        512
+      ],
+      "id": "6e905020-c67c-4d18-a23b-a654d78af84e",
+      "name": "orderEditBegin"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst begin = resp?.data?.orderEditBegin;\nconst errs = begin?.userErrors || [];\nif (errs.length) {\n  throw new Error('orderEditBegin userErrors: ' + JSON.stringify(errs));\n}\nconst calcOrderId = begin?.calculatedOrder?.id;\nif (!calcOrderId) {\n  throw new Error('Keine calculatedOrder.id erhalten: ' + JSON.stringify(resp));\n}\n\nconst src = $('Aufloesung pruefen').item.json;\n\nreturn {\n  json: {\n    ...src,\n    calcOrderId\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        512
+      ],
+      "id": "d2eddff6-ea32-4ff7-bd80-7df8e2e2f8f9",
+      "name": "CalcOrder auslesen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\n\nconst body = {\n  query: `mutation orderEditAddVariant($id: ID!, $variantId: ID!, $quantity: Int!, $allowDuplicates: Boolean) {\n    orderEditAddVariant(id: $id, variantId: $variantId, quantity: $quantity, allowDuplicates: $allowDuplicates) {\n      calculatedLineItem {\n        id\n        title\n        sku\n        variantTitle\n        discountedUnitPriceSet { shopMoney { amount currencyCode } }\n      }\n      userErrors { field message }\n    }\n  }`,\n  variables: {\n    id: item.calcOrderId,\n    variantId: item.variantId,\n    quantity: Number(item.menge) || 1,\n    allowDuplicates: true\n  }\n};\n\nreturn {\n  json: {\n    ...item,\n    gqlBody: JSON.stringify(body)\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2096,
+        512
+      ],
+      "id": "a78f3273-a60e-4826-ad8e-3a01e3ea62f6",
+      "name": "Query bauen (AddVariant)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2320,
+        512
+      ],
+      "id": "5b17ad74-f18d-4a3e-8251-d7449cab9f44",
+      "name": "Position hinzufuegen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst add = resp?.data?.orderEditAddVariant;\nconst errs = add?.userErrors || [];\nif (errs.length) {\n  throw new Error('orderEditAddVariant userErrors: ' + JSON.stringify(errs));\n}\n\nconst src = $('CalcOrder auslesen').item.json;\n\nreturn {\n  json: {\n    ...src,\n    addedLineItem: add?.calculatedLineItem || null\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2528,
+        512
+      ],
+      "id": "156b18d0-1616-49aa-9a56-958a6d36e162",
+      "name": "Add-Ergebnis pruefen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation orderEditCommit($id: ID!, $notifyCustomer: Boolean, $staffNote: String) { orderEditCommit(id: $id, notifyCustomer: $notifyCustomer, staffNote: $staffNote) { order { id name } userErrors { field message } } }`, variables: { id: $json.calcOrderId, notifyCustomer: false, staffNote: 'JTL-Migrationsabgleich: fehlende Position aus JTL ergaenzt.' } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2752,
+        512
+      ],
+      "id": "7bae9a8a-7137-4372-b23b-a034befe0d1d",
+      "name": "orderEditCommit: NotifyCustomer = FALSE"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst commit = resp?.data?.orderEditCommit;\nconst errs = commit?.userErrors || [];\nif (errs.length) {\n  throw new Error('orderEditCommit userErrors: ' + JSON.stringify(errs));\n}\n\nreturn {\n  json: {\n    status: 'OK',\n    orderName: $('Add-Ergebnis pruefen').item.json.orderName,\n    committedOrder: commit?.order || null\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2976,
+        512
+      ],
+      "id": "4ba4eb34-317c-4bcd-80ae-7821821cfd12",
+      "name": "Commit-Ergebnis pruefen"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3200,
+        512
+      ],
+      "id": "cacd488d-417c-4c1d-aa52-89afede70bcf",
+      "name": "Wait (Rate-Limit)",
+      "webhookId": "d3000000-0000-0000-0000-000000000003"
+    },
+    {
+      "parameters": {
+        "content": "## Phase A – Sammeln (JTL)\nForm-Upload → Config → CSV parsen → Auftragsnummern dedupen → Token → Loop je Auftrag → **JTL SQL (alle Positionen roh)** → Filter (Versand/Karton etc.) → sammeln in `staticData.toAdd`.\n\n⚠️ Der SQL-Node ist ein **Platzhalter**. Query + Credential werden separat gemeinsam finalisiert. Erwartete Spalten: `sku, titel, menge, einzelpreis, positionstyp`. WHERE ueber die allgemeine JTL-Auftragsnummer (`{{ $json.auftragsNr }}`).",
+        "height": 388,
+        "width": 2100,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        96,
+        -160
+      ],
+      "id": "6a41c590-5f67-4019-a0cd-733715e3bf8b",
+      "name": "Sticky Phase A"
+    },
+    {
+      "parameters": {
+        "content": "## Phase B – Ergaenzen (Shopify)\nPro gesammelter Position: Token → **SKU→variantId + Order-GID aufloesen** → orderEditBegin → orderEditAddVariant (echte Variante) → orderEditCommit (notifyCustomer=false).\n\nEinstieg: 'Ergaenzungs-Items vorbereiten' liest `staticData.toAdd`, nachdem Phase A durchgelaufen ist. Zum Verketten den Ausgang von 'Loop je Auftrag (Sammeln)' (done-Zweig) auf 'Ergaenzungs-Items vorbereiten' legen – aktuell getrennt fuer kontrollierten Testlauf.\n\n⚠️ **Preis:** Position wird mit dem **aktuellen** Shop-Variant-Preis angelegt. Bei Alt-Bestellungen mit historisch abweichendem Preis muss dies mit dem Chef geklaert werden (evtl. CustomItem statt echter Variante).",
+        "height": 320,
+        "width": 3100,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        96,
+        304
+      ],
+      "id": "c53c5091-df1e-40de-a789-45e867b75e51",
+      "name": "Sticky Phase B"
+    }
+  ],
+  "connections": {
+    "CSV hochladen (Formular)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "CSV parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV parsen": {
+      "main": [
+        [
+          {
+            "node": "Auftragsnummern extrahieren (dedupe)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auftragsnummern extrahieren (dedupe)": {
+      "main": [
+        [
+          {
+            "node": "Token holen (CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen (CSV)": {
+      "main": [
+        [
+          {
+            "node": "toAdd leeren + Token durchreichen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "toAdd leeren + Token durchreichen": {
+      "main": [
+        [
+          {
+            "node": "Loop je Auftrag (Sammeln)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop je Auftrag (Sammeln)": {
+      "main": [
+        [
+          {
+            "node": "Ergaenzungs-Items vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "JTL: alle Positionen (roh)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL: alle Positionen (roh)": {
+      "main": [
+        [
+          {
+            "node": "Positionen filtern + sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Positionen filtern + sammeln": {
+      "main": [
+        [
+          {
+            "node": "Wait (Sammeln Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Sammeln Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop je Auftrag (Sammeln)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergaenzungs-Items vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Token holen 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 2": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (SKU + Order aufloesen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (SKU + Order aufloesen)": {
+      "main": [
+        [
+          {
+            "node": "SKU + Order aufloesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SKU + Order aufloesen": {
+      "main": [
+        [
+          {
+            "node": "Aufloesung pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aufloesung pruefen": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (orderEditBegin)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (orderEditBegin)": {
+      "main": [
+        [
+          {
+            "node": "orderEditBegin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderEditBegin": {
+      "main": [
+        [
+          {
+            "node": "CalcOrder auslesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CalcOrder auslesen": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (AddVariant)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (AddVariant)": {
+      "main": [
+        [
+          {
+            "node": "Position hinzufuegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Position hinzufuegen": {
+      "main": [
+        [
+          {
+            "node": "Add-Ergebnis pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add-Ergebnis pruefen": {
+      "main": [
+        [
+          {
+            "node": "orderEditCommit: NotifyCustomer = FALSE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderEditCommit: NotifyCustomer = FALSE": {
+      "main": [
+        [
+          {
+            "node": "Commit-Ergebnis pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit-Ergebnis pruefen": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "6f778357-8f6c-44d0-baaf-63370edb9184",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-07-30T09:03:53.931Z",
+      "createdAt": "2026-07-30T09:03:53.931Z",
+      "role": "workflow:owner",
+      "workflowId": "zz9NwQYFuf2QkZFy",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

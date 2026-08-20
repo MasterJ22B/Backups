@@ -1,0 +1,641 @@
+{
+  "updatedAt": "2026-07-30T20:00:00.000Z",
+  "createdAt": "2026-05-02T06:39:05.925Z",
+  "id": "GgH9J3FgAFxHmUtU",
+  "name": "Instagram – Follower Data Collection",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT account, access_token FROM instagram_tokens WHERE account IN ('BB', 'LEAF') ORDER BY FIELD(account, 'BB', 'LEAF');",
+        "options": {}
+      },
+      "id": "9e9d87c0-c0af-46ed-a69f-e2096b9e7d46",
+      "name": "Read Both Tokens from DB",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        -736,
+        336
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "e86eb311-fbaf-43b8-8c6a-142d47207c29",
+      "name": "Split Into Individual Accounts",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -512,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-bb",
+              "leftValue": "={{ $json.account }}",
+              "rightValue": "BB",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "93aab8f3-227a-4b95-9b64-5482021c0641",
+      "name": "Route by Account",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.1,
+      "position": [
+        -288,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v25.0/17841409326292049",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "followers_count"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "373203ae-bc06-408b-88cd-cb68a736fb11",
+      "name": "BB – GET Follower Count",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -64,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO instagram_data VALUES (NULL, NOW(), 'followers_count', {{ $json.followers_count }});",
+        "options": {}
+      },
+      "id": "1ee96ba0-67ca-4225-acca-bac761ce69e4",
+      "name": "BB – INSERT into DB",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        160,
+        176
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v25.0/17841461871855556",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "followers_count"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ec859475-7bf3-4425-b05f-dab7d2b430f7",
+      "name": "LEAF BB – GET Follower Count",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -64,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO instagram_leaf_data VALUES (NULL, NOW(), 'followers_count', {{ $json.followers_count }});",
+        "options": {}
+      },
+      "id": "6ff111de-1ece-45a4-b605-7bf87ec8e029",
+      "name": "LEAF BB – INSERT into DB",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        160,
+        368
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "id": "7c77e23a-13cd-4eef-8ebc-4214a59b9251",
+      "name": "EVERY 1 Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -960,
+        336
+      ],
+      "notes": "Interval hier anpassen – dieser Workflow ist bewusst schlank gehalten (kein Token-Refresh)."
+    }
+  ],
+  "connections": {
+    "Read Both Tokens from DB": {
+      "main": [
+        [
+          {
+            "node": "Split Into Individual Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Individual Accounts": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Route by Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Account": {
+      "main": [
+        [
+          {
+            "node": "BB – GET Follower Count",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LEAF BB – GET Follower Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BB – GET Follower Count": {
+      "main": [
+        [
+          {
+            "node": "BB – INSERT into DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEAF BB – GET Follower Count": {
+      "main": [
+        [
+          {
+            "node": "LEAF BB – INSERT into DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BB – INSERT into DB": {
+      "main": [
+        [
+          {
+            "node": "Split Into Individual Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LEAF BB – INSERT into DB": {
+      "main": [
+        [
+          {
+            "node": "Split Into Individual Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EVERY 1 Hour": {
+      "main": [
+        [
+          {
+            "node": "Read Both Tokens from DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "node:Every 5 Minutes": {
+      "recurrenceRules": []
+    },
+    "node:EVERY 1 Hour": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "dcf84531-ba4c-4222-a49f-ce5d980502dc",
+  "activeVersionId": "dcf84531-ba4c-4222-a49f-ce5d980502dc",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-07-30T20:00:00.121Z",
+      "createdAt": "2026-07-30T20:00:00.121Z",
+      "role": "workflow:owner",
+      "workflowId": "GgH9J3FgAFxHmUtU",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-07-05T15:51:14.000Z",
+    "createdAt": "2026-07-05T15:51:11.303Z",
+    "versionId": "dcf84531-ba4c-4222-a49f-ce5d980502dc",
+    "workflowId": "GgH9J3FgAFxHmUtU",
+    "nodes": [
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT account, access_token FROM instagram_tokens WHERE account IN ('BB', 'LEAF') ORDER BY FIELD(account, 'BB', 'LEAF');",
+          "options": {}
+        },
+        "id": "9e9d87c0-c0af-46ed-a69f-e2096b9e7d46",
+        "name": "Read Both Tokens from DB",
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.4,
+        "position": [
+          -736,
+          336
+        ],
+        "credentials": {
+          "mySql": {
+            "id": "yEG5MndvkRzkGkRo",
+            "name": "BB Data Warehouse"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "options": {
+            "reset": false
+          }
+        },
+        "id": "e86eb311-fbaf-43b8-8c6a-142d47207c29",
+        "name": "Split Into Individual Accounts",
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          -512,
+          336
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "cond-bb",
+                "leftValue": "={{ $json.account }}",
+                "rightValue": "BB",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "93aab8f3-227a-4b95-9b64-5482021c0641",
+        "name": "Route by Account",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.1,
+        "position": [
+          -288,
+          96
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://graph.facebook.com/v25.0/17841409326292049",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "fields",
+                "value": "followers_count"
+              },
+              {
+                "name": "access_token",
+                "value": "={{ $json.access_token }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "373203ae-bc06-408b-88cd-cb68a736fb11",
+        "name": "BB – GET Follower Count",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -64,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO instagram_data VALUES (NULL, NOW(), 'followers_count', {{ $json.followers_count }});",
+          "options": {}
+        },
+        "id": "1ee96ba0-67ca-4225-acca-bac761ce69e4",
+        "name": "BB – INSERT into DB",
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.4,
+        "position": [
+          160,
+          176
+        ],
+        "credentials": {
+          "mySql": {
+            "id": "yEG5MndvkRzkGkRo",
+            "name": "BB Data Warehouse"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://graph.facebook.com/v25.0/17841461871855556",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "fields",
+                "value": "followers_count"
+              },
+              {
+                "name": "access_token",
+                "value": "={{ $json.access_token }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "ec859475-7bf3-4425-b05f-dab7d2b430f7",
+        "name": "LEAF BB – GET Follower Count",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -64,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO instagram_leaf_data VALUES (NULL, NOW(), 'followers_count', {{ $json.followers_count }});",
+          "options": {}
+        },
+        "id": "6ff111de-1ece-45a4-b605-7bf87ec8e029",
+        "name": "LEAF BB – INSERT into DB",
+        "type": "n8n-nodes-base.mySql",
+        "typeVersion": 2.4,
+        "position": [
+          160,
+          368
+        ],
+        "credentials": {
+          "mySql": {
+            "id": "yEG5MndvkRzkGkRo",
+            "name": "BB Data Warehouse"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "hours"
+              }
+            ]
+          }
+        },
+        "id": "7c77e23a-13cd-4eef-8ebc-4214a59b9251",
+        "name": "EVERY 1 Hour",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -960,
+          336
+        ],
+        "notes": "Interval hier anpassen – dieser Workflow ist bewusst schlank gehalten (kein Token-Refresh)."
+      }
+    ],
+    "connections": {
+      "Read Both Tokens from DB": {
+        "main": [
+          [
+            {
+              "node": "Split Into Individual Accounts",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Split Into Individual Accounts": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Route by Account",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route by Account": {
+        "main": [
+          [
+            {
+              "node": "BB – GET Follower Count",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "LEAF BB – GET Follower Count",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BB – GET Follower Count": {
+        "main": [
+          [
+            {
+              "node": "BB – INSERT into DB",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "LEAF BB – GET Follower Count": {
+        "main": [
+          [
+            {
+              "node": "LEAF BB – INSERT into DB",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BB – INSERT into DB": {
+        "main": [
+          [
+            {
+              "node": "Split Into Individual Accounts",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "LEAF BB – INSERT into DB": {
+        "main": [
+          [
+            {
+              "node": "Split Into Individual Accounts",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "EVERY 1 Hour": {
+        "main": [
+          [
+            {
+              "node": "Read Both Tokens from DB",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version dcf84531",
+    "description": "",
+    "autosaved": false
+  },
+  "tags": [
+    {
+      "updatedAt": "2026-05-01T14:33:37.336Z",
+      "createdAt": "2026-05-01T14:33:37.336Z",
+      "id": "E4CQ3SHLqbdJpF7F",
+      "name": "Analytics"
+    },
+    {
+      "updatedAt": "2026-05-01T14:33:37.303Z",
+      "createdAt": "2026-05-01T14:33:37.303Z",
+      "id": "pb0xe68LqS3s2WdC",
+      "name": "Instagram"
+    }
+  ]
+}

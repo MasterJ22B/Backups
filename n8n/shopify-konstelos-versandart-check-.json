@@ -1,0 +1,430 @@
+{
+  "updatedAt": "2026-07-08T10:26:06.421Z",
+  "createdAt": "2026-06-26T08:14:26.800Z",
+  "id": "6TahL11tWYSu83Dn",
+  "name": "Shopify-Konstelos-Versandart-Check",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        2416,
+        848
+      ],
+      "id": "d5d95367-365e-4a35-b5ed-f927efd848b2",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2592,
+        848
+      ],
+      "id": "6ded0e0a-8d26-4d05-bbb9-7004269228e7",
+      "name": "Token holen ",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const shop = 'vdzvc0-nd';\n\n// Alle Bestellungen, Pagination in 50er-Schritten\nconst initUrl = `https://${shop}.myshopify.com/admin/api/2024-10/orders.json`\n  + `?limit=250`\n  + `&status=any`\n  + `&order=created_at+desc`\n  + `&fields=id,name,created_at,shipping_lines`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.toFix = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrl,\n    hasNext: true,\n    accessToken: $('Token holen ').item.json.access_token\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2752,
+        848
+      ],
+      "id": "3c908c9b-15b7-45fd-a989-46b9514a7621",
+      "name": "Array leeren + Start URL setzen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": []
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3040,
+        848
+      ],
+      "id": "c8fe53ae-36b3-46a1-b6da-fb1f63068d51",
+      "name": "GET Bestellungen ",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst orders = response.body?.orders || response.orders || [];\nconst linkHeader = response.headers?.link || '';\n\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.toFix)) {\n  staticData.toFix = [];\n}\n\n// Prüft, ob eine Bestellung die Versandart \"Konstelos\" trägt\nfor (const order of orders) {\n  const shippingLines = order.shipping_lines || [];\n\n  const konstelosLines = shippingLines.filter(sl =>\n    String(sl.title || '').trim().toLowerCase() === 'konstelos'\n  );\n\n  if (konstelosLines.length > 0) {\n    staticData.toFix.push({\n      orderId: order.id,\n      orderName: order.name,\n      createdAt: order.created_at,\n      versandpositionen: konstelosLines.map(sl => ({\n        shippingLineId: sl.id,\n        title: sl.title,\n        code: sl.code,\n        price: sl.price,\n      })),\n    });\n  }\n}\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.toFix.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3216,
+        848
+      ],
+      "id": "ad3bcb77-b738-40dd-b710-7a69448dd392",
+      "name": "NextURL weitergeben + Versandart prüfen "
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3424,
+        848
+      ],
+      "id": "0db9d804-fb6b-43ec-bb43-d31ecab90570",
+      "name": "Wait",
+      "webhookId": "b2000000-0000-0000-0000-000000000006"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c2000000-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3616,
+        848
+      ],
+      "id": "c1aa0963-b174-4ee2-b683-9001647850cd",
+      "name": "GIbt es NextURL?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3824,
+        720
+      ],
+      "id": "59b3b478-5db8-4893-8d14-982a03cb474f",
+      "name": "Token holen 1",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        4016,
+        816
+      ],
+      "id": "910bee82-f04b-4d47-82c0-9b5ab351b090",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const tokenItem = $input.first().json;\nconst urlItem = $input.last().json;\n\nreturn [{\n  json: {\n    accessToken: tokenItem.access_token,\n    nextUrl: urlItem.nextUrl,\n    hasNext: urlItem.hasNext\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4192,
+        816
+      ],
+      "id": "bce70994-01c4-497b-ad3e-c0a9961b04ac",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.toFix || [];\n\nreturn collected.map(row => ({ json: row }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3456,
+        544
+      ],
+      "id": "41eee6e0-b90e-4f2b-9a4e-1223744ecb44",
+      "name": "Debug Node (später löschen)"
+    },
+    {
+      "parameters": {
+        "content": "## Auslöser \n1ster Token wird geholt, StartURL wird gesetzt (letzte 4 Tage) und Array wird geleert ",
+        "height": 384,
+        "width": 592,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2352,
+        704
+      ],
+      "id": "cd6109d0-3652-456a-98d0-b30a33f258ef",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Bestell-Pagination \nAlle Bestellungen der letzten 4 Tage werden durchgegangen. Bestellungen mit Versandart \"Konstelos\" werden global gespeichert. ",
+        "height": 384,
+        "width": 1424,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2976,
+        704
+      ],
+      "id": "0c841e2c-8319-4b58-acb5-3673857e082a",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Debug \nLiest die gesammelten Konstelos-Bestellungen aus (läuft ins Leere) \n",
+        "height": 384,
+        "width": 320,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4432,
+        704
+      ],
+      "id": "2576bc9e-b26a-4c22-ab78-700dbdaa188f",
+      "name": "Sticky Note3"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen ": {
+      "main": [
+        [
+          {
+            "node": "Array leeren + Start URL setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Array leeren + Start URL setzen": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Bestellungen ": {
+      "main": [
+        [
+          {
+            "node": "NextURL weitergeben + Versandart prüfen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextURL weitergeben + Versandart prüfen ": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Debug Node (später löschen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "GIbt es NextURL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIbt es NextURL?": {
+      "main": [
+        [
+          {
+            "node": "Token holen 1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Token holen 1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "21219034-00a6-4ea0-a241-b52a5f9bfc24",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-06-26T08:14:26.804Z",
+      "createdAt": "2026-06-26T08:14:26.804Z",
+      "role": "workflow:owner",
+      "workflowId": "6TahL11tWYSu83Dn",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

@@ -1,0 +1,536 @@
+{
+  "updatedAt": "2026-05-12T14:03:07.671Z",
+  "createdAt": "2026-05-12T11:34:27.850Z",
+  "id": "lION9PlTPXkHDfu1",
+  "name": "Shopify Minusbestand Report CINNA LEAF",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        912,
+        1088
+      ],
+      "id": "5bcdb6e8-cb93-4c4b-bba7-9a0da0849981",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.report = {\n  titel: 'Shopify Minusbestand Report',\n  sendto: 'EMPFAENGER_EINTRAGEN',\n  timezone: 'Europe/Berlin',\n};\n\nstaticData.cinna = {\n  shopName: 'CINNA',\n  shopDomain: 'CINNA_SHOP_DOMAIN.myshopify.com',\n  accessToken: 'CINNA_SHOPIFY_ADMIN_ACCESS_TOKEN',\n  nextCursor: null,\n  hasNextPage: true,\n};\n\nstaticData.leaf = {\n  shopName: 'LEAF',\n  shopDomain: 'LEAF_SHOP_DOMAIN.myshopify.com',\n  accessToken: 'LEAF_SHOPIFY_ADMIN_ACCESS_TOKEN',\n  nextCursor: null,\n  hasNextPage: true,\n};\n\nstaticData.cinnaMinusbestand = [];\nstaticData.leafMinusbestand = [];\n\nreturn [{\n  json: {\n    success: true,\n    message: 'Report-Konfiguration gesetzt und Zwischenspeicher geleert',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        1088
+      ],
+      "id": "6c94bf57-6e4b-4031-813a-2087a1bf9cc0",
+      "name": "SETZEN REPORT KONFIGURATION"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst shop = staticData.cinna;\n\nreturn [{\n  json: {\n    shopKey: 'cinna',\n    shopName: shop.shopName,\n    shopDomain: shop.shopDomain,\n    accessToken: shop.accessToken,\n    cursor: shop.nextCursor || null,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        1088
+      ],
+      "id": "dc436841-7d19-4879-a4ad-06722cb59141",
+      "name": "START CINNA PAGINATION"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.shopDomain }}/admin/api/2025-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  query: `query GetProducts($cursor: String) {\n    products(first: 250, after: $cursor) {\n      pageInfo {\n        hasNextPage\n        endCursor\n      }\n      edges {\n        node {\n          id\n          title\n          handle\n          status\n          vendor\n          variants(first: 100) {\n            edges {\n              node {\n                id\n                title\n                sku\n                barcode\n                inventoryQuantity\n              }\n            }\n          }\n        }\n      }\n    }\n  }`,\n  variables: { cursor: $json.cursor }\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1744,
+        1088
+      ],
+      "id": "72a66c87-306d-408c-858c-d33270c50c5d",
+      "name": "HOLE CINNA PRODUKTE",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst context = $('START CINNA PAGINATION').item.json;\nconst shopKey = context.shopKey;\nconst shopName = context.shopName;\nconst shopDomain = context.shopDomain;\n\nlet response = $json;\nif (typeof response.data === 'string') {\n  response = JSON.parse(response.data);\n}\n\nconst products = response.data?.products?.edges || [];\nconst pageInfo = response.data?.products?.pageInfo || {};\n\nconst storageKey = `${shopKey}Minusbestand`;\nif (!Array.isArray(staticData[storageKey])) {\n  staticData[storageKey] = [];\n}\n\nfor (const productEdge of products) {\n  const product = productEdge.node || {};\n  const variants = product.variants?.edges || [];\n\n  for (const variantEdge of variants) {\n    const variant = variantEdge.node || {};\n    const bestand = Number(variant.inventoryQuantity ?? 0);\n\n    if (bestand < 0) {\n      staticData[storageKey].push({\n        shop: shopName,\n        productTitle: product.title || '',\n        variantTitle: variant.title || '',\n        sku: variant.sku || '',\n        barcode: variant.barcode || '',\n        inventoryQuantity: bestand,\n        status: product.status || '',\n        productUrl: `https://${shopDomain}/products/${product.handle || ''}`,\n      });\n    }\n  }\n}\n\nstaticData[shopKey].nextCursor = pageInfo.endCursor || null;\nstaticData[shopKey].hasNextPage = Boolean(pageInfo.hasNextPage);\n\nreturn [{\n  json: {\n    shopKey,\n    shopName,\n    hasNextPage: staticData[shopKey].hasNextPage,\n    nextCursor: staticData[shopKey].nextCursor,\n    minusbestandCount: staticData[storageKey].length,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1936,
+        1088
+      ],
+      "id": "f3f059c7-e19c-4a7d-bb89-89e73b762ef5",
+      "name": "SPEICHERE CINNA MINUSBESTAND"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7f51fd19-1b36-4ee8-bdce-2a233cf6c878",
+              "leftValue": "={{ $json.hasNextPage }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2144,
+        1088
+      ],
+      "id": "72f0db43-488f-4579-9524-74db0debd8c9",
+      "name": "GIBT ES CINNA NEXT PAGE?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst shop = staticData.cinna;\n\nreturn [{\n  json: {\n    shopKey: 'cinna',\n    shopName: shop.shopName,\n    shopDomain: shop.shopDomain,\n    accessToken: shop.accessToken,\n    cursor: shop.nextCursor || null,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        1072
+      ],
+      "id": "a0881b0f-1edf-4b8b-8c66-40208ecdda80",
+      "name": "IF-VORBEREITUNG CINNA"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst shop = staticData.leaf;\n\nreturn [{\n  json: {\n    shopKey: 'leaf',\n    shopName: shop.shopName,\n    shopDomain: shop.shopDomain,\n    accessToken: shop.accessToken,\n    cursor: shop.nextCursor || null,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        1456
+      ],
+      "id": "50c3e184-c6cb-4fad-8278-b7340747febb",
+      "name": "START LEAF PAGINATION"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.shopDomain }}/admin/api/2025-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  query: `query GetProducts($cursor: String) {\n    products(first: 250, after: $cursor) {\n      pageInfo {\n        hasNextPage\n        endCursor\n      }\n      edges {\n        node {\n          id\n          title\n          handle\n          status\n          vendor\n          variants(first: 100) {\n            edges {\n              node {\n                id\n                title\n                sku\n                barcode\n                inventoryQuantity\n              }\n            }\n          }\n        }\n      }\n    }\n  }`,\n  variables: { cursor: $json.cursor }\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1728,
+        1456
+      ],
+      "id": "92274f0a-c1a7-4169-b305-bfa76846b1db",
+      "name": "HOLE LEAF PRODUKTE",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst context = $('START LEAF PAGINATION').item.json;\nconst shopKey = context.shopKey;\nconst shopName = context.shopName;\nconst shopDomain = context.shopDomain;\n\nlet response = $json;\nif (typeof response.data === 'string') {\n  response = JSON.parse(response.data);\n}\n\nconst products = response.data?.products?.edges || [];\nconst pageInfo = response.data?.products?.pageInfo || {};\n\nconst storageKey = `${shopKey}Minusbestand`;\nif (!Array.isArray(staticData[storageKey])) {\n  staticData[storageKey] = [];\n}\n\nfor (const productEdge of products) {\n  const product = productEdge.node || {};\n  const variants = product.variants?.edges || [];\n\n  for (const variantEdge of variants) {\n    const variant = variantEdge.node || {};\n    const bestand = Number(variant.inventoryQuantity ?? 0);\n\n    if (bestand < 0) {\n      staticData[storageKey].push({\n        shop: shopName,\n        productTitle: product.title || '',\n        variantTitle: variant.title || '',\n        sku: variant.sku || '',\n        barcode: variant.barcode || '',\n        inventoryQuantity: bestand,\n        status: product.status || '',\n        productUrl: `https://${shopDomain}/products/${product.handle || ''}`,\n      });\n    }\n  }\n}\n\nstaticData[shopKey].nextCursor = pageInfo.endCursor || null;\nstaticData[shopKey].hasNextPage = Boolean(pageInfo.hasNextPage);\n\nreturn [{\n  json: {\n    shopKey,\n    shopName,\n    hasNextPage: staticData[shopKey].hasNextPage,\n    nextCursor: staticData[shopKey].nextCursor,\n    minusbestandCount: staticData[storageKey].length,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1936,
+        1456
+      ],
+      "id": "43efddc0-4c7d-42d0-9aaa-82138b735b43",
+      "name": "SPEICHERE LEAF MINUSBESTAND"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "926fec6a-1369-4d99-81f9-c82302dc953e",
+              "leftValue": "={{ $json.hasNextPage }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2144,
+        1456
+      ],
+      "id": "2768dfd2-28c5-465c-9189-905b6396aa66",
+      "name": "GIBT ES LEAF NEXT PAGE?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst shop = staticData.leaf;\n\nreturn [{\n  json: {\n    shopKey: 'leaf',\n    shopName: shop.shopName,\n    shopDomain: shop.shopDomain,\n    accessToken: shop.accessToken,\n    cursor: shop.nextCursor || null,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        1440
+      ],
+      "id": "7ba04a04-e93b-40d9-86c4-f056e424ded7",
+      "name": "IF-VORBEREITUNG LEAF"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nfunction escapeHtml(value) {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n}\n\nfunction buildTable(title, rows) {\n  const sortedRows = [...rows].sort((a, b) => Number(a.inventoryQuantity) - Number(b.inventoryQuantity));\n\n  if (sortedRows.length === 0) {\n    return `<h2>${escapeHtml(title)}</h2><p>Keine Produkte mit Minusbestand gefunden.</p>`;\n  }\n\n  const trs = sortedRows.map(row => `\n    <tr>\n      <td>${escapeHtml(row.productTitle)}</td>\n      <td>${escapeHtml(row.variantTitle)}</td>\n      <td>${escapeHtml(row.sku)}</td>\n      <td>${escapeHtml(row.barcode)}</td>\n      <td style=\"text-align:right;\"><strong>${escapeHtml(row.inventoryQuantity)}</strong></td>\n      <td>${escapeHtml(row.status)}</td>\n      <td><a href=\"${escapeHtml(row.productUrl)}\">Produkt öffnen</a></td>\n    </tr>\n  `).join('');\n\n  return `\n    <h2>${escapeHtml(title)}</h2>\n    <table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:13px;\">\n      <thead>\n        <tr style=\"background:#f2f2f2;\">\n          <th>Produkt</th>\n          <th>Variante</th>\n          <th>SKU</th>\n          <th>Barcode/EAN</th>\n          <th>Bestand</th>\n          <th>Status</th>\n          <th>Link</th>\n        </tr>\n      </thead>\n      <tbody>${trs}</tbody>\n    </table>\n  `;\n}\n\nconst report = staticData.report || {};\nconst cinnaRows = Array.isArray(staticData.cinnaMinusbestand) ? staticData.cinnaMinusbestand : [];\nconst leafRows = Array.isArray(staticData.leafMinusbestand) ? staticData.leafMinusbestand : [];\nconst timestamp = $now.setZone(report.timezone || 'Europe/Berlin').toFormat('dd.MM.yyyy HH:mm');\n\nconst html = `\n  <p>Guten Morgen,</p>\n  <p>hier ist der morgendliche Shopify-Minusbestand-Report vom ${timestamp} Uhr.</p>\n  <p>Definition: Aufgeführt werden Varianten mit Bestand kleiner 0.</p>\n  ${buildTable('CINNA - Produkte mit Minusbestand', cinnaRows)}\n  <br>\n  ${buildTable('LEAF - Produkte mit Minusbestand', leafRows)}\n  <p>Liebe Grüße<br>${escapeHtml(report.titel || 'Shopify Minusbestand Report')} - Flow</p>\n`;\n\nreturn [{\n  json: {\n    titel: report.titel || 'Shopify Minusbestand Report',\n    sendto: report.sendto || '',\n    subject: `${report.titel || 'Shopify Minusbestand Report'} - ${$now.setZone(report.timezone || 'Europe/Berlin').toFormat('dd.MM.yyyy')}`,\n    mailText: html,\n    cinnaMinusbestandCount: cinnaRows.length,\n    leafMinusbestandCount: leafRows.length,\n    totalMinusbestandCount: cinnaRows.length + leafRows.length,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        1856
+      ],
+      "id": "1bd0e7b5-fd53-4788-89e6-a878e05b7379",
+      "name": "FINALE AUSWERTUNG HTML REPORT"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "={{ $json.sendto }}",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.mailText }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2352,
+        1856
+      ],
+      "id": "cf1cf655-6225-4767-9777-b03e6ac51652",
+      "name": "SEND MORGENREPORT",
+      "webhookId": "22bec9ff-7e2a-4171-9e57-09204aac34aa",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## CINNA Pagination",
+        "height": 320,
+        "width": 1280,
+        "color": "#312330"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1392,
+        1008
+      ],
+      "id": "7abcf0d9-5c72-4ee7-b54f-662c8d26a0e1",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## LEAF Pagination",
+        "height": 320,
+        "width": 1280,
+        "color": "#545847"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1392,
+        1360
+      ],
+      "id": "1f771b4d-d740-442a-b2cf-f0440e1136c9",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Mailing\n",
+        "height": 320,
+        "width": 592,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        1712
+      ],
+      "id": "b410bd76-b065-45b7-9b71-2bbe93d9b867",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "##Notes\ncurl -X POST \"https://DEIN-SHOP.myshopify.com/admin/api/2025-10/graphql.json\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Shopify-Access-Token: DEIN_ADMIN_API_ACCESS_TOKEN\" \\\n  -d '{\n    \"query\": \"query GetNegativeInventoryVariants($cursor: String) { productVariants(first: 250, after: $cursor, query: \\\"inventory_quantity:<0\\\") { pageInfo { hasNextPage endCursor } edges { node { id title sku barcode inventoryQuantity product { id title handle status } } } } }\",\n    \"variables\": {\n      \"cursor\": null\n    }\n  }'\n\nSo erhält man API-Token -> LEAF hat schon passende App: \ncurl -X POST \"https://DEIN-SHOP.myshopify.com/admin/oauth/access_token\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"client_id\": \"DEINE_CLIENT_ID\",\n    \"client_secret\": \"DEIN_CLIENT_SECRET\",\n    \"grant_type\": \"client_credentials\"\n  }'",
+        "height": 1152,
+        "width": 896
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2832,
+        672
+      ],
+      "id": "f54bebdb-d507-46d5-b382-bedf2147a540",
+      "name": "Sticky Note3"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "SETZEN REPORT KONFIGURATION",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SETZEN REPORT KONFIGURATION": {
+      "main": [
+        [
+          {
+            "node": "START CINNA PAGINATION",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "START CINNA PAGINATION": {
+      "main": [
+        [
+          {
+            "node": "HOLE CINNA PRODUKTE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HOLE CINNA PRODUKTE": {
+      "main": [
+        [
+          {
+            "node": "SPEICHERE CINNA MINUSBESTAND",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SPEICHERE CINNA MINUSBESTAND": {
+      "main": [
+        [
+          {
+            "node": "GIBT ES CINNA NEXT PAGE?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIBT ES CINNA NEXT PAGE?": {
+      "main": [
+        [
+          {
+            "node": "IF-VORBEREITUNG CINNA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "START LEAF PAGINATION",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF-VORBEREITUNG CINNA": {
+      "main": [
+        [
+          {
+            "node": "HOLE CINNA PRODUKTE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "START LEAF PAGINATION": {
+      "main": [
+        [
+          {
+            "node": "HOLE LEAF PRODUKTE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HOLE LEAF PRODUKTE": {
+      "main": [
+        [
+          {
+            "node": "SPEICHERE LEAF MINUSBESTAND",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SPEICHERE LEAF MINUSBESTAND": {
+      "main": [
+        [
+          {
+            "node": "GIBT ES LEAF NEXT PAGE?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIBT ES LEAF NEXT PAGE?": {
+      "main": [
+        [
+          {
+            "node": "IF-VORBEREITUNG LEAF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FINALE AUSWERTUNG HTML REPORT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF-VORBEREITUNG LEAF": {
+      "main": [
+        [
+          {
+            "node": "HOLE LEAF PRODUKTE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FINALE AUSWERTUNG HTML REPORT": {
+      "main": [
+        [
+          {
+            "node": "SEND MORGENREPORT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "a0c3594b-4700-4e5e-a7ed-ab19640fba04",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-05-12T11:34:27.853Z",
+      "createdAt": "2026-05-12T11:34:27.853Z",
+      "role": "workflow:owner",
+      "workflowId": "lION9PlTPXkHDfu1",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

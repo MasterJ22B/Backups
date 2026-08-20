@@ -1,0 +1,853 @@
+{
+  "updatedAt": "2026-06-15T07:36:00.220Z",
+  "createdAt": "2026-06-03T07:26:30.019Z",
+  "id": "VrMhqGWTOVoSLRL8",
+  "name": "Überfällige Lieferantenbestellungen - PM Benachrichtigung",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.titel = 'Einkauf | überfällige Lieferantenbestellungen vom '+ $now.setZone('Europe/Berlin').toFormat('yyyy-MM-dd');\nstaticData.sendtoSammel = 'einkauf@buecherbuechse.de, christoph@buecherbuechse.de, lisa@buecherbuechse.de';\nstaticData.mailDomain = 'buecherbuechse.de';\n\nreturn [\n  {\n    json: {\n      success: true,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        304
+      ],
+      "id": "897b5928-dea7-4540-b984-1b0e50000b66",
+      "name": "Setzen von globalen Variablen "
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  Bestellung.cEigeneBestellnummer    AS Bestellnummer,\n  Lieferant.cFirma                   AS Lieferant,\n  Position.cArtNr                    AS ArtNr,\n  Position.cName                     AS Artikel,\n  Position.fAnzahlOffen              AS MengeOffen,\n  COALESCE(Position.dLieferdatum, Bestellung.dLieferdatum) AS Lieferdatum,\n  DATEDIFF(\n    day,\n    COALESCE(Position.dLieferdatum, Bestellung.dLieferdatum),\n    CAST(GETDATE() AS date)\n  )                                  AS TageUeberfaellig,\n  PMAttribut.cWertVarchar            AS Produktmanager,\n  CASE \n    WHEN PMAttribut.cWertVarchar = 'Einkauf' THEN 'einkauf@buecherbuechse.de'\n    ELSE BenutzerPM.cEMail \n  END                                AS MailProduktmanager,\n  BenutzerBesteller.cName            AS Besteller,\n  BenutzerBesteller.cEMail           AS MailBesteller\nFROM [eazybusiness].[dbo].[tLieferantenBestellung] Bestellung\nINNER JOIN [eazybusiness].[dbo].[tLieferantenBestellungPos] Position\n  ON Position.kLieferantenBestellung = Bestellung.kLieferantenBestellung\nLEFT JOIN [eazybusiness].[dbo].[tlieferant] Lieferant\n  ON Lieferant.kLieferant = Bestellung.kLieferant\nLEFT JOIN [eazybusiness].[dbo].[tArtikelAttribut] ArtikelAttribut\n  ON ArtikelAttribut.kArtikel = Position.kArtikel\nLEFT JOIN [eazybusiness].[dbo].[tAttribut] Attribut\n  ON Attribut.kAttribut = ArtikelAttribut.kAttribut\nLEFT JOIN [eazybusiness].[dbo].[tAttributSprache] AttributSprache\n  ON AttributSprache.kAttribut = Attribut.kAttribut\n AND AttributSprache.cName = 'Verantwortlicher Produktmanager'\nOUTER APPLY (\n  SELECT TOP 1 ArtikelAttributSprache.cWertVarchar\n  FROM [eazybusiness].[dbo].[tArtikelAttributSprache] ArtikelAttributSprache\n  WHERE ArtikelAttributSprache.kArtikelAttribut = ArtikelAttribut.kArtikelAttribut\n  ORDER BY ArtikelAttributSprache.kSprache\n) PMAttribut\nLEFT JOIN [eazybusiness].[dbo].[tBenutzer] BenutzerPM\n  ON BenutzerPM.cName = PMAttribut.cWertVarchar\nLEFT JOIN [eazybusiness].[dbo].[tBenutzer] BenutzerBesteller\n  ON BenutzerBesteller.kBenutzer = Bestellung.kBenutzer\nWHERE\n    Bestellung.cEigeneBestellnummer LIKE 'PO-%'\n  AND Bestellung.cEigeneBestellnummer NOT LIKE 'U-%'\n  AND Bestellung.nStatus IN (20,30)\n  AND Bestellung.nDeleted = 0\n  AND Bestellung.nManuellAbgeschlossen = 0\n  AND Position.fAnzahlOffen > 0\n  AND AttributSprache.cName = 'Verantwortlicher Produktmanager'\n  AND COALESCE(Position.dLieferdatum, Bestellung.dLieferdatum) < CAST(GETDATE() AS date)\nORDER BY TageUeberfaellig DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -688,
+        304
+      ],
+      "id": "027d89ae-207c-4075-ad17-a740e4ff996a",
+      "name": "Microsoft SQL",
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b1000000-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.Bestellnummer }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -496,
+        304
+      ],
+      "id": "4e78d385-d9c1-41da-bda2-049d11becfb9",
+      "name": "Check IF empty"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst titel = staticData.titel || 'Überfällige Lieferantenbestellungen';\nconst sendto = staticData.sendtoSammel || '';\n\nreturn [\n  {\n    json: {\n      titel,\n      sendto,\n      mailText: `<p>Der ${titel} wurde ausgeführt.</p>\n<p>Es gab keine überfälligen, offenen Lieferantenbestellungen in Bearbeitung.</p>\n<p>Liebe Grüße<br>${titel} - Flow</p>`,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -288,
+        544
+      ],
+      "id": "02fb8de7-75a1-42e2-984d-62e8c7e71fbd",
+      "name": "Mail-Vorbereitung Leer"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "={{ $json.sendto }}",
+        "subject": "={{ $json.titel }}",
+        "html": "={{ $json.mailText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -128,
+        544
+      ],
+      "id": "237dd540-f614-4fd4-a5f5-c30251748f4f",
+      "name": "Keine Überfälligen",
+      "webhookId": "c1000000-0000-0000-0000-000000000001",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aufbereitung: Positionen anreichern (PM-Mail ableiten, Datum formatieren)\n// Ergebnis wird unverändert weitergereicht; abgeleitete Felder ergänzt.\n\n\nreturn items.map(item => {\n  const row = item.json;\n\n  const pmName = String(row.Produktmanager ?? '').trim();\n  const pmMail = String(row.MailProduktmanager ?? '').trim();\n\n  // Lieferdatum lesbar machen (YYYY-MM-DD)\n  const lieferdatum = String(row.Lieferdatum ?? '').slice(0, 10);\n\n  return {\n    json: {\n      ...row,\n      Lieferdatum: lieferdatum,\n    },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        208
+      ],
+      "id": "a22e5c2a-03f4-4c55-90df-81f01e6de3af",
+      "name": "Aufbereitung"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sammelmail an Einkauf & GF: ALLE Positionen, sortiert nach Überfälligkeit.\nconst staticData = $getWorkflowStaticData('global');\nconst titel = staticData.titel || 'Überfällige Lieferantenbestellungen';\nconst sendto = staticData.sendtoSammel || '';\n\nconst escapeHtml = (value) => {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n};\n\nconst sortiert = items\n  .map(i => i.json)\n  .sort((a, b) => Number(b.TageUeberfaellig) - Number(a.TageUeberfaellig));\n\nconst zeilen = sortiert.map(row => `\n    <tr>\n      <td>${escapeHtml(row.Bestellnummer)}</td>\n      <td>${escapeHtml(row.Lieferant)}</td>\n      <td>${escapeHtml(row.ArtNr)}</td>\n      <td>${escapeHtml(row.Artikel)}</td>\n      <td align=\"right\">${escapeHtml(row.MengeOffen)}</td>\n      <td>${escapeHtml(row.Lieferdatum)}</td>\n      <td align=\"right\">${escapeHtml(row.TageUeberfaellig)}</td>\n      <td>${escapeHtml(row.Besteller)}</td>\n      <td>${escapeHtml(row.Produktmanager)}</td>\n    </tr>`).join('');\n\nconst mailText = `\n<p>Der ${escapeHtml(titel)} - Flow hat folgende überfällige, offene Lieferantenbestellungen (in Bearbeitung) gefunden:</p>\n\n<p>Insgesamt ${escapeHtml(sortiert.length)} Positionen, sortiert nach Überfälligkeit.</p>\n\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;\">\n  <thead>\n    <tr>\n      <th align=\"left\">Bestellnr.</th>\n      <th align=\"left\">Lieferant</th>\n      <th align=\"left\">ArtNr</th>\n      <th align=\"left\">Artikel</th>\n      <th align=\"right\">Menge offen</th>\n      <th align=\"left\">Lieferdatum</th>\n      <th align=\"right\">Tage überfällig</th>\n      <th align=\"left\">Besteller</th>\n      <th align=\"left\">Produktmanager</th>\n    </tr>\n  </thead>\n  <tbody>${zeilen}\n  </tbody>\n</table>\n\n<p>Liebe Grüße<br>${escapeHtml(titel)} - Flow</p>\n`;\n\nreturn [\n  {\n    json: {\n      titel,\n      sendto,\n      anzahlPositionen: sortiert.length,\n      mailText,\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        512
+      ],
+      "id": "a952d9c0-20f3-4df3-94bb-bcdc70a8e248",
+      "name": "Sammel-Aufbereitung"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "christoph@buecherbuechse.de, einkauf@buecherbuechse.de, lisa@buecherbuechse.de",
+        "subject": "={{ $json.titel }} | Einkauf & GF",
+        "html": "={{ $json.mailText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        288,
+        512
+      ],
+      "id": "05eb3916-984a-4160-a0c9-890a81b5d8b3",
+      "name": "Sammelmail Einkauf & GF",
+      "webhookId": "c1000000-0000-0000-0000-000000000003",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Trigger plus Abfrage\nTäglich 6 Uhr. SQL holt überfällige, offene LB-Positionen (Status 20 = In Bearbeitung) inkl. Produktmanager.",
+        "height": 288,
+        "width": 768,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1104,
+        160
+      ],
+      "id": "2e92871a-7c3e-406a-9454-084d5f1f21bd",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Keine Überfälligen\nFalls die Abfrage leer ist, geht eine Info-Mail an Einkauf & GF.",
+        "height": 304,
+        "width": 304,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        400
+      ],
+      "id": "6b74d3d7-4f2d-4515-b55b-f9ad04f437ec",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Aufbereitung\n",
+        "height": 272,
+        "width": 304,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        112
+      ],
+      "id": "98a04077-2932-48eb-99dd-ff75e617f6da",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Mail pro Produktmanager\nEin Item pro PM, jede Mail enthält nur dessen eigene Positionen.",
+        "height": 288,
+        "width": 416,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        32,
+        16
+      ],
+      "id": "8177f4a5-a198-4864-815e-7b0a6c8c7872",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Sammelmail Einkauf & GF\nAlle Positionen, sortiert nach Überfälligkeit. Empfänger derzeit PLATZHALTER.",
+        "height": 336,
+        "width": 416,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        32,
+        352
+      ],
+      "id": "ddc5e77b-b13b-44b9-8469-e4ee26a3eaa8",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "={{ $json.sendto }}",
+        "subject": "={{ $json.titel }}",
+        "html": "={{ $json.mailText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        288,
+        160
+      ],
+      "id": "6b68313b-328b-45e6-bfb9-8cb72e4b6fa6",
+      "name": "Mail pro PM/Besteller",
+      "webhookId": "c1000000-0000-0000-0000-000000000002",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Empfänger-Gruppierung: ein Item pro Empfänger-Mailadresse (PM ODER Besteller).\n// Jede Position wird der/den betroffenen Person(en) zugeordnet (PM und/oder Besteller).\n// Ist Besteller == PM, erhält die Person die Position nur einmal -> keine Doppel-Mails.\nconst staticData = $getWorkflowStaticData('global');\nconst titel = staticData.titel || 'Überfällige Lieferantenbestellungen';\n\nconst escapeHtml = (value) => {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n};\n\n// Nach Empfänger-Mail gruppieren\nconst empfMap = new Map();\n\nconst addZuordnung = (mail, name, row) => {\n  const key = String(mail || '').trim().toLowerCase();\n  if (!key) return;\n\n  if (!empfMap.has(key)) {\n    empfMap.set(key, {\n      Name: name,\n      Mail: mail,\n      positionen: [],\n      seen: new Set(),\n    });\n  }\n\n  const gruppe = empfMap.get(key);\n  // Eindeutigkeit pro Position (Bestellnummer + ArtNr), damit PM==Besteller nicht doppelt zählt\n  const posKey = `${row.Bestellnummer}|${row.ArtNr}`;\n  if (gruppe.seen.has(posKey)) return;\n  gruppe.seen.add(posKey);\n  gruppe.positionen.push(row);\n};\n\nfor (const item of items) {\n  const row = item.json;\n  // Position dem PM zuordnen\n  addZuordnung(row.MailProduktmanager, row.Produktmanager, row);\n  // Position dem Besteller zuordnen\n  addZuordnung(row.MailBesteller, row.Besteller, row);\n}\n\nconst result = [];\n\nfor (const gruppe of empfMap.values()) {\n  if (!gruppe.Mail) continue;\n\n  const sortiert = gruppe.positionen\n    .sort((a, b) => Number(b.TageUeberfaellig) - Number(a.TageUeberfaellig));\n\n  const zeilen = sortiert.map(row => `\n    <tr>\n      <td>${escapeHtml(row.Bestellnummer)}</td>\n      <td>${escapeHtml(row.Lieferant)}</td>\n      <td>${escapeHtml(row.ArtNr)}</td>\n      <td>${escapeHtml(row.Artikel)}</td>\n      <td align=\"right\">${escapeHtml(row.MengeOffen)}</td>\n      <td>${escapeHtml(row.Lieferdatum)}</td>\n      <td align=\"right\">${escapeHtml(row.TageUeberfaellig)}</td>\n    </tr>`).join('');\n\n  const mailText = `\n<p>Hallo ${escapeHtml(gruppe.Name)},</p>\n\n<p>folgende Artikel, für die du als Produktmanager oder Besteller zuständig bist, wurden nicht zum geplanten Liefertermin angeliefert (Bestellung in Bearbeitung, offene Menge, mindestens 1 Tag überfällig):</p>\n\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;\">\n  <thead>\n    <tr>\n      <th align=\"left\">Bestellnr.</th>\n      <th align=\"left\">Lieferant</th>\n      <th align=\"left\">ArtNr</th>\n      <th align=\"left\">Artikel</th>\n      <th align=\"right\">Menge offen</th>\n      <th align=\"left\">Lieferdatum</th>\n      <th align=\"right\">Tage überfällig</th>\n    </tr>\n  </thead>\n  <tbody>${zeilen}\n  </tbody>\n</table>\n`;\n\n  result.push({\n    json: {\n      Empfaenger: gruppe.Name,\n      sendto: gruppe.Mail,\n      titel: `${titel} - deine Artikel`,\n      anzahlPositionen: sortiert.length,\n      mailText,\n    },\n  });\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        160
+      ],
+      "id": "64714264-386b-4b1d-921f-1cc29e60147f",
+      "name": "PM/Besteller-Gruppierung"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1088,
+        304
+      ],
+      "id": "839ad096-54a8-4538-9e9d-4daf4b0da8e2",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "connections": {
+    "Setzen von globalen Variablen ": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL": {
+      "main": [
+        [
+          {
+            "node": "Check IF empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check IF empty": {
+      "main": [
+        [
+          {
+            "node": "Aufbereitung",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mail-Vorbereitung Leer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Vorbereitung Leer": {
+      "main": [
+        []
+      ]
+    },
+    "Aufbereitung": {
+      "main": [
+        [
+          {
+            "node": "PM/Besteller-Gruppierung",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sammel-Aufbereitung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sammel-Aufbereitung": {
+      "main": [
+        [
+          {
+            "node": "Sammelmail Einkauf & GF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PM/Besteller-Gruppierung": {
+      "main": [
+        [
+          {
+            "node": "Mail pro PM/Besteller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Setzen von globalen Variablen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "saveDataSuccessExecution": "all",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "global": {
+      "titel": "Einkauf | überfällige Lieferantenbestellungen vom 2026-08-12",
+      "sendtoSammel": "einkauf@buecherbuechse.de, christoph@buecherbuechse.de, lisa@buecherbuechse.de",
+      "mailDomain": "buecherbuechse.de"
+    }
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "c3a0ae5b-4a64-4aa3-b0e8-3df77d576ec5",
+  "activeVersionId": "c3a0ae5b-4a64-4aa3-b0e8-3df77d576ec5",
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-06-03T07:26:30.023Z",
+      "createdAt": "2026-06-03T07:26:30.023Z",
+      "role": "workflow:owner",
+      "workflowId": "VrMhqGWTOVoSLRL8",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-06-16T04:07:38.000Z",
+    "createdAt": "2026-06-15T07:35:59.963Z",
+    "versionId": "c3a0ae5b-4a64-4aa3-b0e8-3df77d576ec5",
+    "workflowId": "VrMhqGWTOVoSLRL8",
+    "nodes": [
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.titel = 'Einkauf | überfällige Lieferantenbestellungen vom '+ $now.setZone('Europe/Berlin').toFormat('yyyy-MM-dd');\nstaticData.sendtoSammel = 'einkauf@buecherbuechse.de, christoph@buecherbuechse.de, lisa@buecherbuechse.de';\nstaticData.mailDomain = 'buecherbuechse.de';\n\nreturn [\n  {\n    json: {\n      success: true,\n    },\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -880,
+          304
+        ],
+        "id": "897b5928-dea7-4540-b984-1b0e50000b66",
+        "name": "Setzen von globalen Variablen "
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT\n  Bestellung.cEigeneBestellnummer    AS Bestellnummer,\n  Lieferant.cFirma                   AS Lieferant,\n  Position.cArtNr                    AS ArtNr,\n  Position.cName                     AS Artikel,\n  Position.fAnzahlOffen              AS MengeOffen,\n  COALESCE(Position.dLieferdatum, Bestellung.dLieferdatum) AS Lieferdatum,\n  DATEDIFF(\n    day,\n    COALESCE(Position.dLieferdatum, Bestellung.dLieferdatum),\n    CAST(GETDATE() AS date)\n  )                                  AS TageUeberfaellig,\n  PMAttribut.cWertVarchar            AS Produktmanager,\n  CASE \n    WHEN PMAttribut.cWertVarchar = 'Einkauf' THEN 'einkauf@buecherbuechse.de'\n    ELSE BenutzerPM.cEMail \n  END                                AS MailProduktmanager,\n  BenutzerBesteller.cName            AS Besteller,\n  BenutzerBesteller.cEMail           AS MailBesteller\nFROM [eazybusiness].[dbo].[tLieferantenBestellung] Bestellung\nINNER JOIN [eazybusiness].[dbo].[tLieferantenBestellungPos] Position\n  ON Position.kLieferantenBestellung = Bestellung.kLieferantenBestellung\nLEFT JOIN [eazybusiness].[dbo].[tlieferant] Lieferant\n  ON Lieferant.kLieferant = Bestellung.kLieferant\nLEFT JOIN [eazybusiness].[dbo].[tArtikelAttribut] ArtikelAttribut\n  ON ArtikelAttribut.kArtikel = Position.kArtikel\nLEFT JOIN [eazybusiness].[dbo].[tAttribut] Attribut\n  ON Attribut.kAttribut = ArtikelAttribut.kAttribut\nLEFT JOIN [eazybusiness].[dbo].[tAttributSprache] AttributSprache\n  ON AttributSprache.kAttribut = Attribut.kAttribut\n AND AttributSprache.cName = 'Verantwortlicher Produktmanager'\nOUTER APPLY (\n  SELECT TOP 1 ArtikelAttributSprache.cWertVarchar\n  FROM [eazybusiness].[dbo].[tArtikelAttributSprache] ArtikelAttributSprache\n  WHERE ArtikelAttributSprache.kArtikelAttribut = ArtikelAttribut.kArtikelAttribut\n  ORDER BY ArtikelAttributSprache.kSprache\n) PMAttribut\nLEFT JOIN [eazybusiness].[dbo].[tBenutzer] BenutzerPM\n  ON BenutzerPM.cName = PMAttribut.cWertVarchar\nLEFT JOIN [eazybusiness].[dbo].[tBenutzer] BenutzerBesteller\n  ON BenutzerBesteller.kBenutzer = Bestellung.kBenutzer\nWHERE\n    Bestellung.cEigeneBestellnummer LIKE 'PO-%'\n  AND Bestellung.cEigeneBestellnummer NOT LIKE 'U-%'\n  AND Bestellung.nStatus IN (20,30)\n  AND Bestellung.nDeleted = 0\n  AND Bestellung.nManuellAbgeschlossen = 0\n  AND Position.fAnzahlOffen > 0\n  AND AttributSprache.cName = 'Verantwortlicher Produktmanager'\n  AND COALESCE(Position.dLieferdatum, Bestellung.dLieferdatum) < CAST(GETDATE() AS date)\nORDER BY TageUeberfaellig DESC;",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          -688,
+          304
+        ],
+        "id": "027d89ae-207c-4075-ad17-a740e4ff996a",
+        "name": "Microsoft SQL",
+        "alwaysOutputData": true,
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "b1000000-0000-0000-0000-000000000001",
+                "leftValue": "={{ $json.Bestellnummer }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "exists",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          -496,
+          304
+        ],
+        "id": "4e78d385-d9c1-41da-bda2-049d11becfb9",
+        "name": "Check IF empty"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst titel = staticData.titel || 'Überfällige Lieferantenbestellungen';\nconst sendto = staticData.sendtoSammel || '';\n\nreturn [\n  {\n    json: {\n      titel,\n      sendto,\n      mailText: `<p>Der ${titel} wurde ausgeführt.</p>\n<p>Es gab keine überfälligen, offenen Lieferantenbestellungen in Bearbeitung.</p>\n<p>Liebe Grüße<br>${titel} - Flow</p>`,\n    },\n  },\n];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -288,
+          544
+        ],
+        "id": "02fb8de7-75a1-42e2-984d-62e8c7e71fbd",
+        "name": "Mail-Vorbereitung Leer"
+      },
+      {
+        "parameters": {
+          "fromEmail": "n8n@mail.buecherbuechse.de",
+          "toEmail": "={{ $json.sendto }}",
+          "subject": "={{ $json.titel }}",
+          "html": "={{ $json.mailText }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          -128,
+          544
+        ],
+        "id": "237dd540-f614-4fd4-a5f5-c30251748f4f",
+        "name": "Keine Überfälligen",
+        "webhookId": "c1000000-0000-0000-0000-000000000001",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        },
+        "disabled": true
+      },
+      {
+        "parameters": {
+          "jsCode": "// Aufbereitung: Positionen anreichern (PM-Mail ableiten, Datum formatieren)\n// Ergebnis wird unverändert weitergereicht; abgeleitete Felder ergänzt.\n\n\nreturn items.map(item => {\n  const row = item.json;\n\n  const pmName = String(row.Produktmanager ?? '').trim();\n  const pmMail = String(row.MailProduktmanager ?? '').trim();\n\n  // Lieferdatum lesbar machen (YYYY-MM-DD)\n  const lieferdatum = String(row.Lieferdatum ?? '').slice(0, 10);\n\n  return {\n    json: {\n      ...row,\n      Lieferdatum: lieferdatum,\n    },\n  };\n});\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -272,
+          208
+        ],
+        "id": "a22e5c2a-03f4-4c55-90df-81f01e6de3af",
+        "name": "Aufbereitung"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Sammelmail an Einkauf & GF: ALLE Positionen, sortiert nach Überfälligkeit.\nconst staticData = $getWorkflowStaticData('global');\nconst titel = staticData.titel || 'Überfällige Lieferantenbestellungen';\nconst sendto = staticData.sendtoSammel || '';\n\nconst escapeHtml = (value) => {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n};\n\nconst sortiert = items\n  .map(i => i.json)\n  .sort((a, b) => Number(b.TageUeberfaellig) - Number(a.TageUeberfaellig));\n\nconst zeilen = sortiert.map(row => `\n    <tr>\n      <td>${escapeHtml(row.Bestellnummer)}</td>\n      <td>${escapeHtml(row.Lieferant)}</td>\n      <td>${escapeHtml(row.ArtNr)}</td>\n      <td>${escapeHtml(row.Artikel)}</td>\n      <td align=\"right\">${escapeHtml(row.MengeOffen)}</td>\n      <td>${escapeHtml(row.Lieferdatum)}</td>\n      <td align=\"right\">${escapeHtml(row.TageUeberfaellig)}</td>\n      <td>${escapeHtml(row.Besteller)}</td>\n      <td>${escapeHtml(row.Produktmanager)}</td>\n    </tr>`).join('');\n\nconst mailText = `\n<p>Der ${escapeHtml(titel)} - Flow hat folgende überfällige, offene Lieferantenbestellungen (in Bearbeitung) gefunden:</p>\n\n<p>Insgesamt ${escapeHtml(sortiert.length)} Positionen, sortiert nach Überfälligkeit.</p>\n\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;\">\n  <thead>\n    <tr>\n      <th align=\"left\">Bestellnr.</th>\n      <th align=\"left\">Lieferant</th>\n      <th align=\"left\">ArtNr</th>\n      <th align=\"left\">Artikel</th>\n      <th align=\"right\">Menge offen</th>\n      <th align=\"left\">Lieferdatum</th>\n      <th align=\"right\">Tage überfällig</th>\n      <th align=\"left\">Besteller</th>\n      <th align=\"left\">Produktmanager</th>\n    </tr>\n  </thead>\n  <tbody>${zeilen}\n  </tbody>\n</table>\n\n<p>Liebe Grüße<br>${escapeHtml(titel)} - Flow</p>\n`;\n\nreturn [\n  {\n    json: {\n      titel,\n      sendto,\n      anzahlPositionen: sortiert.length,\n      mailText,\n    },\n  },\n];\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          80,
+          512
+        ],
+        "id": "a952d9c0-20f3-4df3-94bb-bcdc70a8e248",
+        "name": "Sammel-Aufbereitung"
+      },
+      {
+        "parameters": {
+          "fromEmail": "n8n@mail.buecherbuechse.de",
+          "toEmail": "christoph@buecherbuechse.de, einkauf@buecherbuechse.de, lisa@buecherbuechse.de",
+          "subject": "={{ $json.titel }} | Einkauf & GF",
+          "html": "={{ $json.mailText }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          288,
+          512
+        ],
+        "id": "05eb3916-984a-4160-a0c9-890a81b5d8b3",
+        "name": "Sammelmail Einkauf & GF",
+        "webhookId": "c1000000-0000-0000-0000-000000000003",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "content": "## Trigger plus Abfrage\nTäglich 6 Uhr. SQL holt überfällige, offene LB-Positionen (Status 20 = In Bearbeitung) inkl. Produktmanager.",
+          "height": 288,
+          "width": 768,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -1104,
+          160
+        ],
+        "id": "2e92871a-7c3e-406a-9454-084d5f1f21bd",
+        "name": "Sticky Note"
+      },
+      {
+        "parameters": {
+          "content": "## Keine Überfälligen\nFalls die Abfrage leer ist, geht eine Info-Mail an Einkauf & GF.",
+          "height": 304,
+          "width": 304,
+          "color": 7
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -320,
+          400
+        ],
+        "id": "6b74d3d7-4f2d-4515-b55b-f9ad04f437ec",
+        "name": "Sticky Note1"
+      },
+      {
+        "parameters": {
+          "content": "## Aufbereitung\n",
+          "height": 272,
+          "width": 304,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -320,
+          112
+        ],
+        "id": "98a04077-2932-48eb-99dd-ff75e617f6da",
+        "name": "Sticky Note2"
+      },
+      {
+        "parameters": {
+          "content": "## Mail pro Produktmanager\nEin Item pro PM, jede Mail enthält nur dessen eigene Positionen.",
+          "height": 288,
+          "width": 416,
+          "color": 5
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          32,
+          16
+        ],
+        "id": "8177f4a5-a198-4864-815e-7b0a6c8c7872",
+        "name": "Sticky Note3"
+      },
+      {
+        "parameters": {
+          "content": "## Sammelmail Einkauf & GF\nAlle Positionen, sortiert nach Überfälligkeit. Empfänger derzeit PLATZHALTER.",
+          "height": 336,
+          "width": 416,
+          "color": 6
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          32,
+          352
+        ],
+        "id": "ddc5e77b-b13b-44b9-8469-e4ee26a3eaa8",
+        "name": "Sticky Note4"
+      },
+      {
+        "parameters": {
+          "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+          "toEmail": "={{ $json.sendto }}",
+          "subject": "={{ $json.titel }}",
+          "html": "={{ $json.mailText }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          288,
+          160
+        ],
+        "id": "6b68313b-328b-45e6-bfb9-8cb72e4b6fa6",
+        "name": "Mail pro PM/Besteller",
+        "webhookId": "c1000000-0000-0000-0000-000000000002",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Empfänger-Gruppierung: ein Item pro Empfänger-Mailadresse (PM ODER Besteller).\n// Jede Position wird der/den betroffenen Person(en) zugeordnet (PM und/oder Besteller).\n// Ist Besteller == PM, erhält die Person die Position nur einmal -> keine Doppel-Mails.\nconst staticData = $getWorkflowStaticData('global');\nconst titel = staticData.titel || 'Überfällige Lieferantenbestellungen';\n\nconst escapeHtml = (value) => {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n};\n\n// Nach Empfänger-Mail gruppieren\nconst empfMap = new Map();\n\nconst addZuordnung = (mail, name, row) => {\n  const key = String(mail || '').trim().toLowerCase();\n  if (!key) return;\n\n  if (!empfMap.has(key)) {\n    empfMap.set(key, {\n      Name: name,\n      Mail: mail,\n      positionen: [],\n      seen: new Set(),\n    });\n  }\n\n  const gruppe = empfMap.get(key);\n  // Eindeutigkeit pro Position (Bestellnummer + ArtNr), damit PM==Besteller nicht doppelt zählt\n  const posKey = `${row.Bestellnummer}|${row.ArtNr}`;\n  if (gruppe.seen.has(posKey)) return;\n  gruppe.seen.add(posKey);\n  gruppe.positionen.push(row);\n};\n\nfor (const item of items) {\n  const row = item.json;\n  // Position dem PM zuordnen\n  addZuordnung(row.MailProduktmanager, row.Produktmanager, row);\n  // Position dem Besteller zuordnen\n  addZuordnung(row.MailBesteller, row.Besteller, row);\n}\n\nconst result = [];\n\nfor (const gruppe of empfMap.values()) {\n  if (!gruppe.Mail) continue;\n\n  const sortiert = gruppe.positionen\n    .sort((a, b) => Number(b.TageUeberfaellig) - Number(a.TageUeberfaellig));\n\n  const zeilen = sortiert.map(row => `\n    <tr>\n      <td>${escapeHtml(row.Bestellnummer)}</td>\n      <td>${escapeHtml(row.Lieferant)}</td>\n      <td>${escapeHtml(row.ArtNr)}</td>\n      <td>${escapeHtml(row.Artikel)}</td>\n      <td align=\"right\">${escapeHtml(row.MengeOffen)}</td>\n      <td>${escapeHtml(row.Lieferdatum)}</td>\n      <td align=\"right\">${escapeHtml(row.TageUeberfaellig)}</td>\n    </tr>`).join('');\n\n  const mailText = `\n<p>Hallo ${escapeHtml(gruppe.Name)},</p>\n\n<p>folgende Artikel, für die du als Produktmanager oder Besteller zuständig bist, wurden nicht zum geplanten Liefertermin angeliefert (Bestellung in Bearbeitung, offene Menge, mindestens 1 Tag überfällig):</p>\n\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px;\">\n  <thead>\n    <tr>\n      <th align=\"left\">Bestellnr.</th>\n      <th align=\"left\">Lieferant</th>\n      <th align=\"left\">ArtNr</th>\n      <th align=\"left\">Artikel</th>\n      <th align=\"right\">Menge offen</th>\n      <th align=\"left\">Lieferdatum</th>\n      <th align=\"right\">Tage überfällig</th>\n    </tr>\n  </thead>\n  <tbody>${zeilen}\n  </tbody>\n</table>\n`;\n\n  result.push({\n    json: {\n      Empfaenger: gruppe.Name,\n      sendto: gruppe.Mail,\n      titel: `${titel} - deine Artikel`,\n      anzahlPositionen: sortiert.length,\n      mailText,\n    },\n  });\n}\n\nreturn result;"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          64,
+          160
+        ],
+        "id": "64714264-386b-4b1d-921f-1cc29e60147f",
+        "name": "PM/Besteller-Gruppierung"
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtHour": 6
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          -1088,
+          304
+        ],
+        "id": "839ad096-54a8-4538-9e9d-4daf4b0da8e2",
+        "name": "Schedule Trigger"
+      }
+    ],
+    "connections": {
+      "Setzen von globalen Variablen ": {
+        "main": [
+          [
+            {
+              "node": "Microsoft SQL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Microsoft SQL": {
+        "main": [
+          [
+            {
+              "node": "Check IF empty",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check IF empty": {
+        "main": [
+          [
+            {
+              "node": "Aufbereitung",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Mail-Vorbereitung Leer",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mail-Vorbereitung Leer": {
+        "main": [
+          []
+        ]
+      },
+      "Aufbereitung": {
+        "main": [
+          [
+            {
+              "node": "PM/Besteller-Gruppierung",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Sammel-Aufbereitung",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sammel-Aufbereitung": {
+        "main": [
+          [
+            {
+              "node": "Sammelmail Einkauf & GF",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PM/Besteller-Gruppierung": {
+        "main": [
+          [
+            {
+              "node": "Mail pro PM/Besteller",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "Setzen von globalen Variablen ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Jesse Balsam",
+    "name": "Version c3a0ae5b",
+    "description": "",
+    "autosaved": true
+  },
+  "tags": []
+}

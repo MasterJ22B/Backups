@@ -1,0 +1,863 @@
+{
+  "updatedAt": "2026-07-09T07:33:30.823Z",
+  "createdAt": "2026-06-10T13:21:31.533Z",
+  "id": "m0g84ikP8IKcYoqs",
+  "name": "Shopify-Namenskorrektur-via-JTL",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -576,
+        96
+      ],
+      "id": "d454f714-2cad-445d-b19b-6330b9377af4",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -400,
+        96
+      ],
+      "id": "39f89610-f48e-4200-893f-e51ab8b97d45",
+      "name": "Token holen ",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const shop = 'vdzvc0-nd';\n\nconst initUrl = `https://${shop}.myshopify.com/admin/api/2024-10/customers.json`\n  + `?limit=250`\n  + `&fields=id,email,first_name,last_name`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.toFix = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrl,\n    hasNext: true,\n    accessToken: $('Token holen ').item.json.access_token\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        96
+      ],
+      "id": "b5858cd7-af98-48d9-a306-7d2ae8b644b7",
+      "name": "Array leeren + Start URL setzen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": []
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        48,
+        96
+      ],
+      "id": "63d8b073-5a80-4189-90dc-40ec830ba06f",
+      "name": "GET Kunden ",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst customers = response.body?.customers || response.customers || [];\nconst linkHeader = response.headers?.link || '';\n\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.toFix)) {\n  staticData.toFix = [];\n}\n\n// Prüft, ob ein Namensfeld ein Platzhalter ist:\n// \"FirstName\" / \"LastName\" oder von Klammern umschlossen z.B. \"(Vorname)\"\nfunction istPlatzhalter(value) {\n  if (!value) return false;\n  const v = String(value).trim();\n  if (v.toLowerCase() === 'firstname') return true;\n  if (v.toLowerCase() === 'lastname') return true;\n  if (/^\\(.*\\)$/.test(v)) return true;\n  return false;\n}\n\n// Kunden mit fehlerhaftem Vor- ODER Nachnamen sammeln\nfor (const customer of customers) {\n  const first = customer.first_name;\n  const last = customer.last_name;\n  const email = customer.email;\n\n  // Ohne E-Mail kein DB-Match möglich -> überspringen\n  if (!email) continue;\n\n  if (istPlatzhalter(first) || istPlatzhalter(last)) {\n    staticData.toFix.push({\n      customerId: customer.id,\n      email: email,\n      firstNameAlt: first || null,\n      lastNameAlt: last || null,\n    });\n  }\n}\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.toFix.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        96
+      ],
+      "id": "3153ac76-919b-4cb3-90b4-5d298fb503aa",
+      "name": "NextURL weitergeben + Namen prüfen "
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        432,
+        96
+      ],
+      "id": "ac4da383-7b00-4572-9aa7-08d8d6d893f6",
+      "name": "Wait",
+      "webhookId": "b1000000-0000-0000-0000-000000000006"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c1000000-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        96
+      ],
+      "id": "ddcda347-0a3e-4d84-a0c2-cc6532a9cdea",
+      "name": "GIbt es NextURL?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.toFix || [];\n\nreturn collected.map(row => ({ json: row }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        496
+      ],
+      "id": "b81cf677-dc8f-4542-8bcc-4203f1b744bf",
+      "name": "Ausgabe fehlerhafte Kunden ",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT TOP 1\n    AuftragAdresse.cVorname AS Vorname,\n    AuftragAdresse.cName    AS Nachname,\n    AuftragAdresse.cMail    AS Mail\nFROM [eazybusiness].Verkauf.tAuftrag Auftrag\nINNER JOIN [eazybusiness].Verkauf.tAuftragAdresse AuftragAdresse\n    ON AuftragAdresse.kAuftrag = Auftrag.kAuftrag\n    AND AuftragAdresse.nTyp = 1\nWHERE AuftragAdresse.cMail = '{{ $json.email }}'\n    AND AuftragAdresse.cVorname <> ''\n    AND AuftragAdresse.cName <> ''\nORDER BY Auftrag.dErstellt DESC;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        496
+      ],
+      "id": "d4a24d97-12af-4dc1-9a53-b6545a5d2763",
+      "name": "JTL Name holen",
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const db = $input.first().json || {};\nconst quelle = $('Ausgabe fehlerhafte Kunden').item.json;\n\nconst vorname = (db.Vorname || '').trim();\nconst nachname = (db.Nachname || '').trim();\nconst found = !!(vorname && nachname);\n\nreturn [{\n  json: {\n    found,\n    customerId: quelle.customerId,\n    email: quelle.email,\n    firstName: vorname || null,\n    lastName: nachname || null,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        496
+      ],
+      "id": "359c897d-f423-496f-93e9-4225c3a7f726",
+      "name": "DB Output umwandeln"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d1000000-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        384,
+        496
+      ],
+      "id": "00c9173a-f879-4484-8061-00f7c74447ab",
+      "name": "Treffer gefunden?"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://vdzvc0-nd.myshopify.com/admin/api/2024-10/customers/{{ $json.customerId }}.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ customer: { id: $json.customerId, first_name: $json.firstName, last_name: $json.lastName } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1488,
+        496
+      ],
+      "id": "989c462e-1a98-4c68-b7b4-de169a271f89",
+      "name": "Name aktualisieren",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "content": "## JTL-Abgleich + Korrektur\nPro Kunde: echten Namen über Auftrags-Rechnungsadresse (nTyp=1, neuester Auftrag) holen und per Shopify-API ersetzen.",
+        "height": 384,
+        "width": 1776,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        368
+      ],
+      "id": "60083d6d-6459-4490-b299-6b2ec3a900a4",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.toFix || [];\n\nreturn collected.map(row => ({ json: row }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        112
+      ],
+      "id": "09ec8b04-f91e-4356-80d0-feaddd4aba8f",
+      "name": "Debug Node (später löschen)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT TOP 1\n    AuftragAdresse.cVorname AS Vorname,\n    AuftragAdresse.cName    AS Nachname,\n    AuftragAdresse.cMail    AS Mail\nFROM [eazybusiness].Verkauf.tAuftrag Auftrag\nINNER JOIN [eazybusiness].Verkauf.tAuftragAdresse AuftragAdresse\n    ON AuftragAdresse.kAuftrag = Auftrag.kAuftrag\n    AND AuftragAdresse.nTyp = 1\nWHERE AuftragAdresse.cMail = '{{ $json.email }}'\n    AND AuftragAdresse.cVorname <> ''\n    AND AuftragAdresse.cName <> ''\nORDER BY Auftrag.dErstellt DESC;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        2256,
+        528
+      ],
+      "id": "0b418383-ae3b-4c58-9312-df7eaf28976a",
+      "name": "Debug SQL (später löschen)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const debug = $('NextURL weitergeben + Namen prüfen ').first().json;\n\nreturn [{\n  json: {\n    nextUrl: debug.nextUrl,\n    hasNext: debug.hasNext\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2752,
+        528
+      ],
+      "id": "9419bde5-9836-42b4-806b-6bada2ffaf19",
+      "name": "Debug Function (später löschen)"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2496,
+        528
+      ],
+      "id": "940010da-1d3a-4ed8-9fc5-a5d322aa2855",
+      "name": "Wait2",
+      "webhookId": "8c757a83-1927-4a8b-b0f1-e80baa63776b"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        704,
+        480
+      ],
+      "id": "df3980c0-27dc-4e84-90d1-bdaceb57503e",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1632,
+        496
+      ],
+      "id": "8170a319-ddfe-400d-ac1c-ac71dee5dcba",
+      "name": "Wait1",
+      "webhookId": "cd4dd1b4-d527-49a6-a029-68ef191b3d08"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        832,
+        -32
+      ],
+      "id": "6afe9de8-a22d-4a33-8f63-d7007aceb936",
+      "name": "Token holen 1",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1024,
+        64
+      ],
+      "id": "bb9e5d58-e677-49ab-9ca9-2a6a0519550d",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const tokenItem = $input.first().json;\nconst urlItem = $input.last().json;\n\nreturn [{\n  json: {\n    accessToken: tokenItem.access_token,\n    nextUrl: urlItem.nextUrl,\n    hasNext: urlItem.hasNext\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        64
+      ],
+      "id": "fd532d13-97b4-419a-8e1b-5ad068f27f09",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "content": "## Auslöser \n1ster Token wird geholt, StartURL wird gesetzt und Array wird geleert ",
+        "height": 384,
+        "width": 592,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        -48
+      ],
+      "id": "31fe5936-bf93-4ae0-a173-7afc1fc304e7",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Kunden Pagination \nAlle Kunden werden durchgegangen. Auffällige Namenskombinationen werden global gespeichert. ",
+        "height": 384,
+        "width": 1424,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        -48
+      ],
+      "id": "338b0a11-1066-4a4a-ad03-eb9d1ca0f002",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Debug \nNachweis, dass korrekte Namenskombinationen gezogen werden \n",
+        "height": 384,
+        "width": 320,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        -48
+      ],
+      "id": "18a45170-56d8-4aa7-ba7e-ee24f3833630",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Auslesen aller gesammelten Profile ",
+        "height": 384,
+        "width": 320,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -368,
+        368
+      ],
+      "id": "01809494-a48e-4b15-8432-e4966574211d",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        928,
+        384
+      ],
+      "id": "763199e4-861c-4c48-9e45-43436ddf7e99",
+      "name": "Token holen 2",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1120,
+        480
+      ],
+      "id": "8146c897-1c9d-4080-9583-a6dcf461c8a1",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code Node nach Merge: Token an jedes Kunden-Item hängen\nconst items = $input.all();\n\n// Token-Item identifizieren (hat access_token, aber keine customerId)\nconst tokenItem = items.find(i => i.json.access_token && !i.json.customerId);\nconst accessToken = tokenItem\n  ? tokenItem.json.access_token\n  : $('Token holen 2').first().json.access_token;\n\n// Alle echten Kunden-Items (haben customerId) mit Token anreichern\nreturn items\n  .filter(i => i.json.customerId)\n  .map(i => ({\n    json: {\n      customerId: i.json.customerId,\n      email: i.json.email,\n      firstName: i.json.firstName,\n      lastName: i.json.lastName,\n      accessToken: accessToken,\n    },\n  }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        480
+      ],
+      "id": "4ff547f4-8845-429d-a566-7165c4b892c9",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen ": {
+      "main": [
+        [
+          {
+            "node": "Array leeren + Start URL setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Array leeren + Start URL setzen": {
+      "main": [
+        [
+          {
+            "node": "GET Kunden ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Kunden ": {
+      "main": [
+        [
+          {
+            "node": "NextURL weitergeben + Namen prüfen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextURL weitergeben + Namen prüfen ": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "GIbt es NextURL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIbt es NextURL?": {
+      "main": [
+        [
+          {
+            "node": "Token holen 1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Ausgabe fehlerhafte Kunden ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ausgabe fehlerhafte Kunden ": {
+      "main": [
+        [
+          {
+            "node": "JTL Name holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL Name holen": {
+      "main": [
+        [
+          {
+            "node": "DB Output umwandeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB Output umwandeln": {
+      "main": [
+        [
+          {
+            "node": "Treffer gefunden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Treffer gefunden?": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Name aktualisieren": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debug Node (später löschen)": {
+      "main": [
+        []
+      ]
+    },
+    "Debug SQL (später löschen)": {
+      "main": [
+        []
+      ]
+    },
+    "Debug Function (später löschen)": {
+      "main": [
+        []
+      ]
+    },
+    "Wait2": {
+      "main": [
+        [
+          {
+            "node": "Debug Function (später löschen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Token holen 2",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Debug Node (später löschen)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GET Kunden ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 2": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Name aktualisieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "627ee216-a29f-4980-9cf0-5126f57cb533",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-06-10T13:21:31.537Z",
+      "createdAt": "2026-06-10T13:21:31.537Z",
+      "role": "workflow:owner",
+      "workflowId": "m0g84ikP8IKcYoqs",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-06-15T07:36:00.220Z",
-  "createdAt": "2026-06-03T07:26:30.019Z",
   "id": "VrMhqGWTOVoSLRL8",
   "name": "Überfällige Lieferantenbestellungen - PM Benachrichtigung",
   "active": true,
+  "activeVersionId": "c3a0ae5b-4a64-4aa3-b0e8-3df77d576ec5",
+  "createdAt": "2026-06-03T07:26:30.019Z",
+  "updatedAt": "2026-06-15T07:36:00.220Z",
   "isArchived": false,
+  "versionId": "c3a0ae5b-4a64-4aa3-b0e8-3df77d576ec5",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -402,6 +405,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -421,29 +425,24 @@
       ]
     },
     "global": {
-      "titel": "Einkauf | überfällige Lieferantenbestellungen vom 2026-08-12",
+      "titel": "Einkauf | überfällige Lieferantenbestellungen vom 2026-10-22",
       "sendtoSammel": "einkauf@buecherbuechse.de, christoph@buecherbuechse.de, lisa@buecherbuechse.de",
       "mailDomain": "buecherbuechse.de"
     }
   },
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "c3a0ae5b-4a64-4aa3-b0e8-3df77d576ec5",
-  "activeVersionId": "c3a0ae5b-4a64-4aa3-b0e8-3df77d576ec5",
-  "triggerCount": 1,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-06-03T07:26:30.023Z",
-      "createdAt": "2026-06-03T07:26:30.023Z",
       "role": "workflow:owner",
       "workflowId": "VrMhqGWTOVoSLRL8",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-03T07:26:30.023Z",
+      "updatedAt": "2026-06-03T07:26:30.023Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-06-16T04:07:38.000Z",
-    "createdAt": "2026-06-15T07:35:59.963Z",
     "versionId": "c3a0ae5b-4a64-4aa3-b0e8-3df77d576ec5",
     "workflowId": "VrMhqGWTOVoSLRL8",
     "nodes": [
@@ -847,7 +846,8 @@
     "authors": "Jesse Balsam",
     "name": "Version c3a0ae5b",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-06-15T07:35:59.963Z",
+    "updatedAt": "2026-06-16T04:07:38.000Z"
+  }
 }

@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-04-14T09:11:28.563Z",
-  "createdAt": "2026-01-09T05:49:56.058Z",
   "id": "sceW67VrR4dCvKul",
   "name": "LEAF ABO 01 - 2026 MS SQL Order to Zendesk Ticket with Mollie Payment Link copy",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-01-09T05:49:56.058Z",
+  "updatedAt": "2026-04-14T09:11:28.563Z",
   "isArchived": false,
+  "versionId": "968ed2b3-bd6c-405e-b3f1-6ce337f804d3",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -396,36 +399,33 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": false,
     "binaryMode": "separate"
   },
   "staticData": null,
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "968ed2b3-bd6c-405e-b3f1-6ce337f804d3",
-  "activeVersionId": null,
-  "triggerCount": 0,
-  "shared": [
-    {
-      "updatedAt": "2026-01-27T12:06:18.364Z",
-      "createdAt": "2026-01-27T12:06:18.364Z",
-      "role": "workflow:owner",
-      "workflowId": "sceW67VrR4dCvKul",
-      "projectId": "fpJ6gOBBO4AzTt5B"
-    }
-  ],
-  "activeVersion": null,
   "tags": [
     {
-      "updatedAt": "2026-01-08T10:25:20.418Z",
-      "createdAt": "2026-01-08T10:25:20.418Z",
       "id": "x0qTp7A3NOgGXUae",
-      "name": "Support"
+      "name": "Support",
+      "createdAt": "2026-01-08T10:25:20.418Z",
+      "updatedAt": "2026-01-08T10:25:20.418Z"
     }
-  ]
+  ],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "sceW67VrR4dCvKul",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-01-27T12:06:18.364Z",
+      "updatedAt": "2026-01-27T12:06:18.364Z"
+    }
+  ],
+  "activeVersion": null
 }

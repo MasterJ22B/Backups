@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-08T09:29:37.817Z",
-  "createdAt": "2026-06-02T18:44:01.805Z",
   "id": "0kYTJ4DrRwxWRiv4",
   "name": "DSGVO Update-Ticket an betroffene Kund-innen",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-06-02T18:44:01.805Z",
+  "updatedAt": "2026-07-08T09:29:37.817Z",
   "isArchived": false,
+  "versionId": "c7a01fbc-f80c-42dc-ab9d-1ee08e1ee4d1",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -128,36 +131,33 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": false,
     "binaryMode": "separate"
   },
   "staticData": null,
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "c7a01fbc-f80c-42dc-ab9d-1ee08e1ee4d1",
-  "activeVersionId": null,
-  "triggerCount": 0,
-  "shared": [
-    {
-      "updatedAt": "2026-06-02T18:44:01.810Z",
-      "createdAt": "2026-06-02T18:44:01.810Z",
-      "role": "workflow:owner",
-      "workflowId": "0kYTJ4DrRwxWRiv4",
-      "projectId": "fpJ6gOBBO4AzTt5B"
-    }
-  ],
-  "activeVersion": null,
   "tags": [
     {
-      "updatedAt": "2026-01-08T10:25:20.418Z",
-      "createdAt": "2026-01-08T10:25:20.418Z",
       "id": "x0qTp7A3NOgGXUae",
-      "name": "Support"
+      "name": "Support",
+      "createdAt": "2026-01-08T10:25:20.418Z",
+      "updatedAt": "2026-01-08T10:25:20.418Z"
     }
-  ]
+  ],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "0kYTJ4DrRwxWRiv4",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-02T18:44:01.810Z",
+      "updatedAt": "2026-06-02T18:44:01.810Z"
+    }
+  ],
+  "activeVersion": null
 }

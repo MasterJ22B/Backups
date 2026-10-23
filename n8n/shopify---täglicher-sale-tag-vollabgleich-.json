@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-11T19:20:12.956Z",
-  "createdAt": "2026-07-25T12:50:09.565Z",
   "id": "jyW270ZbU3Lq3isJ",
   "name": "Shopify - täglicher Sale-Tag Vollabgleich",
   "active": true,
+  "activeVersionId": "e670b9b8-0b4f-4e83-bbaf-89a6edcee01f",
+  "createdAt": "2026-07-25T12:50:09.565Z",
+  "updatedAt": "2026-08-11T19:20:12.956Z",
   "isArchived": false,
+  "versionId": "e670b9b8-0b4f-4e83-bbaf-89a6edcee01f",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -1016,6 +1019,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -1044,24 +1048,19 @@
       ]
     }
   },
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "e670b9b8-0b4f-4e83-bbaf-89a6edcee01f",
-  "activeVersionId": "e670b9b8-0b4f-4e83-bbaf-89a6edcee01f",
-  "triggerCount": 1,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-27T06:36:30.815Z",
-      "createdAt": "2026-07-27T06:36:30.815Z",
       "role": "workflow:owner",
       "workflowId": "jyW270ZbU3Lq3isJ",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-27T06:36:30.815Z",
+      "updatedAt": "2026-07-27T06:36:30.815Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-08-11T19:20:14.000Z",
-    "createdAt": "2026-08-11T19:20:12.957Z",
     "versionId": "e670b9b8-0b4f-4e83-bbaf-89a6edcee01f",
     "workflowId": "jyW270ZbU3Lq3isJ",
     "nodes": [
@@ -2079,7 +2078,8 @@
     "authors": "Christoph Strauss",
     "name": "Version e670b9b8",
     "description": "",
-    "autosaved": false
-  },
-  "tags": []
+    "autosaved": false,
+    "createdAt": "2026-08-11T19:20:12.957Z",
+    "updatedAt": "2026-08-11T19:20:14.000Z"
+  }
 }

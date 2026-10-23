@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-04-14T08:57:39.552Z",
-  "createdAt": "2026-01-07T07:25:52.144Z",
   "id": "oRxCv7n7uSXmy3pS",
   "name": "HOTE - MS SQL Order to Zendesk Ticket with Mollie Payment Link",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-01-07T07:25:52.144Z",
+  "updatedAt": "2026-04-14T08:57:39.552Z",
   "isArchived": false,
+  "versionId": "98a5b2b5-6912-4320-ba1d-d6f32757c423",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -396,36 +399,33 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": false,
     "binaryMode": "separate"
   },
   "staticData": null,
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "98a5b2b5-6912-4320-ba1d-d6f32757c423",
-  "activeVersionId": null,
-  "triggerCount": 0,
-  "shared": [
-    {
-      "updatedAt": "2026-01-27T12:06:00.649Z",
-      "createdAt": "2026-01-27T12:06:00.649Z",
-      "role": "workflow:owner",
-      "workflowId": "oRxCv7n7uSXmy3pS",
-      "projectId": "fpJ6gOBBO4AzTt5B"
-    }
-  ],
-  "activeVersion": null,
   "tags": [
     {
-      "updatedAt": "2026-01-08T10:25:20.418Z",
-      "createdAt": "2026-01-08T10:25:20.418Z",
       "id": "x0qTp7A3NOgGXUae",
-      "name": "Support"
+      "name": "Support",
+      "createdAt": "2026-01-08T10:25:20.418Z",
+      "updatedAt": "2026-01-08T10:25:20.418Z"
     }
-  ]
+  ],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "oRxCv7n7uSXmy3pS",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-01-27T12:06:00.649Z",
+      "updatedAt": "2026-01-27T12:06:00.649Z"
+    }
+  ],
+  "activeVersion": null
 }

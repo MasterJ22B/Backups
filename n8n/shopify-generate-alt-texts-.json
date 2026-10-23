@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-02-04T08:51:21.375Z",
-  "createdAt": "2026-02-03T15:54:00.108Z",
   "id": "h9VqAoC14z1eoQko2PmBy",
   "name": "Shopify-Generate-Alt-Texts",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-02-03T15:54:00.108Z",
+  "updatedAt": "2026-02-04T08:51:21.375Z",
   "isArchived": false,
+  "versionId": "4cdb5e22-2294-4ea0-91ed-b0508ac7d30f",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -266,28 +269,25 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": false
   },
   "staticData": null,
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "4cdb5e22-2294-4ea0-91ed-b0508ac7d30f",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-02-03T15:54:00.113Z",
-      "createdAt": "2026-02-03T15:54:00.113Z",
       "role": "workflow:owner",
       "workflowId": "h9VqAoC14z1eoQko2PmBy",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-02-03T15:54:00.113Z",
+      "updatedAt": "2026-02-03T15:54:00.113Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

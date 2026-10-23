@@ -1,0 +1,1178 @@
+{
+  "id": "KfuCIJVEN03wLVwQ",
+  "name": "BB-Katalogpreise-AT-CH-aus-DE-V2",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-22T10:02:08.360Z",
+  "updatedAt": "2026-09-24T07:33:44.633Z",
+  "isArchived": false,
+  "versionId": "66ac94f9-b2f5-41c2-a253-6ef9a604c378",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -5232,
+        1968
+      ],
+      "id": "2d1d2074-3625-4144-bb9b-c0167fdaa03d",
+      "name": "Token holen ",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ====== ZENTRALE CONFIG ======\n// Hier alle IDs / Steuersätze pflegen.\n// -> priceListId je Land AT / CH aus Shopify Admin (Markets -> Preisliste) eintragen.\n// -> collectionId für \"Bücher\" und \"Merch\" eintragen (GID-Format: gid://shopify/Collection/1234567890).\n\nconst config = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  // Collections zur Unterscheidung Buch vs. Merch\n  collectionBuecher: 'gid://shopify/Collection/311681220723',\n  collectionMerch:   'gid://shopify/Collection/313480249459',\n  collectionBundles: 'gid://shopify/Collection/320880640115',\n\n  // Steuersätze (Dezimal). DE = Basis der Bruttopreise im DE-Katalog.\n  tax: {\n    DE: { buch: 0.07,  merch: 0.19 },\n    AT: { buch: 0.10,  merch: 0.20 },\n    CH: { buch: 0.026, merch: 0.081 }\n  },\n\n  // Zielpreislisten (Markets). IDs eintragen.\n  priceLists: {\n    AT: { id: 'gid://shopify/PriceList/18960056435', currency: 'EUR' },\n    CH: { id: 'gid://shopify/PriceList/18959958131', currency: 'EUR' }\n  }\n};\n\n// staticData vorbereiten / leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.produkte = [];\nstaticData.uebersprungen = [];  // Bundles/Gutscheine, nur fuer die Dry-Run-Vorschau\n\n// Report-Zustand fuer diesen Lauf zuruecksetzen (staticData ueberlebt Executions)\nstaticData.bestand      = { AT: {}, CH: {} };\nstaticData.bestandVgl   = { AT: {}, CH: {} };\nstaticData.bestandState = { land: 'AT', cursor: null };\nstaticData.bestandFehler = [];\nstaticData.changes      = [];\nstaticData.stats        = null;\nstaticData.report       = { AT: { batches: 0, geschrieben: 0, fehler: [] },\n                            CH: { batches: 0, geschrieben: 0, fehler: [] } };\nstaticData.startedAt    = new Date().toISOString();\n\n// Start-Cursor null => erste Seite\nreturn [{\n  json: {\n    accessToken: $('Token holen ').item.json.access_token,\n    cursor: null,\n    hasNext: true,\n    config: config\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5072,
+        1968
+      ],
+      "id": "231808e2-a218-4ae8-ad27-95c6c1cf8c96",
+      "name": "Config + Array leeren"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.config.shop }}.myshopify.com/admin/api/{{ $json.config.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `query($cursor: String, $cBuch: ID!, $cMerch: ID!, $cBundle: ID!) {\\n  products(first: 100, after: $cursor) {\\n    pageInfo { hasNextPage endCursor }\\n    edges {\\n      node {\\n        id\\n        title\\n        isGiftCard\\n        inBuecher: inCollection(id: $cBuch)\\n        inMerch: inCollection(id: $cMerch)\\n        inBundle: inCollection(id: $cBundle)\\n        variants(first: 100) {\\n          edges { node { id price compareAtPrice sku } }\\n        }\\n      }\\n    }\\n  }\\n}`, variables: { cursor: $json.cursor, cBuch: $json.config.collectionBuecher, cMerch: $json.config.collectionMerch, cBundle: $json.config.collectionBundles } }) }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -4736,
+        1968
+      ],
+      "id": "14c7c0bd-85d9-443c-a1fe-83440bd9cc1e",
+      "name": "GET Produkte (GraphQL)",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Antwort auswerten, Produkte + Varianten in staticData sammeln,\n// Buch/Merch-Flag setzen, nächsten Cursor weitergeben.\nconst resp = $input.first().json;\nconst prev = $('Config + Array leeren').item.json;\nconst config = prev.config;\nconst productsConn = resp?.data?.products;\nconst edges = productsConn?.edges || [];\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.produkte)) staticData.produkte = [];\n\n// Gutscheine erkennen: Shopify-Flag isGiftCard ODER Titel (Gross-/Kleinschreibung egal)\nconst GUTSCHEIN_TITEL = 'geschenkgutschein';\n\n// Uebersprungene Varianten nur merken (fuer die Dry-Run-Vorschau), geschrieben wird davon nichts\nif (!Array.isArray(staticData.uebersprungen)) staticData.uebersprungen = [];\nconst merkeUebersprungen = (node, grund) => {\n  for (const ve of (node.variants?.edges || [])) {\n    staticData.uebersprungen.push({ variantId: ve.node.id, title: node.title, sku: ve.node.sku, grund: grund, priceDEBrutto: parseFloat(ve.node.price) });\n  }\n};\n\nfor (const e of edges) {\n  const node = e.node;\n  // Bundles NIE anfassen -> überspringen (werden händisch gepflegt)\n  if (node.inBundle) { merkeUebersprungen(node, 'bundle'); continue; }\n\n  // Gutscheine NIE anfassen -> überspringen (Gutscheinwert wird nicht umgerechnet)\n  if (node.isGiftCard || String(node.title || '').trim().toLowerCase() === GUTSCHEIN_TITEL) {\n    merkeUebersprungen(node, 'gutschein');\n    continue;\n  }\n\n  // Typ bestimmen: Buch hat Vorrang, sonst Merch. Alles andere -> Fallback = Merch-Rate.\n  let typ;\n  if (node.inBuecher) typ = 'buch';\n  else typ = 'merch'; // Merch UND Fallback (keiner der Collections)\n\n  for (const ve of (node.variants?.edges || [])) {\n    const v = ve.node;\n    const priceDE = parseFloat(v.price);\n    if (!isFinite(priceDE)) continue;\n    // Streichpreis nur übernehmen, wenn er wirklich über dem VK liegt (sonst kein Rabatt)\n    const vglDE = parseFloat(v.compareAtPrice);\n    staticData.produkte.push({\n      variantId: v.id,\n      productId: node.id,\n      title: node.title,\n      sku: v.sku,\n      typ: typ,\n      priceDEBrutto: priceDE,\n      compareAtDEBrutto: (isFinite(vglDE) && vglDE > priceDE) ? vglDE : null\n    });\n  }\n}\nconst hasNext = !!productsConn?.pageInfo?.hasNextPage;\nconst endCursor = productsConn?.pageInfo?.endCursor || null;\nreturn [{\n  json: {\n    accessToken: prev.accessToken,\n    config: config,\n    cursor: endCursor,\n    hasNext: hasNext,\n    gesammelt: staticData.produkte.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4576,
+        1968
+      ],
+      "id": "47ec827b-54a0-4c95-83f6-d61430ace103",
+      "name": "Produkte sammeln + Cursor"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -4416,
+        1968
+      ],
+      "id": "a3b5b38a-1cac-48ec-a1d9-554e45f1b681",
+      "name": "Wait",
+      "webhookId": "b2000000-0000-0000-0000-000000000006"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c2000000-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -4240,
+        1968
+      ],
+      "id": "e3e1053e-9987-41bc-bcee-bee1bbb6244e",
+      "name": "Gibt es NextPage?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Schleife: nächste Seite anfordern (Token bleibt gültig innerhalb Laufzeit).\nconst prev = $input.first().json;\nreturn [{\n  json: {\n    accessToken: prev.accessToken,\n    config: prev.config,\n    cursor: prev.cursor,\n    hasNext: prev.hasNext\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4064,
+        1952
+      ],
+      "id": "52a343e8-e9e9-40c7-a749-fdea84903334",
+      "name": "Weiter zur nächsten Seite"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nach Pagination: alle gesammelten Produkte holen und AT/CH-Bruttopreise berechnen.\n// Weg: DE-Brutto -> Netto (÷ DE-Satz je Typ) -> Zielland-Brutto (× Zielsatz je Typ).\n// Der Streichpreis (compareAtPrice) laeuft denselben Weg.\nconst config = $('Config + Array leeren').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst produkte = staticData.produkte || [];\n\nconst round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;\n\n// Streichpreis umrechnen. Liegt er nach dem Runden nicht mehr ueber dem Zielpreis,\n// entfaellt er (null = kein Streichpreis im Zielland).\nconst streichpreis = (vglDE, deSatz, zielSatz, zielPreis) => {\n  if (vglDE === null || vglDE === undefined) return null;\n  const vgl = round2(vglDE / (1 + deSatz) * (1 + zielSatz));\n  return vgl > zielPreis ? vgl : null;\n};\n\nconst out = produkte.map((p) => {\n  const deSatz = config.tax.DE[p.typ];\n  const netto = p.priceDEBrutto / (1 + deSatz);\n\n  const atSatz = config.tax.AT[p.typ];\n  const chSatz = config.tax.CH[p.typ];\n\n  const priceAT = round2(netto * (1 + atSatz));\n  const priceCH = round2(netto * (1 + chSatz));\n\n  const compareAtAT = streichpreis(p.compareAtDEBrutto, deSatz, atSatz, priceAT);\n  const compareAtCH = streichpreis(p.compareAtDEBrutto, deSatz, chSatz, priceCH);\n\n  return {\n    json: {\n      variantId: p.variantId,\n      title: p.title,\n      sku: p.sku,\n      typ: p.typ,\n      priceDEBrutto: round2(p.priceDEBrutto),\n      netto: round2(netto),\n      priceAT: priceAT,\n      priceCH: priceCH,\n      compareAtDEBrutto: (p.compareAtDEBrutto === null || p.compareAtDEBrutto === undefined) ? null : round2(p.compareAtDEBrutto),\n      compareAtAT: compareAtAT,\n      compareAtCH: compareAtCH\n    }\n  };\n});\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3792,
+        1984
+      ],
+      "id": "1b6226ec-95f7-4e51-b067-a3cac31020c4",
+      "name": "Preise berechnen (AT + CH)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "content": "## Auslöser + Config\nToken holen, zentrale Config (IDs/Steuersätze) setzen, staticData leeren.\n\n",
+        "height": 448,
+        "width": 640,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -5456,
+        1776
+      ],
+      "id": "e49a7d4f-5a2e-4098-80d1-2ef47eb64410",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Produkt-Pagination (DE-Katalog)\nGraphQL products-Query mit cursor-basierter Pagination.\nJe Produkt: Bundles und Gutscheine (isGiftCard / Titel „Geschenkgutschein“) übersprungen, Buch/Merch über inCollection bestimmt, Varianten + DE-Bruttopreis + Streichpreis in staticData gesammelt.",
+        "height": 448,
+        "width": 912,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -4800,
+        1776
+      ],
+      "id": "ac9f72fc-6f9d-45be-8fd3-00493f019a5b",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Berechnung\nDE-Brutto → Netto (÷ DE-Satz) → Zielland-Brutto (× Zielsatz).\nStreichpreis (compareAtPrice) auf demselben Weg.\nErgebnis: ein Item je Variante mit priceAT + priceCH und compareAtAT + compareAtCH.",
+        "height": 452,
+        "width": 320,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -3872,
+        1776
+      ],
+      "id": "154dd4c0-26f0-4ab2-8766-75544e5d2a42",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flache Preis-Liste für AT bauen (Batching übernimmt Split in Batches)\nconst config = $('Config + Array leeren').first().json.config;\nconst items = $('Preise berechnen (AT + CH)').all();\n\nconst currency = config.priceLists.AT.currency;\nconst priceListId = config.priceLists.AT.id;\n\nreturn items.map(i => ({\n  json: {\n    accessToken: $('Config + Array leeren').first().json.accessToken,\n    config: config,\n    priceListId: priceListId,\n    variantId: i.json.variantId,\n    sku: i.json.sku,\n    price: { amount: i.json.priceAT.toFixed(2), currencyCode: currency },\n    // null = kein Streichpreis in AT (ein alter Streichpreis wird damit ueberschrieben)\n    compareAtPrice: (i.json.compareAtAT === null || i.json.compareAtAT === undefined)\n      ? null\n      : { amount: i.json.compareAtAT.toFixed(2), currencyCode: currency }\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2192,
+        1904
+      ],
+      "id": "5ab2fced-a3ad-488b-bbbe-807e4e934daa",
+      "name": "AT Batches bauen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.config.shop }}.myshopify.com/admin/api/{{ $json.config.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation($priceListId: ID!, $prices: [PriceListPriceInput!]!) {\\n  priceListFixedPricesUpdate(priceListId: $priceListId, pricesToAdd: $prices, variantIdsToDelete: []) {\\n    pricesAdded { variant { sku } price { amount currencyCode } }\\n    userErrors { field code message }\\n  }\\n}`, variables: { priceListId: $json.priceListId, prices: $json.prices } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1616,
+        1920
+      ],
+      "id": "05821fd5-dc43-4cd1-a6ca-5d2ad300c8a4",
+      "name": "AT Preise schreiben",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1296,
+        1920
+      ],
+      "id": "5c9f169e-8b12-478d-a3b2-0c21e7dd8d11",
+      "name": "Wait AT",
+      "webhookId": "b2000000-0000-0000-0000-000000000015"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flache Preis-Liste für CH bauen (Batching übernimmt Split in Batches)\nconst config = $('Config + Array leeren').first().json.config;\nconst items = $('Preise berechnen (AT + CH)').all();\n\nconst currency = config.priceLists.CH.currency;\nconst priceListId = config.priceLists.CH.id;\n\nreturn items.map(i => ({\n  json: {\n    accessToken: $('Config + Array leeren').first().json.accessToken,\n    config: config,\n    priceListId: priceListId,\n    variantId: i.json.variantId,\n    price: { amount: i.json.priceCH.toFixed(2), currencyCode: currency },\n    // null = kein Streichpreis in CH (ein alter Streichpreis wird damit ueberschrieben)\n    compareAtPrice: (i.json.compareAtCH === null || i.json.compareAtCH === undefined)\n      ? null\n      : { amount: i.json.compareAtCH.toFixed(2), currencyCode: currency }\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2176,
+        2272
+      ],
+      "id": "6e9e9cd0-9751-4696-b48b-5eb2d58be262",
+      "name": "CH Batches bauen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.config.shop }}.myshopify.com/admin/api/{{ $json.config.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation($priceListId: ID!, $prices: [PriceListPriceInput!]!) {\\n  priceListFixedPricesUpdate(priceListId: $priceListId, pricesToAdd: $prices, variantIdsToDelete: []) {\\n    pricesAdded { variant { sku } price { amount currencyCode } }\\n    userErrors { field code message }\\n  }\\n}`, variables: { priceListId: $json.priceListId, prices: $json.prices } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1616,
+        2288
+      ],
+      "id": "60e7afab-589f-496c-80d1-2bff68831821",
+      "name": "CH Preise schreiben",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1296,
+        2288
+      ],
+      "id": "9c5f9cf5-4ca4-4c35-9180-115a8b05c9d2",
+      "name": "Wait CH",
+      "webhookId": "b2000000-0000-0000-0000-000000000018"
+    },
+    {
+      "parameters": {
+        "content": "## Schreibsegment AT\nSplit in Batches (100er) -> Aggregieren -> priceListFixedPricesUpdate in AT-Preisliste (EUR). Wait 3s pro Batch. done-Ausgang startet CH.",
+        "height": 348,
+        "width": 976,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2224,
+        1776
+      ],
+      "id": "f426fd3a-96a7-4cff-82dc-44fce3ba59d3",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Schreibsegment CH\nStartet nach AT (seriell). Split in Batches (100er) -> Aggregieren -> priceListFixedPricesUpdate in CH-Preisliste (CHF). Wait 3s pro Batch.",
+        "height": 348,
+        "width": 976,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2224,
+        2144
+      ],
+      "id": "fb410066-a959-41a7-9857-e5139d729929",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "batchSize": 100,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1984,
+        1904
+      ],
+      "id": "d01b207c-c573-4321-a87e-f8165445f9c7",
+      "name": "AT Split in Batches"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Items dieses Batches zu einem prices-Array zusammenfassen\nconst all = $input.all();\nreturn [{\n  json: {\n    accessToken: all[0].json.accessToken,\n    config: all[0].json.config,\n    priceListId: all[0].json.priceListId,\n    prices: all.map(i => i.json.price\n      ? { variantId: i.json.variantId, price: i.json.price, compareAtPrice: i.json.compareAtPrice || null }\n      : null).filter(Boolean)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1776,
+        1920
+      ],
+      "id": "077b74f4-bed0-441f-8107-0b0fff06b3e0",
+      "name": "AT Aggregieren"
+    },
+    {
+      "parameters": {
+        "batchSize": 100,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1984,
+        2272
+      ],
+      "id": "18b2c31c-e259-42e7-a158-c267a57babff",
+      "name": "CH Split in Batches"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Items dieses Batches zu einem prices-Array zusammenfassen\nconst all = $input.all();\nreturn [{\n  json: {\n    accessToken: all[0].json.accessToken,\n    config: all[0].json.config,\n    priceListId: all[0].json.priceListId,\n    prices: all.map(i => i.json.price\n      ? { variantId: i.json.variantId, price: i.json.price, compareAtPrice: i.json.compareAtPrice || null }\n      : null).filter(Boolean)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1776,
+        2288
+      ],
+      "id": "7e0569cc-26a6-44f0-8d46-292f2a67c50d",
+      "name": "CH Aggregieren"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -5424,
+        1968
+      ],
+      "id": "e045cf2d-946d-429e-9d38-edd4a3783894",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aktuellen Preisstand beider Zielpreislisten auslesen.\n// Grundlage fuer den Report: nur Varianten melden, deren Preis sich wirklich aendert.\n// AT und CH laufen nacheinander durch DIESE eine Schleife (Status in staticData).\nconst prev = $('Config + Array leeren').first().json;\nconst sd = $getWorkflowStaticData('global');\n\nsd.bestand = { AT: {}, CH: {} };\nsd.bestandVgl = { AT: {}, CH: {} };\nsd.bestandFehler = [];\nsd.bestandState = { land: 'AT', cursor: null };\n\nreturn [{\n  json: {\n    accessToken: prev.accessToken,\n    config: prev.config,\n    land: 'AT',\n    priceListId: prev.config.priceLists.AT.id,\n    cursor: null,\n    bestandFertig: false\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3472,
+        1984
+      ],
+      "id": "7930d65e-4b97-4eab-bed8-deab11225bd6",
+      "name": "Bestand lesen: Start"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.config.shop }}.myshopify.com/admin/api/{{ $json.config.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `query($id: ID!, $cursor: String) {\\n  priceList(id: $id) {\\n    id\\n    name\\n    prices(first: 200, after: $cursor) {\\n      pageInfo { hasNextPage endCursor }\\n      edges { node { variant { id sku } price { amount currencyCode } compareAtPrice { amount currencyCode } } }\\n    }\\n  }\\n}`, variables: { id: $json.priceListId, cursor: $json.cursor } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3232,
+        1984
+      ],
+      "id": "2c944315-268c-4077-874e-7e55eda0ee6b",
+      "name": "Preisliste lesen (GraphQL)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preise dieser Seite in den Bestand schreiben und den naechsten Schleifenschritt bestimmen:\n// weitere Seite -> gleiche Preisliste, sonst AT -> CH, danach fertig.\nconst resp = $input.first().json;\nconst prev = $('Config + Array leeren').first().json;\nconst config = prev.config;\nconst sd = $getWorkflowStaticData('global');\n\nconst land = (sd.bestandState && sd.bestandState.land) || 'AT';\nif (!sd.bestand) sd.bestand = { AT: {}, CH: {} };\nif (!sd.bestand[land]) sd.bestand[land] = {};\nif (!sd.bestandVgl) sd.bestandVgl = { AT: {}, CH: {} };\nif (!sd.bestandVgl[land]) sd.bestandVgl[land] = {};\n\nconst conn = resp?.data?.priceList?.prices;\nfor (const e of (conn?.edges || [])) {\n  const vid = e?.node?.variant?.id;\n  if (!vid) continue;\n  const amount = parseFloat(e?.node?.price?.amount);\n  if (!isFinite(amount)) continue;\n  sd.bestand[land][vid] = amount;\n  // Streichpreis getrennt ablegen (null = in der Preisliste keiner hinterlegt)\n  const vgl = parseFloat(e?.node?.compareAtPrice?.amount);\n  sd.bestandVgl[land][vid] = isFinite(vgl) ? vgl : null;\n}\n\n// GraphQL-Fehler (z. B. fehlender Scope) nicht verschlucken -> landen im Report.\nfor (const e of (resp?.errors || [])) {\n  sd.bestandFehler = (sd.bestandFehler || []).concat([land + ': ' + (e.message || 'unbekannter GraphQL-Fehler')]);\n}\n\nlet nextLand = land;\nlet nextCursor = conn?.pageInfo?.endCursor || null;\nlet fertig = false;\n\nif (conn?.pageInfo?.hasNextPage) {\n  // gleiche Preisliste, naechste Seite\n} else if (land === 'AT') {\n  nextLand = 'CH';\n  nextCursor = null;\n} else {\n  fertig = true;\n}\n\nsd.bestandState = { land: nextLand, cursor: nextCursor };\n\nreturn [{\n  json: {\n    accessToken: prev.accessToken,\n    config: config,\n    land: nextLand,\n    priceListId: config.priceLists[nextLand].id,\n    cursor: nextCursor,\n    bestandFertig: fertig,\n    gelesenAT: Object.keys(sd.bestand.AT || {}).length,\n    gelesenCH: Object.keys(sd.bestand.CH || {}).length\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2992,
+        1984
+      ],
+      "id": "babce070-75b4-4d4b-8ec8-f535c1ebc1fa",
+      "name": "Bestand sammeln + Cursor"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -2752,
+        1984
+      ],
+      "id": "39375460-5809-4cad-a109-d9ef79c7fd70",
+      "name": "Wait Bestand",
+      "webhookId": "17156075-a7c1-4d2e-9f30-00000007a0f3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c3000000-0000-0000-0000-000000000001",
+              "leftValue": "={{ $json.bestandFertig }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2560,
+        1984
+      ],
+      "id": "85e5c20e-07d3-4585-bb1c-c54adcc9c55a",
+      "name": "Bestand fertig?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Neu berechnete Preise gegen den ausgelesenen Bestand halten.\n// Ergebnis (staticData.changes/stats) ist die Datenbasis des Abschluss-Reports.\n// Geschrieben wird weiterhin alles - hier wird nur klassifiziert.\nconst prev = $('Config + Array leeren').first().json;\nconst config = prev.config;\nconst sd = $getWorkflowStaticData('global');\nconst bestand = sd.bestand || { AT: {}, CH: {} };\nconst bestandVgl = sd.bestandVgl || { AT: {}, CH: {} };\nconst neu = $('Preise berechnen (AT + CH)').all().map(i => i.json);\n\n// Centgenau vergleichen (Rundungsrauschen ignorieren)\nconst gleich = (alt, neuPreis) => Math.abs(alt - neuPreis) < 0.005;\n\n// Streichpreise: undefined/null = keiner. Beide leer = gleich, nur einer leer = abweichend.\nconst leer = (v) => (v === undefined || v === null) ? null : v;\nconst gleichVgl = (a, b) => (a === null || b === null) ? a === b : gleich(a, b);\n\nconst changes = [];\nconst stats = {\n  AT: { geprueft: 0, neu: 0, geaendert: 0, unveraendert: 0 },\n  CH: { geprueft: 0, neu: 0, geaendert: 0, unveraendert: 0 }\n};\n\nfor (const p of neu) {\n  const altAT = bestand.AT ? bestand.AT[p.variantId] : undefined;\n  const altCH = bestand.CH ? bestand.CH[p.variantId] : undefined;\n\n  const altVglAT = bestandVgl.AT ? leer(bestandVgl.AT[p.variantId]) : null;\n  const altVglCH = bestandVgl.CH ? leer(bestandVgl.CH[p.variantId]) : null;\n  const neuVglAT = leer(p.compareAtAT);\n  const neuVglCH = leer(p.compareAtCH);\n\n  // geaendert = VK ODER Streichpreis weicht ab\n  const statusAT = altAT === undefined ? 'neu'\n    : ((gleich(altAT, p.priceAT) && gleichVgl(altVglAT, neuVglAT)) ? 'unveraendert' : 'geaendert');\n  const statusCH = altCH === undefined ? 'neu'\n    : ((gleich(altCH, p.priceCH) && gleichVgl(altVglCH, neuVglCH)) ? 'unveraendert' : 'geaendert');\n\n  stats.AT.geprueft++;\n  stats.CH.geprueft++;\n  stats.AT[statusAT]++;\n  stats.CH[statusCH]++;\n\n  if (statusAT !== 'unveraendert' || statusCH !== 'unveraendert') {\n    changes.push({\n      variantId: p.variantId,\n      sku: p.sku || '',\n      title: p.title,\n      typ: p.typ,\n      priceDEBrutto: p.priceDEBrutto,\n      compareAtDEBrutto: leer(p.compareAtDEBrutto),\n      altAT: altAT === undefined ? null : altAT,\n      neuAT: p.priceAT,\n      altVglAT: altVglAT,\n      neuVglAT: neuVglAT,\n      statusAT: statusAT,\n      altCH: altCH === undefined ? null : altCH,\n      neuCH: p.priceCH,\n      altVglCH: altVglCH,\n      neuVglCH: neuVglCH,\n      statusCH: statusCH\n    });\n  }\n}\n\nsd.changes = changes;\nsd.stats = stats;\n\nreturn [{\n  json: {\n    accessToken: prev.accessToken,\n    config: config,\n    aenderungen: changes.length,\n    stats: stats\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2368,
+        1984
+      ],
+      "id": "efa1a8c7-f723-462b-832e-22d9b0001100",
+      "name": "Änderungen ermitteln"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shopify-Antwort dieses Batches auswerten: geschriebene Preise zaehlen, Fehler sammeln.\n// Wandert in staticData, weil die Schleife viele Laeufe hat.\nconst resp = $input.first().json;\nconst sd = $getWorkflowStaticData('global');\n\nif (!sd.report) sd.report = {};\nif (!sd.report.AT) sd.report.AT = { batches: 0, geschrieben: 0, fehler: [] };\nconst r = sd.report.AT;\n\nconst res = resp?.data?.priceListFixedPricesUpdate;\nr.batches++;\nr.geschrieben += (res?.pricesAdded || []).length;\n\nfor (const e of (res?.userErrors || [])) {\n  r.fehler.push({\n    batch: r.batches,\n    code: e.code || '',\n    feld: Array.isArray(e.field) ? e.field.join('.') : (e.field || ''),\n    meldung: e.message || ''\n  });\n}\nfor (const e of (resp?.errors || [])) {\n  r.fehler.push({ batch: r.batches, code: 'GRAPHQL', feld: '', meldung: e.message || '' });\n}\n\nreturn $input.all();\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        1920
+      ],
+      "id": "7beb39dc-fa9e-4ded-9cc0-082618629e92",
+      "name": "AT Ergebnis erfassen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shopify-Antwort dieses Batches auswerten: geschriebene Preise zaehlen, Fehler sammeln.\n// Wandert in staticData, weil die Schleife viele Laeufe hat.\nconst resp = $input.first().json;\nconst sd = $getWorkflowStaticData('global');\n\nif (!sd.report) sd.report = {};\nif (!sd.report.CH) sd.report.CH = { batches: 0, geschrieben: 0, fehler: [] };\nconst r = sd.report.CH;\n\nconst res = resp?.data?.priceListFixedPricesUpdate;\nr.batches++;\nr.geschrieben += (res?.pricesAdded || []).length;\n\nfor (const e of (res?.userErrors || [])) {\n  r.fehler.push({\n    batch: r.batches,\n    code: e.code || '',\n    feld: Array.isArray(e.field) ? e.field.join('.') : (e.field || ''),\n    meldung: e.message || ''\n  });\n}\nfor (const e of (resp?.errors || [])) {\n  r.fehler.push({ batch: r.batches, code: 'GRAPHQL', feld: '', meldung: e.message || '' });\n}\n\nreturn $input.all();\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        2288
+      ],
+      "id": "b024d813-44b9-4873-82a0-064fa3f8dadc",
+      "name": "CH Ergebnis erfassen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sammelpunkt: die AT-Schleife ist durch. Ein Item, damit der Merge zuendet.\nconst sd = $getWorkflowStaticData('global');\nconst r = (sd.report && sd.report.AT) || { batches: 0, geschrieben: 0, fehler: [] };\nreturn [{ json: { land: 'AT', batches: r.batches, geschrieben: r.geschrieben, fehler: r.fehler.length } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -944,
+        1904
+      ],
+      "id": "02bb0146-b610-46c1-9e64-9591d916de3c",
+      "name": "AT fertig"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sammelpunkt: die CH-Schleife ist durch. Ein Item, damit der Merge zuendet.\nconst sd = $getWorkflowStaticData('global');\nconst r = (sd.report && sd.report.CH) || { batches: 0, geschrieben: 0, fehler: [] };\nreturn [{ json: { land: 'CH', batches: r.batches, geschrieben: r.geschrieben, fehler: r.fehler.length } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -944,
+        2272
+      ],
+      "id": "100877a8-a3d6-4c78-9aac-ebe584854621",
+      "name": "CH fertig"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -736,
+        2080
+      ],
+      "id": "b3758386-d82f-4bee-9908-273e6f8e912a",
+      "name": "Beide Kataloge fertig"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Abschluss-Report ueber beide Kataloge (AT + CH).\n// Quelle: staticData.changes/stats (Vergleich vor dem Schreiben) + staticData.report (Shopify-Antworten).\nconst sd = $getWorkflowStaticData('global');\nconst prev = $('Config + Array leeren').first().json;\nconst config = prev.config;\n\nconst changes = sd.changes || [];\nconst stats = sd.stats || {\n  AT: { geprueft: 0, neu: 0, geaendert: 0, unveraendert: 0 },\n  CH: { geprueft: 0, neu: 0, geaendert: 0, unveraendert: 0 }\n};\nconst rAT = (sd.report && sd.report.AT) || { batches: 0, geschrieben: 0, fehler: [] };\nconst rCH = (sd.report && sd.report.CH) || { batches: 0, geschrieben: 0, fehler: [] };\nconst bestandFehler = sd.bestandFehler || [];\nconst gelesenAT = Object.keys((sd.bestand && sd.bestand.AT) || {}).length;\nconst gelesenCH = Object.keys((sd.bestand && sd.bestand.CH) || {}).length;\n\nconst wAT = config.priceLists.AT.currency;\nconst wCH = config.priceLists.CH.currency;\n\nconst start = sd.startedAt ? new Date(sd.startedAt) : null;\nconst ende = new Date();\nconst dauerMin = start ? Math.round((ende - start) / 600) / 100 : null;\nconst datumDe = ende.toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });\nconst stempel = ende.toISOString().slice(0, 10);\n\nconst esc = (s) => String(s === null || s === undefined ? '' : s)\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst geld = (n, w) => (n === null || n === undefined)\n  ? '&ndash;' : Number(n).toFixed(2).replace('.', ',') + ' ' + w;\nconst zahl = (n) => Number(n || 0).toLocaleString('de-DE');\n\n// Sortierung: neu aufgenommene Varianten zuerst, danach groesste Preisdifferenz.\nconst delta = (c) => (c.altAT === null ? 0 : Math.abs(c.neuAT - c.altAT))\n                   + (c.altCH === null ? 0 : Math.abs(c.neuCH - c.altCH));\nconst sortiert = changes.slice().sort((a, b) => {\n  const aNeu = (a.statusAT === 'neu' || a.statusCH === 'neu') ? 1 : 0;\n  const bNeu = (b.statusAT === 'neu' || b.statusCH === 'neu') ? 1 : 0;\n  if (aNeu !== bNeu) return bNeu - aNeu;\n  return delta(b) - delta(a);\n});\n\n// ===== CSV (vollstaendige Liste, als Anhang) =====\nconst csvFeld = (v) => {\n  const s = String(v === null || v === undefined ? '' : v);\n  return /[\";\\n\\r]/.test(s) ? '\"' + s.replace(/\"/g, '\"\"') + '\"' : s;\n};\nconst csvZahl = (n) => (n === null || n === undefined) ? '' : Number(n).toFixed(2).replace('.', ',');\nconst csvKopf = ['SKU', 'Titel', 'Typ', 'DE Brutto', 'DE Streichpreis',\n  'AT alt', 'AT neu', 'AT Streichpreis alt', 'AT Streichpreis neu', 'AT Status',\n  'CH alt', 'CH neu', 'CH Streichpreis alt', 'CH Streichpreis neu', 'CH Status', 'Variant-ID'];\nconst csvZeilen = sortiert.map(c => [\n  c.sku, c.title, c.typ, csvZahl(c.priceDEBrutto), csvZahl(c.compareAtDEBrutto),\n  csvZahl(c.altAT), csvZahl(c.neuAT), csvZahl(c.altVglAT), csvZahl(c.neuVglAT), c.statusAT,\n  csvZahl(c.altCH), csvZahl(c.neuCH), csvZahl(c.altVglCH), csvZahl(c.neuVglCH), c.statusCH,\n  c.variantId\n].map(csvFeld).join(';'));\nconst csv = '﻿' + [csvKopf.join(';')].concat(csvZeilen).join('\\r\\n') + '\\r\\n';\n\n// ===== HTML =====\nconst TD = 'padding:6px 10px;border-bottom:1px solid #e8eaed;font-size:13px;';\nconst TH = 'padding:6px 10px;border-bottom:2px solid #d2d5da;font-size:12px;text-align:left;color:#5f6368;text-transform:uppercase;letter-spacing:.04em;';\n\nconst preisZelle = (alt, neuPreis, status, waehrung) => {\n  if (status === 'unveraendert') return '<span style=\"color:#9aa0a6\">' + geld(neuPreis, waehrung) + '</span>';\n  if (status === 'neu') return '<span style=\"color:#1a73e8\">neu: <b>' + geld(neuPreis, waehrung) + '</b></span>';\n  // nur der Streichpreis weicht ab -> VK neutral anzeigen\n  if (Math.abs(alt - neuPreis) < 0.005) return '<span>' + geld(neuPreis, waehrung) + '</span>';\n  const farbe = neuPreis > alt ? '#c5221f' : '#137333';\n  return '<span style=\"color:#80868b\">' + geld(alt, waehrung) + '</span> &rarr; <b style=\"color:' + farbe + '\">' + geld(neuPreis, waehrung) + '</b>';\n};\n\n// Streichpreis-Zeile unter dem VK (nur wenn alt oder neu einer hinterlegt ist)\nconst vglZusatz = (altVgl, neuVgl, status, waehrung) => {\n  const a = (altVgl === null || altVgl === undefined) ? null : altVgl;\n  const n = (neuVgl === null || neuVgl === undefined) ? null : neuVgl;\n  if (a === null && n === null) return '';\n  const f = (v) => v === null ? 'keiner' : '<s>' + geld(v, waehrung) + '</s>';\n  const gleichVgl = a !== null && n !== null && Math.abs(a - n) < 0.005;\n  const inhalt = (status === 'neu' || gleichVgl) ? f(n) : f(a) + ' &rarr; <b>' + f(n) + '</b>';\n  return '<br><span style=\"color:#80868b;font-size:12px\">Streichpreis: ' + inhalt + '</span>';\n};\nconst vglDE = (v) => (v === null || v === undefined) ? ''\n  : '<br><span style=\"color:#80868b;font-size:12px\"><s>' + geld(v, 'EUR') + '</s></span>';\n\nconst MAX_ZEILEN = 200;\nconst zeilen = sortiert.slice(0, MAX_ZEILEN).map(c =>\n  '<tr>'\n  + '<td style=\"' + TD + 'font-family:monospace\">' + esc(c.sku || '–') + '</td>'\n  + '<td style=\"' + TD + '\">' + esc(c.title) + '</td>'\n  + '<td style=\"' + TD + 'color:#5f6368\">' + esc(c.typ) + '</td>'\n  + '<td style=\"' + TD + 'text-align:right;white-space:nowrap\">' + geld(c.priceDEBrutto, 'EUR') + vglDE(c.compareAtDEBrutto) + '</td>'\n  + '<td style=\"' + TD + 'white-space:nowrap\">' + preisZelle(c.altAT, c.neuAT, c.statusAT, wAT) + vglZusatz(c.altVglAT, c.neuVglAT, c.statusAT, wAT) + '</td>'\n  + '<td style=\"' + TD + 'white-space:nowrap\">' + preisZelle(c.altCH, c.neuCH, c.statusCH, wCH) + vglZusatz(c.altVglCH, c.neuVglCH, c.statusCH, wCH) + '</td>'\n  + '</tr>'\n).join('');\n\nconst summeZeile = (land, s, r, gelesen, waehrung) =>\n  '<tr>'\n  + '<td style=\"' + TD + '\"><b>' + land + '</b> <span style=\"color:#80868b\">(' + waehrung + ')</span></td>'\n  + '<td style=\"' + TD + 'text-align:right\">' + zahl(s.geprueft) + '</td>'\n  + '<td style=\"' + TD + 'text-align:right\"><b>' + zahl(s.geaendert) + '</b></td>'\n  + '<td style=\"' + TD + 'text-align:right\">' + zahl(s.neu) + '</td>'\n  + '<td style=\"' + TD + 'text-align:right;color:#80868b\">' + zahl(s.unveraendert) + '</td>'\n  + '<td style=\"' + TD + 'text-align:right\">' + zahl(gelesen) + '</td>'\n  + '<td style=\"' + TD + 'text-align:right\">' + zahl(r.geschrieben) + ' <span style=\"color:#80868b\">/ ' + zahl(r.batches) + ' Batches</span></td>'\n  + '<td style=\"' + TD + 'text-align:right;' + (r.fehler.length ? 'color:#c5221f;font-weight:bold' : 'color:#80868b') + '\">' + zahl(r.fehler.length) + '</td>'\n  + '</tr>';\n\nconst alleFehler = []\n  .concat(rAT.fehler.map(f => Object.assign({ land: 'AT' }, f)))\n  .concat(rCH.fehler.map(f => Object.assign({ land: 'CH' }, f)));\n\nconst fehlerBlock = alleFehler.length\n  ? '<h3 style=\"font:600 15px/1.4 Arial,sans-serif;color:#c5221f;margin:28px 0 8px\">Fehler beim Schreiben (' + alleFehler.length + ')</h3>'\n    + '<table cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;width:100%\">'\n    + '<tr><th style=\"' + TH + '\">Katalog</th><th style=\"' + TH + '\">Batch</th><th style=\"' + TH + '\">Code</th><th style=\"' + TH + '\">Feld</th><th style=\"' + TH + '\">Meldung</th></tr>'\n    + alleFehler.slice(0, 50).map(f =>\n        '<tr><td style=\"' + TD + '\">' + esc(f.land) + '</td><td style=\"' + TD + '\">' + esc(f.batch) + '</td>'\n        + '<td style=\"' + TD + 'font-family:monospace\">' + esc(f.code) + '</td><td style=\"' + TD + 'font-family:monospace\">' + esc(f.feld) + '</td>'\n        + '<td style=\"' + TD + '\">' + esc(f.meldung) + '</td></tr>').join('')\n    + '</table>'\n    + (alleFehler.length > 50 ? '<p style=\"font:13px Arial,sans-serif;color:#80868b\">… ' + (alleFehler.length - 50) + ' weitere Fehler nicht angezeigt.</p>' : '')\n  : '<p style=\"font:14px/1.5 Arial,sans-serif;color:#137333;margin:24px 0 0\">Keine Fehler beim Schreiben der Preislisten.</p>';\n\nconst warnung = (bestandFehler.length || (gelesenAT === 0 && gelesenCH === 0))\n  ? '<div style=\"background:#fef7e0;border-left:4px solid #f9ab00;padding:12px 16px;margin:0 0 20px;font:13px/1.5 Arial,sans-serif;color:#5f4200\">'\n    + '<b>Achtung:</b> Der bisherige Preisstand konnte nicht (vollständig) gelesen werden. '\n    + 'Die Spalte „alt“ und damit die Einstufung geändert/unverändert ist dadurch unzuverlässig.'\n    + (bestandFehler.length ? '<br>' + bestandFehler.slice(0, 5).map(esc).join('<br>') : '')\n    + '</div>'\n  : '';\n\nconst tabellenBlock = sortiert.length\n  ? '<h3 style=\"font:600 15px/1.4 Arial,sans-serif;color:#202124;margin:28px 0 8px\">Geänderte Preise'\n    + (sortiert.length > MAX_ZEILEN\n        ? ' <span style=\"font-weight:400;color:#80868b\">(erste ' + MAX_ZEILEN + ' von ' + zahl(sortiert.length) + ', vollständig im CSV-Anhang)</span>'\n        : ' <span style=\"font-weight:400;color:#80868b\">(' + zahl(sortiert.length) + ')</span>')\n    + '</h3>'\n    + '<table cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;width:100%\">'\n    + '<tr><th style=\"' + TH + '\">SKU</th><th style=\"' + TH + '\">Titel</th><th style=\"' + TH + '\">Typ</th>'\n    + '<th style=\"' + TH + 'text-align:right\">DE brutto</th><th style=\"' + TH + '\">AT</th><th style=\"' + TH + '\">CH</th></tr>'\n    + zeilen\n    + '</table>'\n  : '<p style=\"font:14px/1.5 Arial,sans-serif;color:#5f6368;margin:24px 0 0\">In beiden Katalogen hat sich kein Preis geändert.</p>';\n\nconst html =\n  '<div style=\"font-family:Arial,Helvetica,sans-serif;color:#202124;max-width:960px\">'\n  + '<h2 style=\"font:600 20px/1.3 Arial,sans-serif;margin:0 0 4px\">Katalogpreise AT &amp; CH – Report</h2>'\n  + '<p style=\"font:13px/1.5 Arial,sans-serif;color:#5f6368;margin:0 0 20px\">'\n  + 'Shop <b>' + esc(config.shop) + '</b> &middot; Lauf beendet ' + esc(datumDe)\n  + (dauerMin !== null ? ' &middot; Dauer ' + String(dauerMin).replace('.', ',') + ' Min' : '')\n  + '</p>'\n  + warnung\n  + '<table cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;width:100%\">'\n  + '<tr><th style=\"' + TH + '\">Katalog</th><th style=\"' + TH + 'text-align:right\">Geprüft</th>'\n  + '<th style=\"' + TH + 'text-align:right\">Geändert</th><th style=\"' + TH + 'text-align:right\">Neu</th>'\n  + '<th style=\"' + TH + 'text-align:right\">Unverändert</th><th style=\"' + TH + 'text-align:right\">Bestand gelesen</th>'\n  + '<th style=\"' + TH + 'text-align:right\">Geschrieben</th><th style=\"' + TH + 'text-align:right\">Fehler</th></tr>'\n  + summeZeile('AT', stats.AT, rAT, gelesenAT, wAT)\n  + summeZeile('CH', stats.CH, rCH, gelesenCH, wCH)\n  + '</table>'\n  + '<p style=\"font:12px/1.5 Arial,sans-serif;color:#80868b;margin:8px 0 0\">'\n  + '„Geändert“ = Preis oder Streichpreis in der Zielpreisliste weicht vom neu berechneten Wert ab. '\n  + 'Streichpreise (compareAtPrice) sind durchgestrichen dargestellt. '\n  + '„Neu“ = Variante war in der Preisliste noch nicht hinterlegt. '\n  + 'Der Flow schreibt weiterhin alle Preise, gemeldet werden nur die Abweichungen.</p>'\n  + tabellenBlock\n  + fehlerBlock\n  + '<p style=\"font:12px/1.5 Arial,sans-serif;color:#9aa0a6;margin:28px 0 0\">'\n  + 'Automatisch erzeugt von n8n · Workflow BB-Katalogpreise-AT-CH-aus-DE</p>'\n  + '</div>';\n\nconst fehlerGesamt = alleFehler.length + bestandFehler.length;\nconst subject = (fehlerGesamt ? '⚠ ' : '')\n  + 'Katalogpreise AT/CH – ' + zahl(sortiert.length) + ' Änderung' + (sortiert.length === 1 ? '' : 'en')\n  + (fehlerGesamt ? ' · ' + fehlerGesamt + ' Fehler' : '')\n  + ' (' + stempel + ')';\n\nreturn [{\n  json: {\n    subject: subject,\n    html: html,\n    aenderungen: sortiert.length,\n    fehler: fehlerGesamt,\n    stats: stats,\n    geschriebenAT: rAT.geschrieben,\n    geschriebenCH: rCH.geschrieben,\n    dauerMin: dauerMin\n  },\n  binary: {\n    data: {\n      data: Buffer.from(csv, 'utf8').toString('base64'),\n      mimeType: 'text/csv',\n      fileName: 'katalogpreise-at-ch-' + stempel + '.csv',\n      fileExtension: 'csv'\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -528,
+        2080
+      ],
+      "id": "3918e652-44d3-4a04-99df-dd024cdb8e15",
+      "name": "Report bauen"
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "jesse.balsam@buecherbuechse.de",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false,
+          "attachments": "data"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -320,
+        2080
+      ],
+      "id": "17de0cf3-adfe-4c0e-b8f7-e4ec3d72744b",
+      "name": "Report senden",
+      "webhookId": "4540215f-a7c1-4d2e-9f30-00000016e2d9",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Bestand lesen + Vergleich\nLiest die aktuell hinterlegten Preise und Streichpreise der AT- und CH-Preisliste (beide nacheinander in einer Schleife, 200er-Seiten).\nDanach Vergleich gegen die neu berechneten Preise -> geändert / neu / unverändert.\nNur diese Einstufung landet im Report; geschrieben wird weiterhin alles.",
+        "height": 452,
+        "width": 1236,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -3536,
+        1776
+      ],
+      "id": "0edfac02-99c6-42b7-8ad1-426db35f571a",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Report per Mail\nWartet auf beide Schreibschleifen, baut den Report über beide Kataloge\n(Summen, geänderte Preise alt -> neu, Shopify-Fehler) und verschickt ihn\ninkl. vollständiger CSV-Liste im Anhang.",
+        "height": 700,
+        "width": 800,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -992,
+        1792
+      ],
+      "id": "63d24855-a819-41ce-8e97-af1dca34c9dc",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== DRY-RUN-VORSCHAU (inkl. Streichpreis) =====\n// Hinter \"AT Batches bauen\" bzw. \"CH Batches bauen\" haengen (dieselbe Node zweimal,\n// der Katalog wird automatisch aus der priceListId der eingehenden Items erkannt).\n// WICHTIG: dafuer die Verbindung \"... Batches bauen\" -> \"... Split in Batches\" trennen,\n// sonst wird trotzdem geschrieben.\n// Schreibt nichts nach Shopify. Item 1 = Zusammenfassung, danach eine Zeile je Variante.\n\nconst NUR_AENDERUNGEN = true;  // false = auch unveraenderte Varianten auflisten\nconst MAX_ZEILEN      = 0;     // 0 = alle Zeilen\n\nconst eingang = $input.all().map(i => i.json);\nconst sd = $getWorkflowStaticData('global');\nconst config = $('Config + Array leeren').first().json.config;\n\n// --- Katalog bestimmen\nconst priceListId = eingang.length ? eingang[0].priceListId : null;\nlet land = null;\nfor (const k of Object.keys(config.priceLists)) {\n  if (config.priceLists[k].id === priceListId) land = k;\n}\nif (!land) {\n  throw new Error('Katalog nicht erkennbar: priceListId \"' + priceListId\n    + '\" passt zu keiner Preisliste in der Config. Haengt die Node hinter \"AT Batches bauen\" oder \"CH Batches bauen\"?');\n}\n\nconst waehrung = config.priceLists[land].currency;\nconst bestand = (sd.bestand && sd.bestand[land]) || {};\nconst bestandVgl = (sd.bestandVgl && sd.bestandVgl[land]) || {};\nconst bestandGelesen = Object.keys(bestand).length;\nconst bestandMitStreichpreis = Object.values(bestandVgl).filter(v => v !== null && v !== undefined).length;\n\n// --- Stammdaten (Titel/Typ/DE-Preise) je Variante nachschlagen\nconst stamm = {};\nfor (const i of $('Preise berechnen (AT + CH)').all()) {\n  stamm[i.json.variantId] = i.json;\n}\n\nconst r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;\nconst leer = (v) => (v === undefined || v === null) ? null : v;\nconst gleich = (a, b) => Math.abs(a - b) < 0.005;\n// Streichpreise: beide leer = gleich, nur einer leer = abweichend\nconst gleichVgl = (a, b) => (a === null || b === null) ? a === b : gleich(a, b);\nconst vglArt = (alt, neu) => {\n  if (alt === null && neu === null) return 'keiner';\n  if (alt === null) return 'kommt hinzu';\n  if (neu === null) return 'entfaellt';\n  return gleich(alt, neu) ? 'unveraendert' : 'geaendert';\n};\n\nconst zeilen = [];\nconst verdaechtig = [];\nconst z = {\n  geaendert: 0, nurVK: 0, nurStreichpreis: 0, vkUndStreichpreis: 0,\n  neu: 0, unveraendert: 0, ohnePreis: 0, teurer: 0, guenstiger: 0,\n  vglHinzu: 0, vglEntfaellt: 0, vglGeaendert: 0, mitStreichpreisNeu: 0\n};\nlet summeAlt = 0, summeNeu = 0;\n\nfor (const e of eingang) {\n  const neuPreis = parseFloat(e.price && e.price.amount);\n  if (!isFinite(neuPreis)) { z.ohnePreis++; continue; }\n  const neuVglRoh = parseFloat(e.compareAtPrice && e.compareAtPrice.amount);\n  const neuVgl = isFinite(neuVglRoh) ? neuVglRoh : null;\n  if (neuVgl !== null) z.mitStreichpreisNeu++;\n\n  const s = stamm[e.variantId] || {};\n  // Gegenprobe Gutscheine: nichts mit \"Gutschein\" im Titel sollte hier ankommen\n  if (/gutschein/i.test(s.title || '')) {\n    verdaechtig.push({ sku: e.sku || s.sku || '', titel: s.title, variantId: e.variantId });\n  }\n\n  const alt = bestand[e.variantId];\n  const altVgl = leer(bestandVgl[e.variantId]);\n  const istNeu = alt === undefined;\n  const vkAnders = !istNeu && !gleich(alt, neuPreis);\n  const vglAnders = !istNeu && !gleichVgl(altVgl, neuVgl);\n  const art = istNeu ? (neuVgl === null ? 'keiner' : 'kommt hinzu') : vglArt(altVgl, neuVgl);\n\n  let aenderung = null;\n  if (istNeu) z.neu++;\n  else if (vkAnders || vglAnders) {\n    z.geaendert++;\n    if (vkAnders && vglAnders) { aenderung = 'VK+Streichpreis'; z.vkUndStreichpreis++; }\n    else if (vkAnders) { aenderung = 'VK'; z.nurVK++; }\n    else { aenderung = 'Streichpreis'; z.nurStreichpreis++; }\n    if (vkAnders) {\n      summeAlt += alt;\n      summeNeu += neuPreis;\n      if (neuPreis > alt) z.teurer++; else z.guenstiger++;\n    }\n    if (art === 'kommt hinzu') z.vglHinzu++;\n    else if (art === 'entfaellt') z.vglEntfaellt++;\n    else if (art === 'geaendert') z.vglGeaendert++;\n  } else {\n    z.unveraendert++;\n    if (NUR_AENDERUNGEN) continue;\n  }\n\n  zeilen.push({\n    katalog: land,\n    status: istNeu ? 'neu in Preisliste' : (aenderung ? 'wird geaendert' : 'unveraendert'),\n    aenderung: aenderung,\n    sku: e.sku || s.sku || '',\n    titel: s.title || '',\n    typ: s.typ || '',\n    deBrutto: s.priceDEBrutto === undefined ? null : r2(s.priceDEBrutto),\n    deStreichpreis: leer(s.compareAtDEBrutto),\n    preisAktuell: istNeu ? null : r2(alt),\n    preisNeu: r2(neuPreis),\n    differenz: istNeu ? null : r2(neuPreis - alt),\n    differenzProzent: (istNeu || !alt) ? null : Math.round((neuPreis / alt - 1) * 1000) / 10,\n    streichpreisAktuell: altVgl === null ? null : r2(altVgl),\n    streichpreisNeu: neuVgl === null ? null : r2(neuVgl),\n    streichpreisAenderung: art,\n    waehrung: waehrung,\n    variantId: e.variantId\n  });\n}\n\n// Reihenfolge: VK+Streichpreis, nur VK, nur Streichpreis, unveraendert, neu in Preisliste;\n// innerhalb der Gruppe groesster VK-Sprung zuerst, dann SKU\nconst RANG = { 'VK+Streichpreis': 0, 'VK': 1, 'Streichpreis': 2 };\nconst rang = (r) => r.status === 'neu in Preisliste' ? 4 : (r.aenderung ? RANG[r.aenderung] : 3);\nzeilen.sort((a, b) => {\n  const ra = rang(a), rb = rang(b);\n  if (ra !== rb) return ra - rb;\n  const da = Math.abs(a.differenz || 0), db = Math.abs(b.differenz || 0);\n  if (da !== db) return db - da;\n  return String(a.sku).localeCompare(String(b.sku));\n});\n\nconst gezeigt = MAX_ZEILEN > 0 ? zeilen.slice(0, MAX_ZEILEN) : zeilen;\n\n// --- Uebersprungene Varianten (Bundles/Gutscheine) und ob sie noch in der Preisliste stehen\nconst uebersprungen = (sd.uebersprungen || []).map(u => ({\n  grund: u.grund,\n  sku: u.sku || '',\n  titel: u.title,\n  deBrutto: isFinite(u.priceDEBrutto) ? r2(u.priceDEBrutto) : null,\n  preisInPreisliste: bestand[u.variantId] === undefined ? null : r2(bestand[u.variantId]),\n  streichpreisInPreisliste: leer(bestandVgl[u.variantId]),\n  variantId: u.variantId\n}));\nconst zaehleGrund = (g) => uebersprungen.filter(u => u.grund === g).length;\nconst mitEintrag = (g) => uebersprungen.filter(u => u.grund === g && u.preisInPreisliste !== null).length;\n\nconst hinweise = [];\nif (bestandGelesen === 0) hinweise.push('ACHTUNG: Kein Bestand gelesen - alles wird als \"neu\" gewertet. Bestand-Schleife pruefen (Scope/Fehler).');\nif ((sd.bestandFehler || []).length) hinweise.push('ACHTUNG: Fehler beim Lesen der Preislisten, siehe bestandFehler.');\nif (verdaechtig.length) hinweise.push('PRUEFEN: ' + verdaechtig.length + ' Variante(n) mit \"Gutschein\" im Titel wuerden geschrieben, siehe verdaechtigeGutscheinTitel.');\nif (mitEintrag('gutschein')) hinweise.push('PRUEFEN: ' + mitEintrag('gutschein') + ' Gutschein-Variante(n) haben noch einen Preis in dieser Preisliste (Altlast, wird vom Flow nicht entfernt).');\nhinweise.push(NUR_AENDERUNGEN ? 'Nur Abweichungen gelistet (NUR_AENDERUNGEN = true).' : 'Alle Varianten gelistet.');\n\nconst zusammenfassung = {\n  zeile: '=== ZUSAMMENFASSUNG ' + land + ' (' + waehrung + ') ===',\n  priceListId: priceListId,\n  steuersaetze: { DE: config.tax.DE, [land]: config.tax[land] },\n  variantenGesamt: eingang.length,\n  wuerdenSichAendern: z.geaendert,\n  davonNurVK: z.nurVK,\n  davonNurStreichpreis: z.nurStreichpreis,\n  davonVKundStreichpreis: z.vkUndStreichpreis,\n  vkTeurer: z.teurer,\n  vkGuenstiger: z.guenstiger,\n  streichpreisKommtHinzu: z.vglHinzu,\n  streichpreisEntfaellt: z.vglEntfaellt,\n  streichpreisGeaendert: z.vglGeaendert,\n  neuInPreisliste: z.neu,\n  unveraendert: z.unveraendert,\n  ohneGueltigenPreis: z.ohnePreis,\n  mitStreichpreisNachLauf: z.mitStreichpreisNeu,\n  bestandGelesen: bestandGelesen,\n  bestandMitStreichpreis: bestandMitStreichpreis,\n  bestandFehler: sd.bestandFehler || [],\n  summeVKAktuellGeaenderte: r2(summeAlt),\n  summeVKNeuGeaenderte: r2(summeNeu),\n  differenzVKGesamt: r2(summeNeu - summeAlt),\n  uebersprungenBundles: zaehleGrund('bundle'),\n  uebersprungenGutscheine: zaehleGrund('gutschein'),\n  bundlesMitEintragInPreisliste: mitEintrag('bundle'),\n  gutscheineMitEintragInPreisliste: mitEintrag('gutschein'),\n  verdaechtigeGutscheinTitel: verdaechtig,\n  zeilenAngezeigt: gezeigt.length + (gezeigt.length < zeilen.length ? ' von ' + zeilen.length : ''),\n  hinweis: hinweise.join(' | '),\n  uebersprungenListe: uebersprungen\n};\n\nreturn [{ json: zusammenfassung }].concat(gezeigt.map((r, i) => ({ json: Object.assign({ zeile: i + 1 }, r) })));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1904,
+        1520
+      ],
+      "id": "b149e7ce-6a6d-4e88-92da-011d2cb0efe6",
+      "name": "Vorschau (Dry-Run)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== DRY-RUN-VORSCHAU (inkl. Streichpreis) =====\n// Hinter \"AT Batches bauen\" bzw. \"CH Batches bauen\" haengen (dieselbe Node zweimal,\n// der Katalog wird automatisch aus der priceListId der eingehenden Items erkannt).\n// WICHTIG: dafuer die Verbindung \"... Batches bauen\" -> \"... Split in Batches\" trennen,\n// sonst wird trotzdem geschrieben.\n// Schreibt nichts nach Shopify. Item 1 = Zusammenfassung, danach eine Zeile je Variante.\n\nconst NUR_AENDERUNGEN = true;  // false = auch unveraenderte Varianten auflisten\nconst MAX_ZEILEN      = 0;     // 0 = alle Zeilen\n\nconst eingang = $input.all().map(i => i.json);\nconst sd = $getWorkflowStaticData('global');\nconst config = $('Config + Array leeren').first().json.config;\n\n// --- Katalog bestimmen\nconst priceListId = eingang.length ? eingang[0].priceListId : null;\nlet land = null;\nfor (const k of Object.keys(config.priceLists)) {\n  if (config.priceLists[k].id === priceListId) land = k;\n}\nif (!land) {\n  throw new Error('Katalog nicht erkennbar: priceListId \"' + priceListId\n    + '\" passt zu keiner Preisliste in der Config. Haengt die Node hinter \"AT Batches bauen\" oder \"CH Batches bauen\"?');\n}\n\nconst waehrung = config.priceLists[land].currency;\nconst bestand = (sd.bestand && sd.bestand[land]) || {};\nconst bestandVgl = (sd.bestandVgl && sd.bestandVgl[land]) || {};\nconst bestandGelesen = Object.keys(bestand).length;\nconst bestandMitStreichpreis = Object.values(bestandVgl).filter(v => v !== null && v !== undefined).length;\n\n// --- Stammdaten (Titel/Typ/DE-Preise) je Variante nachschlagen\nconst stamm = {};\nfor (const i of $('Preise berechnen (AT + CH)').all()) {\n  stamm[i.json.variantId] = i.json;\n}\n\nconst r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;\nconst leer = (v) => (v === undefined || v === null) ? null : v;\nconst gleich = (a, b) => Math.abs(a - b) < 0.005;\n// Streichpreise: beide leer = gleich, nur einer leer = abweichend\nconst gleichVgl = (a, b) => (a === null || b === null) ? a === b : gleich(a, b);\nconst vglArt = (alt, neu) => {\n  if (alt === null && neu === null) return 'keiner';\n  if (alt === null) return 'kommt hinzu';\n  if (neu === null) return 'entfaellt';\n  return gleich(alt, neu) ? 'unveraendert' : 'geaendert';\n};\n\nconst zeilen = [];\nconst verdaechtig = [];\nconst z = {\n  geaendert: 0, nurVK: 0, nurStreichpreis: 0, vkUndStreichpreis: 0,\n  neu: 0, unveraendert: 0, ohnePreis: 0, teurer: 0, guenstiger: 0,\n  vglHinzu: 0, vglEntfaellt: 0, vglGeaendert: 0, mitStreichpreisNeu: 0\n};\nlet summeAlt = 0, summeNeu = 0;\n\nfor (const e of eingang) {\n  const neuPreis = parseFloat(e.price && e.price.amount);\n  if (!isFinite(neuPreis)) { z.ohnePreis++; continue; }\n  const neuVglRoh = parseFloat(e.compareAtPrice && e.compareAtPrice.amount);\n  const neuVgl = isFinite(neuVglRoh) ? neuVglRoh : null;\n  if (neuVgl !== null) z.mitStreichpreisNeu++;\n\n  const s = stamm[e.variantId] || {};\n  // Gegenprobe Gutscheine: nichts mit \"Gutschein\" im Titel sollte hier ankommen\n  if (/gutschein/i.test(s.title || '')) {\n    verdaechtig.push({ sku: e.sku || s.sku || '', titel: s.title, variantId: e.variantId });\n  }\n\n  const alt = bestand[e.variantId];\n  const altVgl = leer(bestandVgl[e.variantId]);\n  const istNeu = alt === undefined;\n  const vkAnders = !istNeu && !gleich(alt, neuPreis);\n  const vglAnders = !istNeu && !gleichVgl(altVgl, neuVgl);\n  const art = istNeu ? (neuVgl === null ? 'keiner' : 'kommt hinzu') : vglArt(altVgl, neuVgl);\n\n  let aenderung = null;\n  if (istNeu) z.neu++;\n  else if (vkAnders || vglAnders) {\n    z.geaendert++;\n    if (vkAnders && vglAnders) { aenderung = 'VK+Streichpreis'; z.vkUndStreichpreis++; }\n    else if (vkAnders) { aenderung = 'VK'; z.nurVK++; }\n    else { aenderung = 'Streichpreis'; z.nurStreichpreis++; }\n    if (vkAnders) {\n      summeAlt += alt;\n      summeNeu += neuPreis;\n      if (neuPreis > alt) z.teurer++; else z.guenstiger++;\n    }\n    if (art === 'kommt hinzu') z.vglHinzu++;\n    else if (art === 'entfaellt') z.vglEntfaellt++;\n    else if (art === 'geaendert') z.vglGeaendert++;\n  } else {\n    z.unveraendert++;\n    if (NUR_AENDERUNGEN) continue;\n  }\n\n  zeilen.push({\n    katalog: land,\n    status: istNeu ? 'neu in Preisliste' : (aenderung ? 'wird geaendert' : 'unveraendert'),\n    aenderung: aenderung,\n    sku: e.sku || s.sku || '',\n    titel: s.title || '',\n    typ: s.typ || '',\n    deBrutto: s.priceDEBrutto === undefined ? null : r2(s.priceDEBrutto),\n    deStreichpreis: leer(s.compareAtDEBrutto),\n    preisAktuell: istNeu ? null : r2(alt),\n    preisNeu: r2(neuPreis),\n    differenz: istNeu ? null : r2(neuPreis - alt),\n    differenzProzent: (istNeu || !alt) ? null : Math.round((neuPreis / alt - 1) * 1000) / 10,\n    streichpreisAktuell: altVgl === null ? null : r2(altVgl),\n    streichpreisNeu: neuVgl === null ? null : r2(neuVgl),\n    streichpreisAenderung: art,\n    waehrung: waehrung,\n    variantId: e.variantId\n  });\n}\n\n// Reihenfolge: VK+Streichpreis, nur VK, nur Streichpreis, unveraendert, neu in Preisliste;\n// innerhalb der Gruppe groesster VK-Sprung zuerst, dann SKU\nconst RANG = { 'VK+Streichpreis': 0, 'VK': 1, 'Streichpreis': 2 };\nconst rang = (r) => r.status === 'neu in Preisliste' ? 4 : (r.aenderung ? RANG[r.aenderung] : 3);\nzeilen.sort((a, b) => {\n  const ra = rang(a), rb = rang(b);\n  if (ra !== rb) return ra - rb;\n  const da = Math.abs(a.differenz || 0), db = Math.abs(b.differenz || 0);\n  if (da !== db) return db - da;\n  return String(a.sku).localeCompare(String(b.sku));\n});\n\nconst gezeigt = MAX_ZEILEN > 0 ? zeilen.slice(0, MAX_ZEILEN) : zeilen;\n\n// --- Uebersprungene Varianten (Bundles/Gutscheine) und ob sie noch in der Preisliste stehen\nconst uebersprungen = (sd.uebersprungen || []).map(u => ({\n  grund: u.grund,\n  sku: u.sku || '',\n  titel: u.title,\n  deBrutto: isFinite(u.priceDEBrutto) ? r2(u.priceDEBrutto) : null,\n  preisInPreisliste: bestand[u.variantId] === undefined ? null : r2(bestand[u.variantId]),\n  streichpreisInPreisliste: leer(bestandVgl[u.variantId]),\n  variantId: u.variantId\n}));\nconst zaehleGrund = (g) => uebersprungen.filter(u => u.grund === g).length;\nconst mitEintrag = (g) => uebersprungen.filter(u => u.grund === g && u.preisInPreisliste !== null).length;\n\nconst hinweise = [];\nif (bestandGelesen === 0) hinweise.push('ACHTUNG: Kein Bestand gelesen - alles wird als \"neu\" gewertet. Bestand-Schleife pruefen (Scope/Fehler).');\nif ((sd.bestandFehler || []).length) hinweise.push('ACHTUNG: Fehler beim Lesen der Preislisten, siehe bestandFehler.');\nif (verdaechtig.length) hinweise.push('PRUEFEN: ' + verdaechtig.length + ' Variante(n) mit \"Gutschein\" im Titel wuerden geschrieben, siehe verdaechtigeGutscheinTitel.');\nif (mitEintrag('gutschein')) hinweise.push('PRUEFEN: ' + mitEintrag('gutschein') + ' Gutschein-Variante(n) haben noch einen Preis in dieser Preisliste (Altlast, wird vom Flow nicht entfernt).');\nhinweise.push(NUR_AENDERUNGEN ? 'Nur Abweichungen gelistet (NUR_AENDERUNGEN = true).' : 'Alle Varianten gelistet.');\n\nconst zusammenfassung = {\n  zeile: '=== ZUSAMMENFASSUNG ' + land + ' (' + waehrung + ') ===',\n  priceListId: priceListId,\n  steuersaetze: { DE: config.tax.DE, [land]: config.tax[land] },\n  variantenGesamt: eingang.length,\n  wuerdenSichAendern: z.geaendert,\n  davonNurVK: z.nurVK,\n  davonNurStreichpreis: z.nurStreichpreis,\n  davonVKundStreichpreis: z.vkUndStreichpreis,\n  vkTeurer: z.teurer,\n  vkGuenstiger: z.guenstiger,\n  streichpreisKommtHinzu: z.vglHinzu,\n  streichpreisEntfaellt: z.vglEntfaellt,\n  streichpreisGeaendert: z.vglGeaendert,\n  neuInPreisliste: z.neu,\n  unveraendert: z.unveraendert,\n  ohneGueltigenPreis: z.ohnePreis,\n  mitStreichpreisNachLauf: z.mitStreichpreisNeu,\n  bestandGelesen: bestandGelesen,\n  bestandMitStreichpreis: bestandMitStreichpreis,\n  bestandFehler: sd.bestandFehler || [],\n  summeVKAktuellGeaenderte: r2(summeAlt),\n  summeVKNeuGeaenderte: r2(summeNeu),\n  differenzVKGesamt: r2(summeNeu - summeAlt),\n  uebersprungenBundles: zaehleGrund('bundle'),\n  uebersprungenGutscheine: zaehleGrund('gutschein'),\n  bundlesMitEintragInPreisliste: mitEintrag('bundle'),\n  gutscheineMitEintragInPreisliste: mitEintrag('gutschein'),\n  verdaechtigeGutscheinTitel: verdaechtig,\n  zeilenAngezeigt: gezeigt.length + (gezeigt.length < zeilen.length ? ' von ' + zeilen.length : ''),\n  hinweis: hinweise.join(' | '),\n  uebersprungenListe: uebersprungen\n};\n\nreturn [{ json: zusammenfassung }].concat(gezeigt.map((r, i) => ({ json: Object.assign({ zeile: i + 1 }, r) })));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1888,
+        2672
+      ],
+      "id": "c3c906d7-e8f1-4c45-80d6-00b8c8d20893",
+      "name": "Vorschau (Dry-Run)1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== JSON-DATEI ZUM HERUNTERLADEN =====\n// Hinter \"Vorschau (Dry-Run)\" haengen (funktioniert aber mit beliebigen Items).\n// Download in n8n: Node ausfuehren -> Ausgabe-Panel -> Tab \"Binary\" -> Download.\n\nconst PRETTY = true;   // false = kompakt, deutlich kleinere Datei\n\nconst items = $input.all().map(i => i.json);\n\n// Zusammenfassungs-Item der Vorschau-Node von den Detailzeilen trennen\nconst istSummary = (o) => typeof o.zeile === 'string' && o.zeile.indexOf('===') === 0;\nconst zusammenfassung = items.find(istSummary) || null;\nconst zeilen = items.filter(o => !istSummary(o));\n\nlet katalog = 'unbekannt';\nif (zusammenfassung && zusammenfassung.zeile) {\n  const m = zusammenfassung.zeile.match(/ZUSAMMENFASSUNG\\s+(\\w+)/);\n  if (m) katalog = m[1];\n}\nif (katalog === 'unbekannt' && zeilen.length && zeilen[0].katalog) katalog = zeilen[0].katalog;\n\nconst jetzt = new Date();\nconst stempel = jetzt.toISOString().slice(0, 19).replace(/[:T]/g, '-');\n\nconst inhalt = {\n  erzeugt: jetzt.toISOString(),\n  workflow: (typeof $workflow !== 'undefined' && $workflow) ? $workflow.name : null,\n  katalog: katalog,\n  anzahlZeilen: zeilen.length,\n  zusammenfassung: zusammenfassung,\n  zeilen: zeilen\n};\n\nconst text = PRETTY ? JSON.stringify(inhalt, null, 2) : JSON.stringify(inhalt);\nconst buf = Buffer.from(text, 'utf8');\nconst dateiname = 'preisvorschau-' + katalog + '-' + stempel + '.json';\n\nreturn [{\n  json: {\n    dateiname: dateiname,\n    katalog: katalog,\n    anzahlZeilen: zeilen.length,\n    groesseKB: Math.round(buf.length / 102.4) / 10,\n    hinweis: 'Download im Ausgabe-Panel unter \"Binary\".'\n  },\n  binary: {\n    data: {\n      data: buf.toString('base64'),\n      mimeType: 'application/json',\n      fileName: dateiname,\n      fileExtension: 'json'\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1632,
+        1520
+      ],
+      "id": "a80d0695-98ec-492a-ace2-0d4be95e62ed",
+      "name": "JSON-Datei erzeugen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== JSON-DATEI ZUM HERUNTERLADEN =====\n// Hinter \"Vorschau (Dry-Run)\" haengen (funktioniert aber mit beliebigen Items).\n// Download in n8n: Node ausfuehren -> Ausgabe-Panel -> Tab \"Binary\" -> Download.\n\nconst PRETTY = true;   // false = kompakt, deutlich kleinere Datei\n\nconst items = $input.all().map(i => i.json);\n\n// Zusammenfassungs-Item der Vorschau-Node von den Detailzeilen trennen\nconst istSummary = (o) => typeof o.zeile === 'string' && o.zeile.indexOf('===') === 0;\nconst zusammenfassung = items.find(istSummary) || null;\nconst zeilen = items.filter(o => !istSummary(o));\n\nlet katalog = 'unbekannt';\nif (zusammenfassung && zusammenfassung.zeile) {\n  const m = zusammenfassung.zeile.match(/ZUSAMMENFASSUNG\\s+(\\w+)/);\n  if (m) katalog = m[1];\n}\nif (katalog === 'unbekannt' && zeilen.length && zeilen[0].katalog) katalog = zeilen[0].katalog;\n\nconst jetzt = new Date();\nconst stempel = jetzt.toISOString().slice(0, 19).replace(/[:T]/g, '-');\n\nconst inhalt = {\n  erzeugt: jetzt.toISOString(),\n  workflow: (typeof $workflow !== 'undefined' && $workflow) ? $workflow.name : null,\n  katalog: katalog,\n  anzahlZeilen: zeilen.length,\n  zusammenfassung: zusammenfassung,\n  zeilen: zeilen\n};\n\nconst text = PRETTY ? JSON.stringify(inhalt, null, 2) : JSON.stringify(inhalt);\nconst buf = Buffer.from(text, 'utf8');\nconst dateiname = 'preisvorschau-' + katalog + '-' + stempel + '.json';\n\nreturn [{\n  json: {\n    dateiname: dateiname,\n    katalog: katalog,\n    anzahlZeilen: zeilen.length,\n    groesseKB: Math.round(buf.length / 102.4) / 10,\n    hinweis: 'Download im Ausgabe-Panel unter \"Binary\".'\n  },\n  binary: {\n    data: {\n      data: buf.toString('base64'),\n      mimeType: 'application/json',\n      fileName: dateiname,\n      fileExtension: 'json'\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1648,
+        2672
+      ],
+      "id": "708a7464-ce90-49f1-81df-f461a787049a",
+      "name": "JSON-Datei erzeugen1"
+    }
+  ],
+  "connections": {
+    "Token holen ": {
+      "main": [
+        [
+          {
+            "node": "Config + Array leeren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config + Array leeren": {
+      "main": [
+        [
+          {
+            "node": "GET Produkte (GraphQL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Produkte (GraphQL)": {
+      "main": [
+        [
+          {
+            "node": "Produkte sammeln + Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Produkte sammeln + Cursor": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Gibt es NextPage?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es NextPage?": {
+      "main": [
+        [
+          {
+            "node": "Weiter zur nächsten Seite",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preise berechnen (AT + CH)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weiter zur nächsten Seite": {
+      "main": [
+        [
+          {
+            "node": "GET Produkte (GraphQL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preise berechnen (AT + CH)": {
+      "main": [
+        [
+          {
+            "node": "Bestand lesen: Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT Batches bauen": {
+      "main": [
+        [
+          {
+            "node": "AT Split in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT Split in Batches": {
+      "main": [
+        [
+          {
+            "node": "AT fertig",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AT Aggregieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT Aggregieren": {
+      "main": [
+        [
+          {
+            "node": "AT Preise schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT Preise schreiben": {
+      "main": [
+        [
+          {
+            "node": "AT Ergebnis erfassen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait AT": {
+      "main": [
+        [
+          {
+            "node": "AT Split in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH Batches bauen": {
+      "main": [
+        [
+          {
+            "node": "CH Split in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH Split in Batches": {
+      "main": [
+        [
+          {
+            "node": "CH fertig",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CH Aggregieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH Aggregieren": {
+      "main": [
+        [
+          {
+            "node": "CH Preise schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH Preise schreiben": {
+      "main": [
+        [
+          {
+            "node": "CH Ergebnis erfassen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait CH": {
+      "main": [
+        [
+          {
+            "node": "CH Split in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestand lesen: Start": {
+      "main": [
+        [
+          {
+            "node": "Preisliste lesen (GraphQL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preisliste lesen (GraphQL)": {
+      "main": [
+        [
+          {
+            "node": "Bestand sammeln + Cursor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestand sammeln + Cursor": {
+      "main": [
+        [
+          {
+            "node": "Wait Bestand",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Bestand": {
+      "main": [
+        [
+          {
+            "node": "Bestand fertig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestand fertig?": {
+      "main": [
+        [
+          {
+            "node": "Änderungen ermitteln",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preisliste lesen (GraphQL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Änderungen ermitteln": {
+      "main": [
+        [
+          {
+            "node": "AT Batches bauen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CH Batches bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT Ergebnis erfassen": {
+      "main": [
+        [
+          {
+            "node": "Wait AT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH Ergebnis erfassen": {
+      "main": [
+        [
+          {
+            "node": "Wait CH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AT fertig": {
+      "main": [
+        [
+          {
+            "node": "Beide Kataloge fertig",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CH fertig": {
+      "main": [
+        [
+          {
+            "node": "Beide Kataloge fertig",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Beide Kataloge fertig": {
+      "main": [
+        [
+          {
+            "node": "Report bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report bauen": {
+      "main": [
+        [
+          {
+            "node": "Report senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorschau (Dry-Run)": {
+      "main": [
+        [
+          {
+            "node": "JSON-Datei erzeugen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vorschau (Dry-Run)1": {
+      "main": [
+        [
+          {
+            "node": "JSON-Datei erzeugen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "KfuCIJVEN03wLVwQ",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-09-22T10:02:08.367Z",
+      "updatedAt": "2026-09-22T10:02:08.367Z"
+    }
+  ],
+  "activeVersion": null
+}

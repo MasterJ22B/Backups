@@ -1,0 +1,704 @@
+{
+  "id": "GWBQsqwNhKFFoV8N",
+  "name": "Shopify-Offene-Zahlungsaufforderungen-14-Tage",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-25T09:30:41.398Z",
+  "updatedAt": "2026-09-25T10:36:58.367Z",
+  "isArchived": false,
+  "versionId": "4964cb8b-b05c-418d-88ff-59d20e2c1a3e",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "7f1bc653-65d0-4d31-9133-ba6e75f9925c",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        2112,
+        1008
+      ],
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === Zentrale Konfiguration – hier pflegen ===\n\n// Zeitraum \"Bestellungen des letzten Monats\":\n// 'rollierend' = heute vor einem Monat bis jetzt (Zeitpunkt des manuellen Starts)\n// 'vormonat'   = 1. bis letzter Tag des Vormonats (deutsche Zeit)\nconst ZEITRAUM = 'rollierend';\n\nconst heute = DateTime.now().setZone('Europe/Berlin');\nlet von = heute.minus({ months: 1 });\nlet bis = null;\nif (ZEITRAUM === 'vormonat') {\n  von = heute.startOf('month').minus({ months: 1 });\n  bis = heute.startOf('month').minus({ seconds: 1 });\n}\n\nconst CONFIG = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  zeitraum: ZEITRAUM,\n  // Wird bei jedem Lauf neu berechnet, daher kein fixes Datum im Code.\n  createdAtMin: von.toUTC().toISO(),\n  // null = \"bis jetzt\"\n  createdAtMax: bis ? bis.toUTC().toISO() : null,\n\n  // Bestellliste per GraphQL. 100 pro Seite = ca. 700 angefragte Punkte,\n  // Shopify erlaubt hoechstens 1.000 pro Query.\n  seitenGroesse: 100,\n  // Notbremse gegen einen kaputten Cursor. Greift sie, meldet der Report UNVOLLSTAENDIG.\n  maxSeiten: 100,\n  // So oft darf Shopify eine Seite drosseln (THROTTLED), bevor der Lauf abbricht.\n  maxDrosselungen: 20,\n\n  // Offene Bestellungen, deren erste Zahlungsaufforderung so viele Tage alt ist,\n  // werden im Report markiert (kein Filter).\n  alterTage: 14,\n\n  // Timeline-Eintraege, die als Zahlungsaufforderung zaehlen (Regex, Gross-/\n  // Kleinschreibung egal). Nach dem ersten Lauf mit dem DIAGNOSE-Item aus\n  // 'Report erstellen' abgleichen und bei Bedarf ergaenzen.\n  aufforderungMuster: 'zahlungsaufforderung|zahlungsanforderung|zahlung angefordert|'\n    + 'zahlungserinnerung|zahlungslink|rechnung|payment request|payment reminder|'\n    + 'payment link|invoice|bestellung bearbeitet|bestellbearbeitung|order edited',\n  // ... und muessen ein Mailversand sein: action 'mail_sent' oder dieser Text.\n  gesendetMuster: 'gesendet|versendet|verschickt|\\\\bsent\\\\b',\n\n  // Einzelne Bestellungen ausschliessen (orderId als Zahl)\n  ausnahmen: []\n};\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.kandidaten = [];\nstaticData.ergebnisse = {};\nstaticData.unlesbar = [];\nstaticData.teilbezahltSonstige = [];\nstaticData.abgebrochen = false;\nstaticData.diagnose = { erkannt: {}, nichtErkannt: {} };\nstaticData.stats = {\n  seiten: 0, geprueft: 0, bearbeitet: 0, storniert: 0, ausnahmen: 0, gedrosselt: 0,\n  statusVerteilung: {}\n};\n\nreturn [{ json: { config: CONFIG } }];\n"
+      },
+      "id": "108a685c-9712-47b0-8392-91dac6b732bb",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2336,
+        1008
+      ],
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "id": "2db8da2d-0379-4cc7-a801-2f7f8988c5bf",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2768,
+        1008
+      ],
+      "name": "Token holen",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\n// Erste Runde kommt aus 'Config' (kein Cursor), danach aus 'Weitere Seite?'.\nconst cursor = $input.first().json.cursor || null;\n\n// Voller Zeitstempel statt nur Datum, damit das Fenster exakt dem Config-Zeitraum entspricht.\nlet filter = `created_at:>='${config.createdAtMin}'`;\nif (config.createdAtMax) {\n  filter += ` AND created_at:<='${config.createdAtMax}'`;\n}\n\n// edited + Original- und aktuelle Summe erkennen einen Mehrbetrag aus einer\n// Bearbeitung auch dann noch, wenn er schon bezahlt ist (Saldo 0).\nconst query = `query($cursor: String, $filter: String) {\n  orders(first: ${config.seitenGroesse}, after: $cursor, query: $filter, sortKey: CREATED_AT) {\n    edges {\n      node {\n        id\n        name\n        createdAt\n        cancelledAt\n        edited\n        displayFinancialStatus\n        originalTotalPriceSet { presentmentMoney { amount currencyCode } }\n        totalPriceSet         { presentmentMoney { amount currencyCode } }\n        totalOutstandingSet   { presentmentMoney { amount currencyCode } }\n      }\n    }\n    pageInfo { hasNextPage endCursor }\n  }\n}`;\n\nreturn [{\n  json: {\n    cursor,\n    filter,\n    gqlBody: JSON.stringify({ query, variables: { cursor, filter } })\n  }\n}];\n"
+      },
+      "id": "6cb208b7-106a-45e0-b0c4-e8db83840873",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        1008
+      ],
+      "name": "Query bauen (Liste)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.access_token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Query bauen (Liste)').first().json.gqlBody }}",
+        "options": {}
+      },
+      "id": "53539330-447e-4883-a96a-1e9917b541ea",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2992,
+        1008
+      ],
+      "name": "Bestellungen abfragen",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst stats = staticData.stats;\n\n// Shopify rechnet mit einem Punkte-Bucket, der je nach Plan unterschiedlich schnell\n// nachlaeuft. Gewartet wird, bis wieder genug Punkte fuer die naechste Seite da sind.\nconst kosten = resp?.extensions?.cost;\nconst warteSek = (benoetigt) => {\n  const t = kosten?.throttleStatus;\n  if (!t || !(t.restoreRate > 0)) return 1;\n  return Math.max(1, Math.ceil((benoetigt - t.currentlyAvailable) / t.restoreRate));\n};\n\nconst errors = Array.isArray(resp?.errors) ? resp.errors : [];\n\n// THROTTLED kommt mit HTTP 200: dieselbe Seite nach der Pause noch einmal holen.\nif (errors.some(e => e?.extensions?.code === 'THROTTLED')) {\n  stats.gedrosselt++;\n  if (stats.gedrosselt > config.maxDrosselungen) {\n    throw new Error(`Shopify drosselt dauerhaft (${stats.gedrosselt}x THROTTLED) – Lauf abgebrochen.`);\n  }\n  return [{\n    json: {\n      cursor: $('Query bauen (Liste)').first().json.cursor,\n      hasNext: true,\n      gedrosselt: true,\n      wartenSek: warteSek(kosten?.requestedQueryCost || 1000)\n    }\n  }];\n}\n\n// Andere GraphQL-Fehler kommen ebenfalls mit HTTP 200. Hart abbrechen:\n// mit einer halben Bestellliste waeren alle Zahlen im Report falsch.\nif (errors.length) {\n  throw new Error('GraphQL-Fehler: ' + JSON.stringify(errors).slice(0, 1000));\n}\nconst conn = resp?.data?.orders;\nif (!conn) {\n  throw new Error('Keine Orders-Antwort: ' + JSON.stringify(resp).slice(0, 500));\n}\n\nstats.seiten++;\n\n// Betraege kommen als String. null/'' waeren bei Number() eine 0 -> vorher abfangen.\nconst geld = (set) => {\n  const roh = set?.presentmentMoney?.amount;\n  return (roh === null || roh === undefined || roh === '') ? NaN : Number(roh);\n};\nconst cent = (v) => Math.round(v * 100);\n\nconst knoten = (conn.edges || []).map(e => e.node);\n\nfor (const o of knoten) {\n  stats.geprueft++;\n  const status = o.displayFinancialStatus || 'UNBEKANNT';\n  stats.statusVerteilung[status] = (stats.statusVerteilung[status] || 0) + 1;\n  if (o.edited) stats.bearbeitet++;\n\n  const orderId = Number(String(o.id).split('/').pop());\n  if (Array.isArray(config.ausnahmen) && config.ausnahmen.includes(orderId)) {\n    stats.ausnahmen++;\n    continue;\n  }\n\n  const original = geld(o.originalTotalPriceSet);\n  const aktuell = geld(o.totalPriceSet);\n  const offen = geld(o.totalOutstandingSet);\n  const currency = o.totalPriceSet?.presentmentMoney?.currencyCode\n    || o.originalTotalPriceSet?.presentmentMoney?.currencyCode;\n  const adminUrl = `https://admin.shopify.com/store/${config.shop}/orders/${orderId}`;\n\n  if (o.edited && ![original, aktuell, offen].every(Number.isFinite)) {\n    staticData.unlesbar.push({\n      orderId, orderName: o.name, createdAt: o.createdAt, adminUrl,\n      grund: 'Beträge unlesbar: ' + JSON.stringify({\n        original: o.originalTotalPriceSet, aktuell: o.totalPriceSet, offen: o.totalOutstandingSet\n      })\n    });\n    continue;\n  }\n\n  // Mehrbetrag aus einer Bearbeitung: Summe heute hoeher als bei Bestellung.\n  // Bewusst nicht ueber den Saldo: bereits ausgeglichene Bestellungen stehen auf 0.\n  const mehrCent = o.edited ? cent(aktuell) - cent(original) : 0;\n\n  if (mehrCent > 0) {\n    if (o.cancelledAt) {\n      stats.storniert++;\n      continue;\n    }\n    staticData.kandidaten.push({\n      orderId,\n      orderName: o.name,\n      createdAt: o.createdAt,\n      financialStatus: status,\n      currency,\n      originalBetrag: original.toFixed(2),\n      aktuellerBetrag: aktuell.toFixed(2),\n      mehrbetrag: (mehrCent / 100).toFixed(2),\n      offenerBetrag: offen.toFixed(2)\n    });\n    continue;\n  }\n\n  // Kontrollliste: jedes 'Partially paid' soll im Report stehen, auch wenn es\n  // nicht aus einer Bearbeitung mit Mehrbetrag kommt.\n  if (status === 'PARTIALLY_PAID' && !o.cancelledAt) {\n    staticData.teilbezahltSonstige.push({\n      orderId,\n      orderName: o.name,\n      createdAt: o.createdAt,\n      financialStatus: status,\n      currency,\n      offenerBetrag: Number.isFinite(offen) ? offen.toFixed(2) : null,\n      bearbeitet: !!o.edited,\n      mehrbetrag: o.edited ? (mehrCent / 100).toFixed(2) : null,\n      adminUrl\n    });\n  }\n}\n\nconst serverHatMehr = !!conn.pageInfo?.hasNextPage;\nconst limitErreicht = stats.seiten >= config.maxSeiten;\nif (serverHatMehr && limitErreicht) staticData.abgebrochen = true;\n\nreturn [{\n  json: {\n    cursor: conn.pageInfo?.endCursor || null,\n    hasNext: serverHatMehr && !limitErreicht,\n    wartenSek: warteSek(kosten?.requestedQueryCost || 0),\n    seite: stats.seiten,\n    seiteBestellungen: knoten.length,\n    bestellungenGeprueft: stats.geprueft,\n    kandidatenGesamt: staticData.kandidaten.length\n  }\n}];\n"
+      },
+      "id": "d2dc84f6-5896-4df6-af96-fdc0a4b90b7d",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3216,
+        1008
+      ],
+      "name": "Seite auswerten"
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.wartenSek }}"
+      },
+      "id": "752d0ac4-9d18-4e58-a778-95806f9522d1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3440,
+        1008
+      ],
+      "name": "Wait",
+      "webhookId": "fa3ce8b1-4252-4aea-baf5-a9f7f491a608"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a8fe70b7-4070-470d-904b-fb598f5b0c63",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "97fa5826-7463-422c-af88-4872a2991ac7",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3648,
+        1008
+      ],
+      "name": "Weitere Seite?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst kandidaten = $getWorkflowStaticData('global').kandidaten || [];\n\n// Ein Item pro Bestellung mit offenem Betrag. Daran haengt die Timeline-Pruefung.\nreturn kandidaten.map(k => ({\n  json: {\n    ...k,\n    orderGid: `gid://shopify/Order/${k.orderId}`,\n    adminUrl: `https://admin.shopify.com/store/${config.shop}/orders/${k.orderId}`\n  }\n}));\n"
+      },
+      "id": "b849326a-11a6-459f-b149-13bf7356477a",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3920,
+        1328
+      ],
+      "name": "Kandidaten vorbereiten",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "808c8105-8b66-4b57-9b2c-524db95083c5",
+              "leftValue": "={{ $json.orderGid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dfa70142-45b8-49ee-82ab-9b16c2b886c8",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4128,
+        1328
+      ],
+      "name": "Gibt es Kandidaten?"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "94a1a95d-78eb-48d2-b961-974d9b8041fa",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        4352,
+        1328
+      ],
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "id": "88ab745c-d740-43db-b7b6-4c377857ecda",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4592,
+        1488
+      ],
+      "name": "Token holen 2",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input dieses Nodes ist 'Token holen 2' (OAuth-Antwort), nicht die Bestellung.\n// Die Bestelldaten deshalb direkt aus dem Loop holen.\nconst item = $('Loop Over Items').first().json;\n\n// Betraege frisch: zwischen Scan und Pruefung kann bezahlt worden sein.\n// agreements liefert den Zeitpunkt der Bearbeitung (reason ORDER_EDIT),\n// events die Timeline mit allen versendeten Mails.\nconst body = {\n  query: `query($id: ID!) {\n    order(id: $id) {\n      id\n      name\n      cancelledAt\n      displayFinancialStatus\n      email\n      paymentGatewayNames\n      billingAddress  { name countryCodeV2 }\n      shippingAddress { name countryCodeV2 }\n      originalTotalPriceSet { presentmentMoney { amount currencyCode } }\n      totalPriceSet         { presentmentMoney { amount currencyCode } }\n      totalOutstandingSet   { presentmentMoney { amount currencyCode } }\n      agreements(first: 50) {\n        pageInfo { hasNextPage }\n        edges { node { happenedAt reason } }\n      }\n      events(first: 100) {\n        pageInfo { hasNextPage }\n        edges {\n          node {\n            id\n            createdAt\n            message\n            ... on BasicEvent { action }\n          }\n        }\n      }\n    }\n  }`,\n  variables: { id: item.orderGid }\n};\n\nreturn [{\n  json: {\n    ...item,\n    accessToken: $('Token holen 2').first().json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n}];\n"
+      },
+      "id": "2275bf76-a60e-4ef9-8d78-0ffd7ca882f3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4816,
+        1488
+      ],
+      "name": "Query bauen (Timeline)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "id": "ab2b847a-f40c-4979-9f9f-d43bf15e58cd",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5040,
+        1488
+      ],
+      "name": "Timeline abfragen",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst src = $('Loop Over Items').first().json;\nconst config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\n\n// message ist ein FormattedString (HTML mit Links) -> reiner Text\nconst alsText = (html) => String(html ?? '')\n  .replace(/<[^>]*>/g, ' ')\n  .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/&amp;/g, '&')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\n// Fuer die Diagnose: Mailadressen und Zahlen raus, damit gleiche Texte zusammenfallen\nconst vorlage = (ev) => (ev.action || '-') + ' | ' + ev.text\n  .replace(/\\S+@\\S+/g, '<mail>')\n  .replace(/\\d[\\d.,]*/g, '#')\n  .slice(0, 160);\n\nconst zaehlen = (map, key) => { map[key] = (map[key] || 0) + 1; };\n\n// Betraege kommen als String. null/'' waeren bei Number() eine 0 -> vorher abfangen.\nconst geld = (set) => {\n  const roh = set?.presentmentMoney?.amount;\n  return (roh === null || roh === undefined || roh === '') ? NaN : Number(roh);\n};\nconst cent = (v) => Math.round(v * 100);\n\n// Shopify-Bucket: vor dem naechsten Kandidaten warten, bis die Punkte wieder reichen.\nconst kosten = resp?.extensions?.cost;\nconst t = kosten?.throttleStatus;\nconst wartenSek = (t && t.restoreRate > 0)\n  ? Math.max(1, Math.ceil((2 * (kosten.requestedQueryCost || 200) - t.currentlyAvailable) / t.restoreRate))\n  : 1;\n\nconst ergebnis = {\n  ...src,\n  accessToken: undefined,\n  gqlBody: undefined,\n  status: null,\n  grund: null,\n  kunde: '',\n  email: '',\n  land: null,\n  zahlart: '',\n  bearbeitetAm: null,\n  aufforderungErhalten: false,\n  ersteAufforderung: null,\n  letzteAufforderung: null,\n  anzahlAufforderungen: 0,\n  tageSeitAufforderung: null,\n  aufforderungAbAlterTage: false,\n  erkanntUeber: null\n};\nconst hinweise = [];\n\n// GraphQL-Fehler kommen mit HTTP 200, ein HTTP-Fehler landet dank onError als error-Objekt hier.\nconst order = resp?.data?.order;\nconst gqlErrors = (resp?.errors || []).map(e => e.message);\n\nif (!order) {\n  ergebnis.status = 'FEHLER';\n  hinweise.push(gqlErrors.join('; ')\n    || resp?.error?.message\n    || ('Keine Order-Daten: ' + JSON.stringify(resp).slice(0, 300)));\n} else {\n  const adresse = order.billingAddress || order.shippingAddress || {};\n  ergebnis.kunde = adresse.name || '';\n  ergebnis.email = order.email || '';\n  ergebnis.land = adresse.countryCodeV2 || null;\n  ergebnis.zahlart = (order.paymentGatewayNames || []).join(', ');\n  ergebnis.financialStatus = order.displayFinancialStatus || src.financialStatus;\n\n  const original = geld(order.originalTotalPriceSet);\n  const aktuell = geld(order.totalPriceSet);\n  const offen = geld(order.totalOutstandingSet);\n\n  if (![original, aktuell, offen].every(Number.isFinite)) {\n    ergebnis.status = 'FEHLER';\n    hinweise.push('Beträge unlesbar');\n  } else {\n    const mehrCent = cent(aktuell) - cent(original);\n    ergebnis.originalBetrag = original.toFixed(2);\n    ergebnis.aktuellerBetrag = aktuell.toFixed(2);\n    ergebnis.mehrbetrag = (mehrCent / 100).toFixed(2);\n    ergebnis.offenerBetrag = offen.toFixed(2);\n    ergebnis.currency = order.totalPriceSet?.presentmentMoney?.currencyCode || src.currency;\n\n    // Erst ab der ersten Bearbeitung gibt es einen Mehrbetrag, den man anfordern kann.\n    // Mails davor (z. B. Rechnung zur Bestellung) zaehlen deshalb nicht.\n    const edits = (order.agreements?.edges || [])\n      .map(e => e.node)\n      .filter(a => a?.reason === 'ORDER_EDIT' && a.happenedAt)\n      .sort((a, b) => new Date(a.happenedAt) - new Date(b.happenedAt));\n    const bearbeitetAm = edits[0]?.happenedAt || null;\n    ergebnis.bearbeitetAm = bearbeitetAm;\n    if (!bearbeitetAm) hinweise.push('Kein ORDER_EDIT-Agreement gefunden – alle Mails der Timeline geprüft');\n    if (order.agreements?.pageInfo?.hasNextPage) hinweise.push('Mehr als 50 Agreements – nur die ersten 50 geprüft');\n\n    // 1 Minute Toleranz: die Mail kann minimal vor dem Agreement gestempelt sein.\n    const abMs = bearbeitetAm ? new Date(bearbeitetAm).getTime() - 60000 : -Infinity;\n\n    const muster = new RegExp(config.aufforderungMuster, 'i');\n    const gesendet = new RegExp(config.gesendetMuster, 'i');\n\n    const events = (order.events?.edges || [])\n      .map(e => ({ ...e.node, text: alsText(e.node?.message) }));\n    const istMail = (ev) => ev.action === 'mail_sent' || gesendet.test(ev.text);\n    const mailsNachBearbeitung = events\n      .filter(ev => istMail(ev) && new Date(ev.createdAt).getTime() >= abMs);\n    const treffer = mailsNachBearbeitung\n      .filter(ev => muster.test(ev.text))\n      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));\n\n    if (order.events?.pageInfo?.hasNextPage) {\n      hinweise.push('Timeline hat mehr als 100 Einträge – nur die ersten 100 geprüft');\n    }\n\n    if (treffer.length) {\n      // Alter ab der ERSTEN Aufforderung: so lange wartet der Shop schon auf das Geld,\n      // auch wenn zwischendurch erinnert wurde.\n      const erste = treffer[0];\n      const letzte = treffer[treffer.length - 1];\n      const tage = Math.floor((Date.now() - new Date(erste.createdAt).getTime()) / 86400000);\n\n      ergebnis.aufforderungErhalten = true;\n      ergebnis.ersteAufforderung = erste.createdAt;\n      ergebnis.letzteAufforderung = letzte.createdAt;\n      ergebnis.anzahlAufforderungen = treffer.length;\n      ergebnis.tageSeitAufforderung = tage;\n      ergebnis.aufforderungAbAlterTage = tage >= config.alterTage;\n      ergebnis.erkanntUeber = erste.text.slice(0, 120);\n      for (const ev of treffer) zaehlen(staticData.diagnose.erkannt, vorlage(ev));\n    } else {\n      for (const ev of mailsNachBearbeitung) zaehlen(staticData.diagnose.nichtErkannt, vorlage(ev));\n    }\n\n    if (order.cancelledAt) {\n      ergebnis.status = 'STORNIERT';\n    } else if (mehrCent <= 0) {\n      // Zwischen Scan und Pruefung korrigiert\n      ergebnis.status = 'KEIN_MEHRBETRAG';\n    } else if (cent(offen) > 0) {\n      ergebnis.status = 'OFFEN';\n      if (cent(offen) > mehrCent) {\n        hinweise.push('Offen mehr als der Mehrbetrag – ursprüngliche Zahlung evtl. noch nicht erfasst');\n      }\n    } else {\n      ergebnis.status = 'AUSGEGLICHEN';\n    }\n  }\n}\n\nergebnis.grund = hinweise.join('; ') || null;\nstaticData.ergebnisse[src.orderId] = ergebnis;\n\n// Bewusst kein throw: eine fehlerhafte Bestellung soll den Loop nicht stoppen.\nreturn [{ json: { ...ergebnis, wartenSek } }];\n"
+      },
+      "id": "211ab922-a1ec-42d0-a8a1-797f4a611b56",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5248,
+        1488
+      ],
+      "name": "Zahlungsaufforderung auswerten"
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.wartenSek || 1 }}"
+      },
+      "id": "71e87c7c-21a8-4512-9a26-472461805cbc",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5472,
+        1488
+      ],
+      "name": "Wait (Rate-Limit)",
+      "webhookId": "ff41874a-ee22-4a31-b046-815af010644c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst kandidaten = staticData.kandidaten || [];\nconst ergebnisse = staticData.ergebnisse || {};\nconst stats = staticData.stats || {};\nconst diagnose = staticData.diagnose || { erkannt: {}, nichtErkannt: {} };\n\nconst zeilen = kandidaten.map(k => ergebnisse[k.orderId]\n  || { ...k, status: 'NICHT_VERARBEITET', grund: 'Kein Ergebnis – Loop abgebrochen?' });\n\nconst nach = (...s) => zeilen.filter(z => s.includes(z.status));\nconst mitAuff = (liste) => liste.filter(z => z.aufforderungErhalten);\nconst ohneAuff = (liste) => liste.filter(z => !z.aufforderungErhalten);\n\n// Summe je Waehrung, damit EUR und CHF nicht vermischt werden\nconst summe = (liste, feld) => {\n  const s = {};\n  for (const z of liste) s[z.currency || '?'] = (s[z.currency || '?'] || 0) + Number(z[feld] || 0);\n  return Object.fromEntries(Object.entries(s).map(([c, v]) => [c, v.toFixed(2)]));\n};\n\n// Offen: erst mit Aufforderung (aelteste Aufforderung zuerst), dann ohne (aelteste Bestellung zuerst)\nconst offen = nach('OFFEN').sort((a, b) =>\n  (Number(b.aufforderungErhalten) - Number(a.aufforderungErhalten))\n  || ((b.tageSeitAufforderung ?? -1) - (a.tageSeitAufforderung ?? -1))\n  || (new Date(a.createdAt) - new Date(b.createdAt)));\nconst ausgeglichen = nach('AUSGEGLICHEN')\n  .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));\nconst betroffen = [...offen, ...ausgeglichen];\n\nconst teilbezahltSonstige = [...(staticData.teilbezahltSonstige || [])]\n  .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));\n\nconst fehler = [\n  ...nach('FEHLER', 'NICHT_VERARBEITET'),\n  ...(staticData.unlesbar || []).map(u => ({ ...u, status: 'UNLESBAR' }))\n];\n\nconst zusammenfassung = {\n  zeile: 'ZUSAMMENFASSUNG',\n  lauf: new Date().toISOString(),\n  zeitraum: config.zeitraum,\n  zeitraumVon: config.createdAtMin,\n  zeitraumBis: config.createdAtMax || 'jetzt',\n  alterTage: config.alterTage,\n\n  paginationVollstaendig: !staticData.abgebrochen,\n  seitenGeholt: stats.seiten,\n  gedrosselt: stats.gedrosselt,\n  bestellungenGeprueft: stats.geprueft,\n  bestellungenBearbeitet: stats.bearbeitet,\n\n  // Die drei Fragen: wie viele betroffen, wie viele aufgefordert, wie viele ausgeglichen\n  betroffen: betroffen.length,\n  summeMehrbetrag: summe(betroffen, 'mehrbetrag'),\n  zahlungsaufforderungErhalten: mitAuff(betroffen).length,\n  ohneZahlungsaufforderung: ohneAuff(betroffen).length,\n\n  ausgeglichen: ausgeglichen.length,\n  ausgeglichenMitAufforderung: mitAuff(ausgeglichen).length,\n  ausgeglichenOhneAufforderung: ohneAuff(ausgeglichen).length,\n  summeAusgeglichen: summe(ausgeglichen, 'mehrbetrag'),\n\n  offen: offen.length,\n  offenMitAufforderung: mitAuff(offen).length,\n  offenOhneAufforderung: ohneAuff(offen).length,\n  offenAufforderungAbAlterTage: offen.filter(z => z.aufforderungAbAlterTage).length,\n  summeOffen: summe(offen, 'offenerBetrag'),\n\n  // Gegenprobe zum Admin-Filter \"Partially paid\" im selben Zeitraum\n  partiallyPaidGesamt: betroffen.filter(z => z.financialStatus === 'PARTIALLY_PAID').length\n    + teilbezahltSonstige.length,\n  partiallyPaidOhneMehrbetrag: teilbezahltSonstige.length,\n\n  storniert: (stats.storniert || 0) + nach('STORNIERT').length,\n  inzwischenKorrigiert: nach('KEIN_MEHRBETRAG').length,\n  ausnahmen: stats.ausnahmen,\n  fehler: fehler.length,\n\n  statusVerteilung: stats.statusVerteilung || {}\n};\n\n// Nur fuer die Kontrolle in n8n, geht nicht in die Mail: welche Mail-Texte nach der\n// Bearbeitung als Zahlungsaufforderung erkannt wurden und welche nicht.\nconst sortiert = (map) => Object.entries(map)\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, 50)\n  .map(([text, anzahl]) => ({ anzahl, text }));\n\nconst diagnoseZeile = {\n  zeile: 'DIAGNOSE',\n  hinweis: 'Mail-Events der Timeline nach der ersten Bearbeitung, Format \"action | Text\" '\n    + '(Mailadressen/Zahlen maskiert). Steht unter nichtErkannt eine Zahlungsaufforderung, '\n    + 'Config.aufforderungMuster ergänzen.',\n  erkannt: sortiert(diagnose.erkannt),\n  nichtErkannt: sortiert(diagnose.nichtErkannt)\n};\n\nreturn [\n  { json: zusammenfassung },\n  ...offen.map(z => ({ json: { zeile: 'OFFEN', ...z } })),\n  ...ausgeglichen.map(z => ({ json: { zeile: 'AUSGEGLICHEN', ...z } })),\n  ...teilbezahltSonstige.map(z => ({ json: { zeile: 'TEILBEZAHLT_SONSTIGE', ...z } })),\n  ...fehler.map(z => ({ json: { zeile: 'FEHLER', ...z } })),\n  { json: diagnoseZeile }\n];\n"
+      },
+      "id": "5c201210-a9cf-49ef-a217-bda0395f57db",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4592,
+        1232
+      ],
+      "name": "Report erstellen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fasst alle Report-Zeilen zu EINER Mail zusammen.\n// Ohne diesen Node wuerde 'Send email' pro Report-Zeile eine Mail schicken.\n\nconst items = $input.all().map(i => i.json);\nconst zus = items.find(i => i.zeile === 'ZUSAMMENFASSUNG') || {};\nconst offen = items.filter(i => i.zeile === 'OFFEN');\nconst ausgeglichen = items.filter(i => i.zeile === 'AUSGEGLICHEN');\nconst sonstige = items.filter(i => i.zeile === 'TEILBEZAHLT_SONSTIGE');\nconst fehler = items.filter(i => i.zeile === 'FEHLER');\n\n// Listen begrenzen, damit die Mail lesbar bleibt\nconst MAX_AUSGEGLICHEN = 200;\nconst MAX_KONTROLLE = 100;\n\nconst esc = (v) => String(v ?? '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\n\nconst datum = (iso) => {\n  if (!iso) return '';\n  const d = new Date(iso);\n  return isNaN(d) ? String(iso) : d.toLocaleDateString('de-DE', {\n    timeZone: 'Europe/Berlin', day: '2-digit', month: '2-digit', year: 'numeric'\n  });\n};\n\nconst betrag = (v, cur) => Number(v || 0).toLocaleString('de-DE', {\n  minimumFractionDigits: 2, maximumFractionDigits: 2\n}) + ' ' + (cur || '');\n\nconst summenText = (obj) => Object.entries(obj || {})\n  .map(([cur, v]) => betrag(v, cur)).join(' + ') || betrag(0, 'EUR');\n\n// Wie die Badges im Shopify-Admin\nconst STATUS = {\n  PARTIALLY_PAID: 'Partially paid', PENDING: 'Payment pending', AUTHORIZED: 'Authorized',\n  PAID: 'Paid', PARTIALLY_REFUNDED: 'Partially refunded', REFUNDED: 'Refunded',\n  VOIDED: 'Voided', EXPIRED: 'Expired'\n};\nconst statusText = (s) => STATUS[s] || s || '';\n\nconst th = 'style=\"text-align:left;padding:6px 10px;border-bottom:2px solid #ddd;font-size:13px\"';\nconst thR = 'style=\"text-align:right;padding:6px 10px;border-bottom:2px solid #ddd;font-size:13px\"';\nconst td = 'style=\"padding:6px 10px;border-bottom:1px solid #eee;font-size:13px;vertical-align:top\"';\nconst tdE = 'style=\"padding:6px 10px 6px 26px;border-bottom:1px solid #eee;font-size:13px;vertical-align:top;color:#555\"';\nconst tdR = 'style=\"padding:6px 10px;border-bottom:1px solid #eee;font-size:13px;text-align:right;white-space:nowrap;vertical-align:top\"';\nconst klein = 'style=\"font-size:11px;color:#888\"';\nconst rot = 'style=\"color:#b00020\"';\n\nconst aufforderung = (z) => z.aufforderungErhalten\n  ? esc(datum(z.ersteAufforderung)) + (z.anzahlAufforderungen > 1\n    ? `<br><span ${klein}>${esc(z.anzahlAufforderungen)}×, zuletzt ${esc(datum(z.letzteAufforderung))}</span>` : '')\n  : `<span ${rot}>keine</span>`;\n\nconst tage = (z) => !z.aufforderungErhalten ? ''\n  : z.aufforderungAbAlterTage ? `<strong ${rot}>${esc(z.tageSeitAufforderung)}</strong>`\n  : esc(z.tageSeitAufforderung);\n\nconst kunde = (z) => `${esc(z.kunde)}<br><span ${klein}>${esc(z.email)}</span>`;\nconst link = (z) => `<a href=\"${esc(z.adminUrl)}\">${esc(z.orderName)}</a>`;\n\nconst offenZeilen = offen.map(z => `\n  <tr>\n    <td ${td}>${link(z)}</td>\n    <td ${td}>${esc(datum(z.createdAt))}</td>\n    <td ${td}>${kunde(z)}</td>\n    <td ${tdR}>${esc(betrag(z.mehrbetrag, z.currency))}</td>\n    <td ${tdR}><strong>${esc(betrag(z.offenerBetrag, z.currency))}</strong></td>\n    <td ${td}>${esc(statusText(z.financialStatus))}</td>\n    <td ${td}>${aufforderung(z)}</td>\n    <td ${tdR}>${tage(z)}</td>\n    <td ${td}>${z.grund ? `<span ${klein}>${esc(z.grund)}</span>` : ''}</td>\n  </tr>`).join('');\n\nconst offenTabelle = offen.length ? `\n<table cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;width:100%;max-width:1200px\">\n  <tr>\n    <th ${th}>Bestellung</th>\n    <th ${th}>Bestellt am</th>\n    <th ${th}>Kunde</th>\n    <th ${thR}>Mehrbetrag</th>\n    <th ${thR}>Offen</th>\n    <th ${th}>Zahlstatus</th>\n    <th ${th}>Aufgefordert am</th>\n    <th ${thR}>Tage</th>\n    <th ${th}>Hinweis</th>\n  </tr>\n  ${offenZeilen}\n</table>` : '<p style=\"font-size:13px\">Kein offener Mehrbetrag.</p>';\n\nconst ausgeglichenZeilen = ausgeglichen.slice(0, MAX_AUSGEGLICHEN).map(z => `\n  <tr>\n    <td ${td}>${link(z)}</td>\n    <td ${td}>${esc(datum(z.createdAt))}</td>\n    <td ${td}>${kunde(z)}</td>\n    <td ${tdR}>${esc(betrag(z.mehrbetrag, z.currency))}</td>\n    <td ${td}>${aufforderung(z)}</td>\n  </tr>`).join('');\n\nconst ausgeglichenBlock = ausgeglichen.length ? `\n<h3 style=\"font-size:14px;margin:28px 0 6px\">Ausgeglichen (${ausgeglichen.length})</h3>\n<table cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;width:100%;max-width:900px\">\n  <tr>\n    <th ${th}>Bestellung</th>\n    <th ${th}>Bestellt am</th>\n    <th ${th}>Kunde</th>\n    <th ${thR}>Mehrbetrag</th>\n    <th ${th}>Aufgefordert am</th>\n  </tr>\n  ${ausgeglichenZeilen}\n</table>\n${ausgeglichen.length > MAX_AUSGEGLICHEN\n    ? `<p style=\"font-size:12px;color:#666\">… und ${ausgeglichen.length - MAX_AUSGEGLICHEN} weitere (vollständig im n8n-Report)</p>` : ''}` : '';\n\nconst sonstigeBlock = sonstige.length ? `\n<h3 style=\"font-size:14px;margin:28px 0 4px\">Partially paid ohne Mehrbetrag aus Bearbeitung (${sonstige.length})</h3>\n<p style=\"font-size:12px;color:#666;margin:0 0 6px\">Zur Kontrolle: teilweise bezahlt, aber nicht durch eine Bearbeitung teurer geworden.</p>\n<ul style=\"font-size:13px;margin:0;padding-left:18px\">\n  ${sonstige.slice(0, MAX_KONTROLLE).map(z => `<li>${link(z)}\n    · ${esc(datum(z.createdAt))} · offen ${esc(betrag(z.offenerBetrag, z.currency))}\n    · ${z.bearbeitet ? 'bearbeitet, Summe ' + esc(betrag(z.mehrbetrag, z.currency)) + ' zum Original' : 'nicht bearbeitet'}</li>`).join('')}\n  ${sonstige.length > MAX_KONTROLLE ? `<li>… und ${sonstige.length - MAX_KONTROLLE} weitere (vollständig im n8n-Report)</li>` : ''}\n</ul>` : '';\n\nconst fehlerBlock = fehler.length ? `\n<h3 style=\"font-size:14px;margin:28px 0 6px;color:#b00020\">Nicht prüfbar (${fehler.length})</h3>\n<ul style=\"font-size:13px;margin:0;padding-left:18px\">\n  ${fehler.map(f => `<li>${esc(f.orderName || f.orderId)}: ${esc(f.status)} – ${esc(f.grund)}</li>`).join('')}\n</ul>` : '';\n\nconst warnung = zus.paginationVollstaendig === false ? `\n<p style=\"font-size:13px;color:#b00020;margin:0 0 16px\"><strong>UNVOLLSTÄNDIG:</strong>\n  Config.maxSeiten erreicht, nicht alle Bestellungen des Zeitraums gelesen. Zahlen nicht belastbar.</p>` : '';\n\nconst zeitraumText = `${datum(zus.zeitraumVon)} bis ${zus.zeitraumBis === 'jetzt' ? 'heute' : datum(zus.zeitraumBis)}`;\n\nconst mailText = `\n<div style=\"font-family:Arial,Helvetica,sans-serif;color:#222\">\n  <h2 style=\"font-size:18px;margin:0 0 4px\">Shopify – Mehrbeträge nach Bestellbearbeitung</h2>\n  <p style=\"font-size:13px;color:#666;margin:0 0 16px\">\n    Bestellungen vom ${esc(zeitraumText)} &middot; ${esc(zus.bestellungenGeprueft)} geprüft,\n    davon ${esc(zus.bestellungenBearbeitet)} bearbeitet\n  </p>\n  ${warnung}\n\n  <table cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;margin:0 0 20px\">\n    <tr><td ${td}><strong>Betroffen: nach Bearbeitung teurer als bestellt</strong></td><td ${tdR}><strong>${esc(zus.betroffen)}</strong></td><td ${tdR}><strong>${esc(summenText(zus.summeMehrbetrag))}</strong></td></tr>\n    <tr><td ${td}>Zahlungsaufforderung erhalten</td><td ${tdR}>${esc(zus.zahlungsaufforderungErhalten)}</td><td ${tdR}></td></tr>\n    <tr><td ${td}>ausgeglichen</td><td ${tdR}>${esc(zus.ausgeglichen)}</td><td ${tdR}>${esc(summenText(zus.summeAusgeglichen))}</td></tr>\n    <tr><td ${tdE}>mit / ohne Zahlungsaufforderung</td><td ${tdR}>${esc(zus.ausgeglichenMitAufforderung)} / ${esc(zus.ausgeglichenOhneAufforderung)}</td><td ${tdR}></td></tr>\n    <tr><td ${td}><strong>noch offen</strong></td><td ${tdR}><strong>${esc(zus.offen)}</strong></td><td ${tdR}><strong>${esc(summenText(zus.summeOffen))}</strong></td></tr>\n    <tr><td ${tdE}>mit / ohne Zahlungsaufforderung</td><td ${tdR}>${esc(zus.offenMitAufforderung)} / ${esc(zus.offenOhneAufforderung)}</td><td ${tdR}></td></tr>\n    <tr><td ${tdE}>Zahlungsaufforderung ${esc(zus.alterTage)}+ Tage alt</td><td ${tdR}>${esc(zus.offenAufforderungAbAlterTage)}</td><td ${tdR}></td></tr>\n    <tr><td ${td}>Partially paid ohne Mehrbetrag aus Bearbeitung</td><td ${tdR}>${esc(zus.partiallyPaidOhneMehrbetrag)}</td><td ${tdR}></td></tr>\n    <tr><td ${td}>betroffen, aber storniert (nicht gezählt)</td><td ${tdR}>${esc(zus.storniert)}</td><td ${tdR}></td></tr>\n    <tr><td ${td}>nicht prüfbar</td><td ${tdR}>${esc(zus.fehler)}</td><td ${tdR}></td></tr>\n  </table>\n\n  <h3 style=\"font-size:14px;margin:0 0 6px\">Noch offen (${offen.length})</h3>\n  ${offenTabelle}\n  ${ausgeglichenBlock}\n  ${sonstigeBlock}\n  ${fehlerBlock}\n\n  <p style=\"font-size:12px;color:#888;margin-top:24px\">\n    Workflow-ID ${esc($workflow.id)}, Lauf ${esc(zus.lauf)}\n  </p>\n</div>`;\n\nconst titel = `Bücherbüchse | Mehrbeträge nach Bestellbearbeitung: ${zus.betroffen} betroffen, `\n  + `${zus.zahlungsaufforderungErhalten} aufgefordert, ${zus.ausgeglichen} ausgeglichen, ${zus.offen} offen`\n  + (Number(zus.offen) > 0 ? ` (${summenText(zus.summeOffen)})` : '');\n\nreturn [{ json: { titel, mailText, anzahlOffen: offen.length } }];\n"
+      },
+      "id": "50afb9b7-1bc9-46b7-a8e9-5e5734f1735d",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4816,
+        1232
+      ],
+      "name": "Mail-Body bauen"
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "jesse.balsam@buecherbuechse.de, christoph@buecherbuechse.de, maika.lapushkin@buecherbuechse.de",
+        "subject": "={{ $json.titel }}",
+        "html": "={{ $json.mailText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "6892e2bb-1933-4f44-a385-a0d2dae549a9",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        5040,
+        1232
+      ],
+      "name": "Send email",
+      "retryOnFail": true,
+      "webhookId": "0cb71986-3950-4ddf-a0e1-721db2ae01ad",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Mehrbeträge nach Bestellbearbeitung – letzter Monat\nManueller, **rein lesender** Flow – in Shopify wird nichts verändert.\n\nAnlass: Nach Preisanpassungen per Bearbeitung schulden Kund:innen einen Mehrbetrag (meist 2–3 €), die Bestellung steht auf **Partially paid**.\n\nBeantwortet: **Wie viele sind betroffen? Wie viele haben eine Zahlungsaufforderung erhalten? Wie viele haben ausgeglichen?**\n\n`Config.zeitraum`: `rollierend` = heute vor einem Monat bis jetzt (Start des Laufs), `vormonat` = kompletter Vormonat.\n\nReport per Mail an Jesse, Christoph und Maika.",
+        "height": 340,
+        "width": 820,
+        "color": 5
+      },
+      "id": "104f8626-a19d-493e-835c-6eff553973f9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2048,
+        608
+      ],
+      "name": "Sticky Zweck"
+    },
+    {
+      "parameters": {
+        "content": "## Bestellungs-Fetch (GraphQL, Cursor-Pagination)\n`orders` mit `created_at` aus der Config, 100 pro Seite (ca. 700 von max. 1.000 Punkten), frischer Token pro Seite. Die Pause richtet sich nach dem Shopify-Bucket (`extensions.cost.throttleStatus`), `THROTTLED` holt dieselbe Seite erneut. `Config.maxSeiten` ist die Notbremse → Report meldet **UNVOLLSTÄNDIG**.\n\n**Betroffen** = `edited` **und** `totalPriceSet` > `originalTotalPriceSet` (heute teurer als bestellt), nicht storniert, nicht in `Config.ausnahmen`. Bewusst nicht über den Saldo: ausgeglichene Bestellungen stehen auf 0.\n\n**Kontrolle:** jedes übrige *Partially paid* landet in `TEILBEZAHLT_SONSTIGE`.",
+        "height": 340,
+        "width": 900,
+        "color": 5
+      },
+      "id": "1334571a-5e45-4889-94cb-60c6b238153b",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2976,
+        608
+      ],
+      "name": "Sticky Fetch"
+    },
+    {
+      "parameters": {
+        "content": "## Report\n`ZUSAMMENFASSUNG` (betroffen / aufgefordert / ausgeglichen / offen, jeweils mit und ohne Aufforderung), dann `OFFEN`, `AUSGEGLICHEN`, `TEILBEZAHLT_SONSTIGE`, `FEHLER` und `DIAGNOSE`.\n\n**Mail:** Zahlen-Übersicht, offene Bestellungen als Tabelle (mit Aufforderung zuerst, älteste zuerst), ausgeglichene als Tabelle, übrige *Partially paid* als Kontrollliste. `DIAGNOSE` und `statusVerteilung` bleiben in n8n.\n\nOhne Kandidaten geht `Gibt es Kandidaten?` direkt in den Report – die Mail kommt trotzdem.",
+        "height": 340,
+        "width": 700,
+        "color": 6
+      },
+      "id": "36b29f97-45a3-4fbd-a908-63221385238a",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4528,
+        608
+      ],
+      "name": "Sticky Report"
+    },
+    {
+      "parameters": {
+        "content": "## Prüfung je betroffener Bestellung\nFrisch gelesen: Beträge, Zahlstatus, `agreements` (erste Bearbeitung, `reason = ORDER_EDIT`) und die Timeline (`order.events`, erste 100 Einträge).\n\n**Zahlungsaufforderung erhalten** = Timeline-Eintrag **nach der ersten Bearbeitung**, der ein Mailversand ist (`action = mail_sent` oder `Config.gesendetMuster`) **und** auf `Config.aufforderungMuster` passt. Mails davor (z. B. Rechnung zur Bestellung) zählen nicht.\n\n**AUSGEGLICHEN** = offener Saldo ≤ 0, **OFFEN** = Saldo > 0. Tage seit der ersten Aufforderung, ab `alterTage` (14) rot markiert – kein Filter.\n\n⚠️ Nach dem ersten Lauf das `DIAGNOSE`-Item in **Report erstellen** ansehen: erkannte und nicht erkannte Mail-Texte nach der Bearbeitung. Fehlt ein Muster, in `aufforderungMuster` ergänzen.",
+        "height": 360,
+        "width": 1100,
+        "color": 3
+      },
+      "id": "f3ec6489-8694-4f28-acc3-c14ec20fa5d9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4528,
+        1680
+      ],
+      "name": "Sticky Erkennung"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Liste)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (Liste)": {
+      "main": [
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Bestellungen abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellungen abfragen": {
+      "main": [
+        [
+          {
+            "node": "Seite auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite auswerten": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Weitere Seite?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weitere Seite?": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Liste)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kandidaten vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kandidaten vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Gibt es Kandidaten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es Kandidaten?": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Token holen 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 2": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Timeline)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (Timeline)": {
+      "main": [
+        [
+          {
+            "node": "Timeline abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Timeline abfragen": {
+      "main": [
+        [
+          {
+            "node": "Zahlungsaufforderung auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlungsaufforderung auswerten": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report erstellen": {
+      "main": [
+        [
+          {
+            "node": "Mail-Body bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Body bauen": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "GWBQsqwNhKFFoV8N",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-09-25T09:30:41.401Z",
+      "updatedAt": "2026-09-25T09:30:41.401Z"
+    }
+  ],
+  "activeVersion": null
+}

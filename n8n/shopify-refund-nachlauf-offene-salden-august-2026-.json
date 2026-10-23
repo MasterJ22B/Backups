@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-06T09:01:36.406Z",
-  "createdAt": "2026-08-03T10:38:29.895Z",
   "id": "p0LyaqkZzCAd3zwp",
   "name": "Shopify-Refund-Nachlauf-offene-Salden-August-2026",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-08-03T10:38:29.895Z",
+  "updatedAt": "2026-09-17T11:13:33.468Z",
   "isArchived": false,
+  "versionId": "dab7dff3-f54b-4a1f-a7ef-54552cf44d08",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -19,7 +22,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// === Zentrale Konfiguration – hier pflegen ===\nconst CONFIG = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  // Zeitraum in UTC. 01.08.2026 00:00 MESZ = 31.07.2026 22:00 UTC\n  createdAtMin: '2026-07-31T22:00:00Z',\n  // null = \"bis jetzt\". Fixes Ende z.B.: '2026-08-03T21:59:59Z'\n  createdAtMax: null,\n\n  // Sicherheitsgurt: nur Bestellungen erstatten, die diese SKU enthalten.\n  // Damit greift der Flow ausschließlich auf Bestellungen zu, die Flow 1\n  // getauscht hat. null = alle Bestellungen mit negativem Saldo.\n  pflichtSku: 'ZB-2026-08-01',\n\n  // Betragsgrenzen für die automatische Erstattung\n  mindestBetrag: 0.01,\n  maxBetrag: 10.00,   // darüber: kein Auto-Refund, landet im Report\n\n  // Optionaler Länderfilter, z.B. ['DE'] oder ['DE','AT']. null = alle.\n  nurLaender: null,\n\n  // Einzelne Bestellungen ausschließen (orderId als Zahl)\n  ausnahmen: [],\n\n  // Tag, der nach erfolgreichem Refund an die Bestellung geschrieben wird\n  tag: `n8n-api-${$workflow.id}`,\n\n  notifyCustomer: false,\n  note: 'Automatische Rückerstattung nach Positionstausch August 2026'\n};\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.config = CONFIG;\nstaticData.kandidaten = [];\nstaticData.skipped = [];\nstaticData.refunds = [];\n\nreturn [{ json: { config: CONFIG } }];"
+        "jsCode": "// === Zentrale Konfiguration – hier pflegen ===\nconst CONFIG = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  // Zeitraum in UTC. 01.08.2026 00:00 MESZ = 31.07.2026 22:00 UTC\n  createdAtMin: '2026-07-31T22:00:00Z',\n  // null = \"bis jetzt\". Fixes Ende z.B.: '2026-08-03T21:59:59Z'\n  createdAtMax: '2026-08-15T21:59:59Z',\n\n  // Sicherheitsgurt: nur Bestellungen erstatten, die diese SKU enthalten.\n  // Damit greift der Flow ausschließlich auf Bestellungen zu, die Flow 1\n  // getauscht hat. null = alle Bestellungen mit negativem Saldo.\n  pflichtSku: 'ZB-2026-08-01',\n\n  // Betragsgrenzen für die automatische Erstattung\n  mindestBetrag: 0.01,\n  maxBetrag: 10.00,   // darüber: kein Auto-Refund, landet im Report\n\n  // Optionaler Länderfilter, z.B. ['DE'] oder ['DE','AT']. null = alle.\n  nurLaender: null,\n\n  // Einzelne Bestellungen ausschließen (orderId als Zahl)\n  ausnahmen: [],\n\n  // Tag, der nach erfolgreichem Refund an die Bestellung geschrieben wird\n  tag: `n8n-api-${$workflow.id}`,\n\n  notifyCustomer: false,\n  note: 'Automatische Rückerstattung nach Positionstausch August 2026'\n};\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.config = CONFIG;\nstaticData.kandidaten = [];\nstaticData.skipped = [];\nstaticData.refunds = [];\n\nreturn [{ json: { config: CONFIG } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -707,6 +710,45 @@
       ],
       "id": "a9dec7c0-2f5a-478b-bf31-bfb824400c15",
       "name": "Tag-Ergebnis prüfen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Node: \"Report aufbereiten\"  (Code, Mode: Run Once for All Items)\n// Eingang: \"Report erstellen\"\n\nconst items = $input.all().map(i => i.json);\n\nconst zus  = items.find(r => r.zeile === 'ZUSAMMENFASSUNG') || {};\nconst rows = items.filter(r => r.zeile !== 'ZUSAMMENFASSUNG');\n\n// --- CSV (Semikolon + BOM, damit Excel es direkt richtig oeffnet) ---\nconst spalten = [...new Set(rows.flatMap(r => Object.keys(r)))];\n\nconst esc = (v) => {\n  if (v === null || v === undefined) return '';\n  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);\n  return /[\";\\n]/.test(s) ? '\"' + s.replace(/\"/g, '\"\"') + '\"' : s;\n};\n\nconst csv = [\n  spalten.join(';'),\n  ...rows.map(r => spalten.map(c => esc(r[c])).join(';'))\n].join('\\n');\n\n// --- HTML-Body ---\nconst zeile = (label, wert) =>\n  `<tr><td style=\"padding:4px 12px 4px 0\">${label}</td><td style=\"padding:4px 0\"><b>${wert ?? '-'}</b></td></tr>`;\n\nconst pruefen = rows.filter(r => r.manuellPruefen === true);\nconst pruefListe = pruefen.length\n  ? '<ul>' + pruefen.map(r =>\n      `<li>${r.orderName || r.orderId}: ${r.status || r.zeile} – ${r.grund || (r.userErrors || []).map(e => e.message).join(', ') || ''}</li>`\n    ).join('') + '</ul>'\n  : '<p>Keine.</p>';\n\nconst html = `\n<h2>Refund-Nachlauf – ${$workflow.name}</h2>\n<table>\n${zeile('Kandidaten verarbeitet', zus.kandidatenVerarbeitet)}\n${zeile('Erstattet (OK)', zus.erstattetOk)}\n${zeile('Summe erstattet', zus.summeErstattet)}\n${zeile('Pending', zus.pending)}\n${zeile('Summe pending', zus.summePending)}\n${zeile('Manuell pruefen', zus.manuellPruefen)}\n${zeile('Kein Bedarf', zus.keinBedarf)}\n${zeile('Im Fetch uebersprungen', zus.imFetchUebersprungen)}\n</table>\n<h3>Manuell pruefen</h3>\n${pruefListe}\n<p>Alle Einzelfaelle in der CSV im Anhang.</p>`;\n\nconst datum = new Date().toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    betreff: `Refund-Nachlauf ${datum} – ${zus.erstattetOk ?? 0} erstattet, ${zus.manuellPruefen ?? 0} zu pruefen`,\n    html\n  },\n  binary: {\n    data: {\n      data: Buffer.from('﻿' + csv, 'utf8').toString('base64'),\n      mimeType: 'text/csv',\n      fileName: `refund-report-${datum}.csv`,\n      fileExtension: 'csv'\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10608,
+        2240
+      ],
+      "id": "27eb4aa0-73a8-4d9c-9b00-267ee11b7eae",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@buecherbuechse.de",
+        "toEmail": "christoph@buecherbuechse.de, jesse.balsam@buecherbuechse.de",
+        "subject": "August-Refund-Report",
+        "html": "Anliegend der CSV-Report des August-Refund-Flows. ",
+        "options": {
+          "fileAttachments": "data"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        10832,
+        2240
+      ],
+      "id": "1a1802c6-b546-4119-a690-cac07d239f49",
+      "name": "Send an Email",
+      "webhookId": "b751cb08-60fc-41d7-a75c-6b95e372506d",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
     }
   ],
   "connections": {
@@ -1055,29 +1097,50 @@
           }
         ]
       ]
+    },
+    "Report erstellen": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "e9160a24-dab3-42bc-8817-63992eb1e61b",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-08-03T10:38:29.897Z",
-      "createdAt": "2026-08-03T10:38:29.897Z",
       "role": "workflow:owner",
       "workflowId": "p0LyaqkZzCAd3zwp",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-03T10:38:29.897Z",
+      "updatedAt": "2026-08-03T10:38:29.897Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

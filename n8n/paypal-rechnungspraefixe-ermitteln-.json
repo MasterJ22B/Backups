@@ -1,0 +1,325 @@
+{
+  "id": "YSruBGH5YS3RHCSp",
+  "name": "PayPal-Rechnungspraefixe-ermitteln",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-10-15T09:09:33.225Z",
+  "updatedAt": "2026-10-20T08:39:24.805Z",
+  "isArchived": false,
+  "versionId": "9e705935-803c-4b10-8b38-f3f08373237e",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## PayPal-Rechnungspräfixe ermitteln\nLiest PayPal nur – es wird nichts erstattet. Zahlerdaten (Name, E-Mail) werden nicht abgefragt.\n\n1. **Credential** „Basic Auth“ (User = Client-ID, Passwort = Secret der Live-App mit *Transaction Search*) an `Token holen (PayPal)` hängen.\n2. **Test workflow** klicken, im Formular denselben Ameise-Export (CSV) hochladen.\n3. **Ergebnis** im Node `Zusammenfassung`: `praefixe` zeigt jedes Präfix und wie oft es bei Honesty-Bestellungen vorkommt. Je Bestellung: Node `Rechnungsnummern zuordnen`.\n4. Das Präfix im Haupt-Flow unter `Config.rechnungsPraefix` eintragen („(kein Präfix)“ = `''`).\n\n**Suche:** PayPal liefert je Suche höchstens 10.000 Transaktionen. Darum sucht der Workflow je Bestellung einzeln: Vortag bis +14 Tage, Betrag ± 1 € (`betragToleranz`). Gesucht wird eine Stichprobe von `stichprobe` Bestellungen (Standard 50, gleichmäßig über den Zeitraum verteilt, 0 = alle), nur WooCommerce – `BB-…` und `A-…` sind ausgeschlossen. Einstellungen im Node `Honesty-Bestellungen sammeln`.\n**Export:** den alten Ameise-Export (`Honesty 3.CSV`) nehmen – Werte mit Apostroph nur vorne (Export vom 20.10.) liest dieser Workflow noch nicht.\n\n**Status je Bestellung:** `GEFUNDEN` · `MEHRERE` (mehrere Zahlungen) · `NUR_CUSTOM_FIELD` (Bestellnummer nur im Feld custom_field, nicht in der Rechnungsnummer) · `NICHT_GEFUNDEN`",
+        "height": 560,
+        "width": 560,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -528,
+        -224
+      ],
+      "id": "715e7c02-bf60-4827-a410-015ce86951b0",
+      "name": "Anleitung"
+    },
+    {
+      "parameters": {
+        "formTitle": "PayPal-Rechnungspräfixe ermitteln",
+        "formDescription": "Denselben Ameise-Export (CSV) wie für die Produktentfernung hochladen. Der Workflow liest PayPal nur und erstattet nichts.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "CSV-Datei",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -560,
+        320
+      ],
+      "id": "c9d91f62-25e9-49d5-a615-92ce73756f95",
+      "name": "Export hochladen (Formular)",
+      "webhookId": "85addeef-a9f6-40c0-8583-eac347144811"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "CSV_Datei",
+        "options": {
+          "delimiter": ";"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -336,
+        320
+      ],
+      "id": "61f134b2-c3b1-4fde-a040-4a2454acb12d",
+      "name": "CSV parsen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === HIER PFLEGEN ===\nconst CONFIG = {\n  // Live: https://api-m.paypal.com · Sandbox: https://api-m.sandbox.paypal.com\n  paypalBaseUrl: 'https://api-m.paypal.com',\n  // Das Buch: Artikelnummer, und für Positionen ohne Artikelnummer die Bezeichnung\n  sku: 'EX-2026-02-03',\n  bezeichnung: 'Honesty 3 EXKLUSIVAUSGABE',\n  // Nicht gesucht: Shopify-Bestellungen (eigener Flow) und A-Aufträge (werden nicht bearbeitet) – regulärer Ausdruck auf die Bestellnummer\n  ausschliessen: '^(BB|A)-',\n  // Gesucht wird je Bestellung vom Vortag bis so viele Tage nach dem Bestelldatum\n  suchPufferTage: 14,\n  // PayPal liefert je Suche höchstens 10.000 Transaktionen und kennt keinen Filter nach Rechnungsnummer.\n  // Darum eine Suche je Bestellung, eingegrenzt auf den Bestellbetrag ± diese Toleranz in Euro\n  betragToleranz: 1,\n  // Das Präfix ist für alle Bestellungen gleich: nur so viele Bestellungen suchen, gleichmäßig über den Zeitraum verteilt. 0 = alle\n  stichprobe: 50,\n  spalten: {\n    bestellnummer: 'Auftragsnummer',\n    datum: 'Auftragsdatum',\n    betrag: 'Betrag',\n    artikelnummer: 'Artikelnummer',\n    bezeichnung: 'Bezeichnung (Position)'\n  }\n};\n\n// Bereinigen wie im Haupt-Flow: BOM vor dem ersten Spaltennamen, Apostrophe um Werte, NULL = leer\nconst sauber = v => {\n  const s = String(v ?? '').trim().replace(/^'(.*)'$/s, '$1');\n  return s === 'NULL' ? '' : s;\n};\nconst rows = $input.all().map(i => Object.fromEntries(\n  Object.entries(i.json).map(([k, v]) => [k.replace(/^﻿/, '').trim(), sauber(v)])\n));\nconst S = CONFIG.spalten;\n// Fehlende Spalte in der ersten Zeile = Spalte fehlt im Export (n8n lässt nur leere Werte weg, nicht die Bestellnummer)\nconst fehlend = [S.bestellnummer, S.datum, S.betrag, S.bezeichnung].filter(s => !rows.length || !(s in rows[0]));\nif (fehlend.length) {\n  throw new Error(`Spalte(n) fehlen: ${fehlend.join(', ')} – vorhanden: ${Object.keys(rows[0] || {}).join(', ')}`);\n}\n\nconst norm = s => String(s || '').trim().toLowerCase();\nconst zahl = v => {\n  const s = String(v ?? '').trim().replace(/[\\s€]/g, '');\n  return Number(s.includes(',') ? s.replace(/\\./g, '').replace(',', '.') : s);\n};\nconst datum = v => {\n  const m = String(v ?? '').trim().match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})/);\n  const d = m ? new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]))) : new Date(v);\n  return isNaN(d) ? null : d.toISOString().slice(0, 10);\n};\nconst ausschluss = new RegExp(CONFIG.ausschliessen);\n\n// Bestellungen mit dem Buch: Artikelnummer, oder ohne Artikelnummer über die Bezeichnung\nconst bestellungen = new Map();\nfor (const r of rows) {\n  const nr = r[S.bestellnummer];\n  if (!nr || ausschluss.test(nr)) continue;\n  if (!bestellungen.has(nr)) bestellungen.set(nr, { bestellnummer: nr, bestelldatum: null, betragExport: null, honesty: false });\n  const b = bestellungen.get(nr);\n  b.bestelldatum = b.bestelldatum || datum(r[S.datum]);\n  if (b.betragExport === null && r[S.betrag]) b.betragExport = zahl(r[S.betrag]);\n  const sku = r[S.artikelnummer] || '';\n  if (sku === CONFIG.sku || (!sku && norm(r[S.bezeichnung]) === norm(CONFIG.bezeichnung))) b.honesty = true;\n}\n\nconst alle = [...bestellungen.values()].filter(b => b.honesty && b.bestelldatum).map(({ honesty, ...b }) => b);\nif (!alle.length) throw new Error('Keine Honesty-Bestellung mit Bestelldatum im Export gefunden');\n// Ohne Betrag ist keine eingegrenzte Suche möglich\nconst mitBetrag = alle.filter(b => b.betragExport > 0).sort((a, b) => a.bestelldatum.localeCompare(b.bestelldatum));\nif (!mitBetrag.length) throw new Error('Keine Honesty-Bestellung mit lesbarem Betrag im Export gefunden');\n\n// Stichprobe: gleichmäßig über den Zeitraum verteilt – je Zieltag die Bestellung mit dem nächstgelegenen Datum.\n// Erste und letzte Bestellung sind immer dabei.\nconst zeit = b => new Date(b.bestelldatum).getTime();\nconst n = CONFIG.stichprobe > 0 ? Math.min(CONFIG.stichprobe, mitBetrag.length) : mitBetrag.length;\nlet liste = mitBetrag;\nif (n < mitBetrag.length) {\n  const von = zeit(mitBetrag[0]);\n  const bis = zeit(mitBetrag[mitBetrag.length - 1]);\n  const gewaehlt = new Set();\n  for (let i = 0; i < n; i++) {\n    const ziel = n === 1 ? von : von + i * (bis - von) / (n - 1);\n    let beste = -1;\n    mitBetrag.forEach((b, k) => {\n      if (gewaehlt.has(k)) return;\n      if (beste < 0 || Math.abs(zeit(b) - ziel) < Math.abs(zeit(mitBetrag[beste]) - ziel)) beste = k;\n    });\n    gewaehlt.add(beste);\n  }\n  liste = [...gewaehlt].sort((a, b) => a - b).map(k => mitBetrag[k]);\n}\n\nreturn [{ json: { config: CONFIG, bestellungen: liste, honestyBestellungen: alle.length, ohneBetrag: alle.length - mitBetrag.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        320
+      ],
+      "id": "fec24f5f-4b07-4b25-9703-f5f0efe4ba2e",
+      "name": "Honesty-Bestellungen sammeln"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Honesty-Bestellungen sammeln').first().json.config.paypalBaseUrl }}/v1/oauth2/token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        112,
+        320
+      ],
+      "id": "7eba5939-1192-4c14-81bc-81005e1456fc",
+      "name": "Token holen (PayPal)",
+      "executeOnce": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "2T34oKZQwuogEF1W",
+          "name": "PayPal"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Token prüfen und je Bestellung eine eigene PayPal-Suche bilden. PayPal liefert je Suche höchstens 10.000 Transaktionen\n// (RESULTSET_TOO_LARGE) und kennt keinen Filter nach Rechnungsnummer. Darum: Zeitraum Vortag bis +suchPufferTage\n// (PayPal: max. 31 Tage) und Bruttobetrag = Bestellbetrag ± betragToleranz (Filter transaction_amount, in Cent).\nconst antwort = $('Token holen (PayPal)').first().json;\nif (!antwort.access_token) {\n  throw new Error('PayPal: kein Access-Token – Credential an \"Token holen (PayPal)\" prüfen. Antwort: ' + JSON.stringify(antwort).slice(0, 300));\n}\nconst { config, bestellungen } = $('Honesty-Bestellungen sammeln').first().json;\nconst TAG = 86400000;\nconst jetzt = Date.now();\nconst iso = t => new Date(t).toISOString().replace(/\\.\\d{3}Z$/, 'Z');\nconst cent = x => Math.max(0, Math.round(x * 100));\n\nreturn bestellungen.map(b => {\n  const d = new Date(b.bestelldatum).getTime();\n  return {\n    json: {\n      bestellnummer: b.bestellnummer,\n      start: iso(d - TAG),\n      ende: iso(Math.min(d + (config.suchPufferTage + 1) * TAG, jetzt) - 1000),\n      betrag: `[${cent(b.betragExport - config.betragToleranz)} TO ${cent(b.betragExport + config.betragToleranz)}]`\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        320
+      ],
+      "id": "77770637-4210-4b7d-928d-fa1548ac6979",
+      "name": "Suchfenster bauen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Honesty-Bestellungen sammeln').first().json.config.paypalBaseUrl }}/v1/reporting/transactions",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "start_date",
+              "value": "={{ $json.start }}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{ $json.ende }}"
+            },
+            {
+              "name": "transaction_amount",
+              "value": "={{ $json.betrag }}"
+            },
+            {
+              "name": "fields",
+              "value": "transaction_info"
+            },
+            {
+              "name": "page_size",
+              "value": "500"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Token holen (PayPal)').first().json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.total_pages || $response.body.page >= $response.body.total_pages }}",
+              "limitPagesFetched": true,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        560,
+        320
+      ],
+      "id": "c229736f-013e-45d7-85c9-19788248e4e0",
+      "name": "Transaktionen suchen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ordnet die PayPal-Zahlungen den Honesty-Bestellungen zu und leitet das Präfix ab:\n// Präfix = Rechnungsnummer ohne die Bestellnummer am Ende, z. B. \"WC-2011892\" -> \"WC-\".\n// Ohne Treffer über die Rechnungsnummer wird zusätzlich das Feld custom_field nach der Bestellnummer durchsucht.\nconst { bestellungen } = $('Honesty-Bestellungen sammeln').first().json;\nconst TAG = 86400000;\nconst nummern = new Set(bestellungen.map(b => b.bestellnummer));\n\n// Eingehende Zahlungen (positiver Betrag), je Transaktions-ID einmal\nconst zahlungen = new Map();\nfor (const seite of $input.all()) {\n  for (const t of seite.json.transaction_details || []) {\n    const ti = t.transaction_info || {};\n    if (!ti.transaction_id || !(Number(ti.transaction_amount?.value) > 0)) continue;\n    zahlungen.set(ti.transaction_id, {\n      rechnungsnummer: String(ti.invoice_id || '').trim(),\n      customField: String(ti.custom_field || '').trim(),\n      betrag: Number(ti.transaction_amount.value),\n      datum: ti.transaction_initiation_date || '',\n      status: ti.transaction_status || ''\n    });\n  }\n}\n\n// Rechnungsnummer endet auf eine Bestellnummer; das Präfix davor darf nicht auf eine Ziffer enden\n// (sonst wäre \"WC-11808742\" ein Treffer für 1808742)\nconst perRechnung = new Map();\nconst perCustom = new Map();\nconst merke = (map, nr, z) => { if (!map.has(nr)) map.set(nr, []); map.get(nr).push(z); };\nfor (const z of zahlungen.values()) {\n  const r = z.rechnungsnummer;\n  for (let i = 0; i < r.length; i++) {\n    const nr = r.slice(i);\n    if (nummern.has(nr) && (i === 0 || !/\\d/.test(r[i - 1]))) {\n      merke(perRechnung, nr, { ...z, praefix: r.slice(0, i) });\n      break;\n    }\n  }\n  for (const token of new Set(z.customField.match(/A-\\d{4}-\\d{2}-\\d+|\\d+/g) || [])) {\n    if (nummern.has(token)) merke(perCustom, token, z);\n  }\n}\n\nconst runden = x => Math.round(x * 100) / 100;\nreturn bestellungen.map(b => {\n  const treffer = perRechnung.get(b.bestellnummer) || [];\n  const ueberCustom = treffer.length ? [] : (perCustom.get(b.bestellnummer) || []);\n  const alle = treffer.length ? treffer : ueberCustom;\n  const z = alle[0];\n  const status = treffer.length > 1 ? 'MEHRERE'\n    : treffer.length === 1 ? 'GEFUNDEN'\n    : ueberCustom.length ? 'NUR_CUSTOM_FIELD'\n    : 'NICHT_GEFUNDEN';\n  const alterTage = z ? Math.floor((Date.now() - new Date(z.datum)) / TAG) : '';\n  return {\n    json: {\n      bestellnummer: b.bestellnummer,\n      bestelldatum: b.bestelldatum,\n      status,\n      praefix: treffer.length ? [...new Set(treffer.map(t => t.praefix))].join(' | ') : '',\n      rechnungsnummer: alle.map(t => t.rechnungsnummer).join(' | '),\n      customField: z ? z.customField.slice(0, 100) : '',\n      betragExport: b.betragExport,\n      betragPayPal: z ? z.betrag : '',\n      betragGleich: z && Number.isFinite(b.betragExport) ? Math.abs(runden(z.betrag - b.betragExport)) <= 0.01 : '',\n      paypalStatus: z ? z.status : '',\n      zahlungsdatum: z ? z.datum.slice(0, 10) : '',\n      alterTage,\n      innerhalb180Tage: z ? alterTage <= 180 : ''\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        320
+      ],
+      "id": "5c86afeb-83a4-4219-85fa-56a4a8055041",
+      "name": "Rechnungsnummern zuordnen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Übersicht: Präfixe, Trefferquote, Beträge, 180-Tage-Grenze und Beispiele nicht zugeordneter Rechnungsnummern\nconst rows = $input.all().map(i => i.json);\nconst zaehle = f => rows.reduce((m, r) => { const k = f(r); if (k !== null) m[k] = (m[k] || 0) + 1; return m; }, {});\nconst gefunden = rows.filter(r => r.status === 'GEFUNDEN');\n\n// Zahlungen im Suchzeitraum, die keiner Honesty-Bestellung zugeordnet sind: zeigen das allgemeine Format\nconst zugeordnet = new Set(rows.flatMap(r => r.rechnungsnummer ? r.rechnungsnummer.split(' | ') : []));\nconst beispiele = new Map();\nconst gesehen = new Set();\nfor (const seite of $('Transaktionen suchen').all()) {\n  for (const t of seite.json.transaction_details || []) {\n    const ti = t.transaction_info || {};\n    if (!ti.transaction_id || !(Number(ti.transaction_amount?.value) > 0)) continue;\n    gesehen.add(ti.transaction_id);\n    const r = String(ti.invoice_id || '').trim();\n    if (beispiele.size < 20 && !zugeordnet.has(r) && !beispiele.has(r)) {\n      beispiele.set(r, `${r || '(keine Rechnungsnummer)'} · custom_field: ${String(ti.custom_field || '').slice(0, 60) || '–'} · ${String(ti.transaction_initiation_date || '').slice(0, 10)}`);\n    }\n  }\n}\n\nreturn [{\n  json: {\n    honestyBestellungen: $('Honesty-Bestellungen sammeln').first().json.honestyBestellungen,\n    ohneBetrag: $('Honesty-Bestellungen sammeln').first().json.ohneBetrag,\n    stichprobe: rows.length,\n    eingehendeZahlungenGeladen: gesehen.size,\n    nachStatus: zaehle(r => r.status),\n    praefixe: zaehle(r => r.status === 'GEFUNDEN' ? (r.praefix || '(kein Präfix)') : null),\n    betragWeichtAb: gefunden.filter(r => r.betragGleich === false).length,\n    gefundenInnerhalb180Tage: gefunden.filter(r => r.innerhalb180Tage === true).length,\n    gefundenAelterAls180Tage: gefunden.filter(r => r.innerhalb180Tage === false).length,\n    beispieleNichtZugeordnet: [...beispiele.values()]\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        320
+      ],
+      "id": "db2a8df0-404c-4abd-a966-307a7b08062e",
+      "name": "Zusammenfassung"
+    }
+  ],
+  "connections": {
+    "Export hochladen (Formular)": {
+      "main": [
+        [
+          {
+            "node": "CSV parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV parsen": {
+      "main": [
+        [
+          {
+            "node": "Honesty-Bestellungen sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Honesty-Bestellungen sammeln": {
+      "main": [
+        [
+          {
+            "node": "Token holen (PayPal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen (PayPal)": {
+      "main": [
+        [
+          {
+            "node": "Suchfenster bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suchfenster bauen": {
+      "main": [
+        [
+          {
+            "node": "Transaktionen suchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transaktionen suchen": {
+      "main": [
+        [
+          {
+            "node": "Rechnungsnummern zuordnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rechnungsnummern zuordnen": {
+      "main": [
+        [
+          {
+            "node": "Zusammenfassung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "YSruBGH5YS3RHCSp",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-10-15T09:09:33.228Z",
+      "updatedAt": "2026-10-15T09:09:33.228Z"
+    }
+  ],
+  "activeVersion": null
+}

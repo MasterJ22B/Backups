@@ -1,0 +1,110 @@
+{
+  "id": "XLT4vbUMPCr3yXIq",
+  "name": "Google Ads - BB Customer Match List Paged - Sub-Flow",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-10-20T09:06:22.463Z",
+  "updatedAt": "2026-10-20T09:09:28.454Z",
+  "isArchived": false,
+  "versionId": "75912d19-583a-4bda-b076-bcea4c8a4110",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "offset",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -128,
+        32
+      ],
+      "id": "29afbc40-1b6f-41dc-ae1f-0caea865fe35",
+      "name": "Execute Workflow Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nWITH KundenDaten AS\n(\n    SELECT\n        a.cMail AS EmailAdresse,\n        a.cVorname AS Vorname,\n        a.cName AS Nachname,\n        a.cLand AS Land,\n        a.cPLZ AS Postleitzahl,\n        a.cTel AS Telefonnummer,\n        ROW_NUMBER() OVER\n        (\n            PARTITION BY a.cMail\n            ORDER BY a.cTel\n        ) AS rn\n    FROM dbo.tAdresse AS a\n    WHERE a.cMail IS NOT NULL\n      AND LTRIM(RTRIM(a.cMail)) <> ''\n      AND EXISTS\n      (\n          SELECT 1\n          FROM dbo.tBestellung AS b\n          WHERE b.tKunde_kKunde = a.kKunde\n            AND b.cBestellNr NOT LIKE 'LEAF-%'\n            AND b.cBestellNr NOT LIKE 'CINNA-%'\n            AND b.cBestellNr NOT LIKE 'A-%'\n      )\n)\nSELECT\n    EmailAdresse,\n    Vorname,\n    Nachname,\n    Land,\n    Postleitzahl,\n    Telefonnummer\nFROM KundenDaten\nWHERE rn = 1\nORDER BY EmailAdresse\nOFFSET {{ $json.offset }} ROWS FETCH NEXT 10000 ROWS ONLY;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        96,
+        32
+      ],
+      "id": "a132147d-194c-49f0-ba4a-e1a7d58da998",
+      "name": "Microsoft SQL – Seite",
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node – Mode: \"Run Once for All Items\"\n// Verarbeitet eine Seite (max. 10.000 Zeilen) aus \"Microsoft SQL – Seite\" und gibt\n// genau ein Item mit den fertigen CSV-Zeilen (ohne Header) zurück.\n// Ersetzt die Nodes \"Telefonnummer-Format-Bereinigung\", \"If\", \"Code in JavaScript\",\n// \"Merge\" und \"Löschen Sonderfall-Attributs\" aus \"Google Ads - BB Customer Match List\".\n// Beide Skripte sind 1:1 übernommen. Nur die gleichnamigen Funktionen sind mit\n// Stage1/Stage2 umbenannt, weil sich ihre Logik unterscheidet.\n\n// ===== Stufe 1: \"Telefonnummer-Format-Bereinigung\" =====\n\nconst countryMap = {\n  'deutschland': 'de',\n  'germany': 'de',\n  'schweiz': 'ch',\n  'switzerland': 'ch',\n  'suisse': 'ch',\n  'österreich': 'at',\n  'oesterreich': 'at',\n  'austria': 'at'\n};\n\nconst supportedPhoneCountries = ['de', 'ch', 'at'];\n\nfunction cleanStringStage1(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction normalizeCountry(value) {\n  const raw = cleanStringStage1(value);\n  if (!raw) return '';\n\n  const key = raw.toLowerCase();\n\n  return countryMap[key] || raw;\n}\n\nfunction obviousFakePhoneStage1(digits) {\n  if (!digits) return true;\n\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhoneStage1(rawPhone, countryCode) {\n  let phone = cleanStringStage1(rawPhone);\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  phone = phone.replace(/[^\\d+]/g, '');\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  const isSupportedCountry = supportedPhoneCountries.includes(countryCode);\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('+49')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('49')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '49' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('+41')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('41')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '41' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('+43')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('43')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '43' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (!isSupportedCountry) {\n    let cleaned = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n    if (obviousFakePhoneStage1(cleaned)) {\n      return {\n        phone: '',\n        sonderfall: false\n      };\n    }\n\n    return {\n      phone: cleaned,\n      sonderfall: true\n    };\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhoneStage1(phone)) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  return {\n    phone,\n    sonderfall: false\n  };\n}\n\n// ===== Stufe 2: \"Code in JavaScript\" (nur für sonderfall === true) =====\n\nfunction cleanStringStage2(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction obviousFakePhoneStage2(digits) {\n  if (!digits) return true;\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000|123456789)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhoneStage2(rawPhone, country) {\n  const original = cleanStringStage2(rawPhone);\n  const countryCode = cleanStringStage2(country).toLowerCase();\n\n  if (!original) return '';\n\n  let phone = original.replace(/[^\\d+]/g, '');\n\n  if (!phone) return '';\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhoneStage2(phone)) return '';\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('49')) return phone;\n    if (phone.startsWith('0')) return '49' + phone.slice(1);\n\n    // Deutsche Mobilnummer ohne führende 0, z. B. 17650335244\n    if (/^1[5-7]\\d{8,10}$/.test(phone)) {\n      return '49' + phone;\n    }\n\n    // Keine sicher erkennbare deutsche Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('43')) return phone;\n    if (phone.startsWith('0')) return '43' + phone.slice(1);\n\n    // Österreichische Mobilnummer ohne führende 0, z. B. 6605239952\n    if (/^6\\d{7,11}$/.test(phone)) {\n      return '43' + phone;\n    }\n\n    // Keine sicher erkennbare österreichische Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('41')) return phone;\n    if (phone.startsWith('0')) return '41' + phone.slice(1);\n\n    // Schweizer Mobilnummer ohne führende 0, z. B. 791234567\n    if (/^7\\d{8}$/.test(phone)) {\n      return '41' + phone;\n    }\n\n    // Keine sicher erkennbare Schweizer Telefonnummer\n    return '';\n  }\n\n  return original;\n}\n\n// ===== Zeilen verarbeiten und als CSV serialisieren =====\n\nconst CSV_COLUMNS = ['Email', 'First Name', 'Last Name', 'Country', 'Zip', 'Phone'];\n\nfunction csvField(value) {\n  const text = value === null || value === undefined ? '' : String(value);\n  if (/[\",\\r\\n]/.test(text)) {\n    return '\"' + text.replace(/\"/g, '\"\"') + '\"';\n  }\n  return text;\n}\n\nconst zeilen = items.map(item => {\n  const source = item.json;\n\n  // Stufe 1\n  const country = normalizeCountry(source.Land);\n  const phoneResult = normalizePhoneStage1(source.Telefonnummer, country);\n\n  const row = {\n    Email: cleanStringStage1(source.EmailAdresse).toLowerCase(),\n    'First Name': cleanStringStage1(source.Vorname),\n    'Last Name': cleanStringStage1(source.Nachname),\n    Country: country,\n    Zip: cleanStringStage1(source.Postleitzahl),\n    Phone: phoneResult.phone,\n    sonderfall: phoneResult.sonderfall\n  };\n\n  // Stufe 2 (ehemals If-Node, true-Zweig)\n  if (row.sonderfall === true) {\n    row.Phone = normalizePhoneStage2(row.Phone, row.Country);\n  }\n\n  // sonderfall wird nicht ausgegeben\n  return CSV_COLUMNS.map(column => csvField(row[column])).join(',');\n});\n\nreturn [{ json: { csv: zeilen.join('\\n') } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        32
+      ],
+      "id": "dcd1ce04-7d93-4d6b-962e-496c2a473f31",
+      "name": "Code – Bereinigung + CSV-Zeilen"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL – Seite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL – Seite": {
+      "main": [
+        [
+          {
+            "node": "Code – Bereinigung + CSV-Zeilen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "XLT4vbUMPCr3yXIq",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-10-20T09:06:22.465Z",
+      "updatedAt": "2026-10-20T09:06:22.465Z"
+    }
+  ],
+  "activeVersion": null
+}

@@ -1,0 +1,966 @@
+{
+  "id": "a0OXfJYfq54YsWzR",
+  "name": "BB-Shopify-Klarna-Rechnung-in-JTL (Einzel + Batch + Dry-run)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-22T13:16:43.837Z",
+  "updatedAt": "2026-09-29T11:26:39.562Z",
+  "isArchived": false,
+  "versionId": "9e60b61f-60d9-469f-9234-cf4c74f56a7b",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "77192b0e-a95d-4739-8f62-f9b0b13fbc33",
+      "name": "Manuell starten",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3872,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "id": "7c69f891-0486-4cdf-8144-019b58e8e240",
+      "name": "Taeglich 06 Uhr - deaktiviert",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -3872,
+        816
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// EINZELTEST: single_order = exakter Bestellname (BB-...) oder Shopify-ID.\n// MASSEN-VORSCHAU: mode = 'batch'. Kein automatischer Datumsfilter.\n// dry_run bleibt true, bis Vorschau und JTL-Zielzahlungsart geprueft sind.\n// Zielzahlungsart: ID oder exakten Namen aus dem Zahlungsarten-Katalog eintragen.\n// invoice_policy: 'review' = Auftraege mit Rechnung nur melden;\n// 'order_only' = nur den Auftrag aendern, bestehende Rechnungen bleiben unveraendert.\n// max_changes begrenzt echte Aenderungen; bei Ueberschreitung wird VOR dem Schreiben abgebrochen.\n// batch_order_names: optional exakte Bestellnamen aus der Vorschau fuer einen kleinen Live-Stapel.\n// Datumsfilter: UTC; created_from inklusive, created_before exklusiv. Leer = alle Jahrgaenge.\n// JTL-Datenbank, kShop=3 und Zugang stammen aus euren Vorlagen. Im ersten dry_run pruefen.\nconst settings = {\n  \"dry_run\": false,\n  \"mode\": \"batch\",\n  \"single_order\": \"\",\n  \"batch_order_names\": [],\n  \"created_from\": \"\",\n  \"created_before\": \"\",\n  \"target_payment_id\": 12,\n  \"target_payment_name\": \"Rechnung\",\n  \"source_payment_names\": [\n    \"shopify_payments\"\n  ],\n  \"source_payment_ids\": [],\n  \"invoice_policy\": \"review\",\n  \"max_changes\": 100,\n  \"shop_domain\": \"vdzvc0-nd.myshopify.com\",\n  \"api_version\": \"2026-07\",\n  \"jtl_database\": \"eazybusiness\",\n  \"jtl_shop_id\": 33,\n  \"tag\": \"BB Klarna Rechnung\",\n  \"page_size\": 100,\n  \"max_orders\": 10000,\n  \"max_pages\": 200,\n  \"sql_batch_size\": 100\n};\n\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function validateConfig(settings) {\n  const c = settings ?? $input.first().json;\n  if (typeof c.dry_run !== 'boolean') fail('dry_run muss true oder false sein, kein Text.');\n  if (!['single', 'batch'].includes(c.mode)) fail('mode muss single oder batch sein.');\n  if (typeof c.single_order !== 'string') fail('single_order muss Text sein.');\n  c.single_order = c.single_order.trim();\n  if (c.mode === 'single' && !c.single_order) fail('Bitte single_order eintragen: Bestellname (BB-...) oder Shopify-ID.');\n  if (!Array.isArray(c.batch_order_names) || !c.batch_order_names.every(n => typeof n === 'string' && n.length > 0 && n.length <= 50))\n    fail('batch_order_names muss eine Liste exakter Bestellnamen sein.');\n  if (new Set(c.batch_order_names).size !== c.batch_order_names.length) fail('Doppelte Namen in batch_order_names.');\n  if (c.mode === 'single' && c.batch_order_names.length) fail('Im Einzelmodus batch_order_names leeren.');\n  for (const key of ['created_from', 'created_before']) {\n    if (typeof c[key] !== 'string' || (c[key] && (!/^\\d{4}-\\d{2}-\\d{2}$/.test(c[key])\n      || !Number.isFinite(Date.parse(c[key])) || new Date(c[key]).toISOString().slice(0, 10) !== c[key])))\n      fail(key + ': Datum als YYYY-MM-DD oder leer eingeben.');\n  }\n  if (c.created_from && c.created_before && c.created_from >= c.created_before) fail('Datumsbereich ist leer.');\n  if (c.mode === 'single' && (c.created_from || c.created_before)) fail('Im Einzelmodus Datumsfilter leeren.');\n  if (!/^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$/.test(c.shop_domain)) fail('Ungueltige myshopify.com-Domain.');\n  if (!/^\\d{4}-(01|04|07|10)$/.test(c.api_version)) fail('Ungueltige Shopify-API-Version.');\n  if (typeof c.jtl_database !== 'string' || !c.jtl_database.trim()) fail('JTL-Datenbank fehlt.');\n  positive(c.jtl_shop_id, 'jtl_shop_id');\n  if (c.tag !== 'BB Klarna Rechnung') fail('Dieser Workflow erwartet das Tag BB Klarna Rechnung.');\n  if (!Number.isInteger(c.target_payment_id) || c.target_payment_id < 0 || c.target_payment_id > 2147483647)\n    fail('target_payment_id muss 0 oder eine positive JTL-ID sein.');\n  if (typeof c.target_payment_name !== 'string') fail('target_payment_name muss Text sein.');\n  c.target_payment_name = c.target_payment_name.trim();\n  if (!Array.isArray(c.source_payment_names) || !c.source_payment_names.every(n => typeof n === 'string' && n.trim()))\n    fail('Ungueltige source_payment_names.');\n  if (!Array.isArray(c.source_payment_ids)) fail('source_payment_ids muss eine Liste sein.');\n  c.source_payment_ids.forEach(n => positive(n, 'source_payment_ids'));\n  if (!['review', 'order_only'].includes(c.invoice_policy)) fail('invoice_policy muss review oder order_only sein.');\n  for (const [key, min, max] of [['max_changes', 1, 100], ['page_size', 1, 100], ['max_orders', 1, 20000],\n    ['max_pages', 1, 2000], ['sql_batch_size', 1, 200]]) {\n    if (!Number.isInteger(c[key]) || c[key] < min || c[key] > max) fail(key + ': erlaubter Bereich ' + min + '..' + max);\n  }\n  if (!c.dry_run && !c.target_payment_id && !c.target_payment_name) fail('Vor einem Schreiblauf Zielzahlungsart eintragen.');\n  c.started_at = new Date().toISOString();\n  return one(c);\n})(settings);\n"
+      },
+      "id": "a823365f-4fc8-40b4-981a-ff5304ee1a53",
+      "name": "Konfiguration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3632,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://' + $('Konfiguration').first().json.shop_domain + '/admin/oauth/access_token' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "id": "bbc86990-1d81-4acc-bf14-82fa876de71e",
+      "name": "Token holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3392,
+        608
+      ],
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://' + $('Konfiguration').first().json.shop_domain + '/admin/api/' + $('Konfiguration').first().json.api_version + '/graphql.json' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"query\":\"{ currentAppInstallation { accessScopes { handle } } shop { id name myshopifyDomain } }\"}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "64c5f5b6-574d-438b-ab70-4b7581fc618f",
+      "name": "Shopify Rechte lesen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -3152,
+        608
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function initialiseFetch() {\n  const c = config();\n  const data = graphqlData(responseBody($input.first()));\n  const scopes = data.currentAppInstallation?.accessScopes;\n  if (!Array.isArray(scopes)) fail('Shopify-Zugriffsrechte konnten nicht gelesen werden.');\n  const handles = scopes.map(s => s.handle);\n  if (!handles.some(s => ['read_orders', 'write_orders'].includes(s))) fail('Shopify-Zugang hat keinen Bestellzugriff.');\n  if (!handles.includes('read_all_orders'))\n    fail('read_all_orders fehlt. Der historische Bestand (z. B. Juli) waere unvollstaendig. Keine JTL-Aenderung.');\n  if (!data.shop?.id || !data.shop?.myshopifyDomain) fail('Shopify-Shop konnte nicht verifiziert werden.');\n  const token = $('Token holen').first().json.access_token;\n  if (typeof token !== 'string' || !token) fail('Shopify-Token fehlt.');\n  const quote = s => '\"' + s.replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"') + '\"';\n  let id = null;\n  let search = 'tag:' + quote(c.tag);\n  if (c.mode === 'single') {\n    if (/^\\d+$/.test(c.single_order)) id = 'gid://shopify/Order/' + c.single_order;\n    else if (/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(c.single_order)) id = c.single_order;\n    else search = 'name:' + quote(c.single_order);\n  } else {\n    if (c.created_from) search += ' created_at:>=' + quote(c.created_from + 'T00:00:00Z');\n    if (c.created_before) search += ' created_at:<' + quote(c.created_before + 'T00:00:00Z');\n  }\n  return one({ id, search, cursor: null, pages: 0, retries: 0, attempts: 0, scanned_orders: 0, seen_cursors: [],\n    has_next: true, wait_seconds: 1, shop: data.shop, scopes: handles });\n})();\n"
+      },
+      "id": "85a5d071-51a6-4d75-8b91-62dceab5e290",
+      "name": "Abruf initialisieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2912,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function preparePage() {\n  const { page_orders, ...s } = $input.first().json;\n  const c = config();\n  if (s.pages >= c.max_pages) fail('max_pages erreicht. Kein Teilbestand wird als vollstaendig verarbeitet.');\n  const gql_body = s.id\n    ? { query: `query KlarnaSingle($id: ID!) { order(id: $id) { ${orderFields()} } }`, variables: { id: s.id } }\n    : { query: `query KlarnaOrders($first: Int!, $after: String, $search: String!) {\n        orders(first: $first, after: $after, query: $search, sortKey: ID) {\n          nodes { ${orderFields()} } pageInfo { hasNextPage endCursor }\n        } }`, variables: { first: c.page_size, after: s.cursor, search: s.search } };\n  return one({ ...s, gql_body });\n})();\n"
+      },
+      "id": "588c0f74-ed6b-49c2-8ea2-a1241edf2e8e",
+      "name": "Seite vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2672,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://' + $('Konfiguration').first().json.shop_domain + '/admin/api/' + $('Konfiguration').first().json.api_version + '/graphql.json' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gql_body }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "67ad8179-3a1d-48d1-bf1d-ee0ad9dc27a6",
+      "name": "Shopify Seite lesen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2432,
+        608
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function readPage() {\n  // Explicit run index is essential on a loop; never take a previous page's state.\n  const old = $('Seite vorbereiten').first(0, $runIndex).json;\n  const s = JSON.parse(JSON.stringify(old));\n  delete s.gql_body;\n  s.page_orders = [];\n  s.attempts++;\n  const c = config();\n  const body = responseBody($input.first());\n  if (Array.isArray(body.errors) && body.errors.length && body.errors.every(e => e.extensions?.code === 'THROTTLED')) {\n    if (++s.retries > 5) fail('Shopify GraphQL bleibt gedrosselt. Lauf abgebrochen.');\n    s.wait_seconds = Math.min(32, 2 ** s.retries);\n    s.has_next = true;\n    return one(s);\n  }\n  const data = graphqlData(body);\n  let received, page;\n  if (s.id) {\n    if (!Object.hasOwn(data, 'order')) fail('Shopify-Einzelantwort fehlt.');\n    received = data.order === null ? [] : [data.order];\n    page = { hasNextPage: false, endCursor: null };\n  } else {\n    received = data.orders?.nodes;\n    page = data.orders?.pageInfo;\n    if (!Array.isArray(received) || typeof page?.hasNextPage !== 'boolean') fail('Ungueltige Shopify-Seitenantwort.');\n  }\n  received.forEach(validateOrder);\n  if (s.id && received.some(o => o.id !== s.id)) fail('Shopify lieferte eine unerwartete Bestell-ID.');\n  s.page_orders = received;\n  s.scanned_orders += received.length;\n  if (s.scanned_orders > c.max_orders) fail('max_orders ueberschritten. Zeitraum eingrenzen oder Leselimit erhoehen. Keine JTL-Aenderung.');\n  if (page.hasNextPage && (!received.length || !page.endCursor || page.endCursor === s.cursor || s.seen_cursors.includes(page.endCursor)))\n    fail('Shopify-Paginierung macht keinen Fortschritt.');\n  if (page.endCursor) s.seen_cursors.push(page.endCursor);\n  s.cursor = page.endCursor;\n  s.has_next = page.hasNextPage;\n  s.pages++;\n  s.retries = 0;\n  const cost = body.extensions?.cost;\n  const deficit = (cost?.requestedQueryCost ?? 0) - (cost?.throttleStatus?.currentlyAvailable ?? 1000);\n  s.wait_seconds = Math.min(60, Math.max(1, Math.ceil(deficit / Math.max(1, cost?.throttleStatus?.restoreRate ?? 50)) + 1));\n  return one(s);\n})();\n"
+      },
+      "id": "cbe4094e-f349-4aae-a95e-658cf1aeb8f1",
+      "name": "Seite auswerten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2192,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "11c7b898-c8b5-4002-8e6d-35f0f3d2756e",
+              "leftValue": "={{ $json.has_next === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9fe6467e-dc09-43ea-a33b-0315639cc2ff",
+      "name": "Weitere Seite oder Retry?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1952,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.wait_seconds }}"
+      },
+      "id": "3f7da07b-b886-47c8-87b3-055110dcefcd",
+      "name": "Shopify Pause",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1952,
+        864
+      ],
+      "webhookId": "4bcbc298-28d6-400c-8070-bc2042bb25ae"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function finaliseFetch() {\n  const s = $input.first().json;\n  const c = config();\n  if (s.has_next) fail('Shopify-Abruf ist noch nicht vollstaendig.');\n  // Gather each completed page once. Carrying an ever-growing orders array around\n  // the loop would multiply memory use and execution storage on large backfills.\n  let orders = [];\n  for (let i = 0; i < s.attempts; i++) orders.push(...$('Seite auswerten').first(0, i).json.page_orders);\n  if (orders.length !== s.scanned_orders) fail('Unvollstaendige Sammlung der Shopify-Seiten.');\n  if (new Set(orders.map(o => o.id)).size !== orders.length) fail('Doppelte Shopify-ID beim Blaettern. Bitte neu starten.');\n  if (c.mode === 'single') {\n    orders = orders.filter(o => s.id ? o.id === s.id : o.name === c.single_order);\n    if (orders.length > 1) fail('Shopify-Einzelauswahl ist nicht eindeutig. Bitte numerische Shopify-ID verwenden.');\n  } else {\n    if (orders.some(o => !o.tags.includes(c.tag))) fail('Shopify-Suche lieferte Bestellungen ohne exaktes Klarna-Tag.');\n    if (orders.some(o => (c.created_from && Date.parse(o.createdAt) < Date.parse(c.created_from))\n      || (c.created_before && Date.parse(o.createdAt) >= Date.parse(c.created_before)))) fail('Shopify-Datumsfilter wurde nicht eingehalten.');\n    if (c.batch_order_names.length) orders = orders.filter(o => c.batch_order_names.includes(o.name));\n  }\n  const missing_names = c.mode === 'batch' ? c.batch_order_names.filter(n => !orders.some(o => o.name === n)) : [];\n  if (!c.dry_run && missing_names.length) fail('Bestellnamen der Auswahlliste fehlen im Suchergebnis: ' + missing_names.join(', '));\n  return one({ orders, missing_names, scanned_orders: s.scanned_orders, pages: s.pages,\n    selection_complete: true, search: s.id ?? s.search, shop: s.shop, scopes: s.scopes,\n    retrieved_at: new Date().toISOString() });\n})();\n"
+      },
+      "id": "210a838f-5c00-428d-b3ac-18879b8a7e7b",
+      "name": "Shopify-Auswahl",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1712,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nSET NOCOUNT ON;\nSELECT DB_NAME() AS database_name,\n       (SELECT compatibility_level FROM sys.databases WHERE name = DB_NAME()) AS compatibility_level,\n       (SELECT s.name AS schema_name, o.name AS object_name, c.name AS column_name,\n               TYPE_NAME(c.user_type_id) AS data_type\n        FROM sys.objects o\n        JOIN sys.schemas s ON s.schema_id = o.schema_id\n        JOIN sys.columns c ON c.object_id = o.object_id\n        WHERE (s.name = 'Verkauf' AND o.name IN ('tAuftrag', 'tAuftragStorno'))\n           OR (s.name = 'dbo' AND o.name = 'tZahlungsart')\n           OR (s.name = 'Rechnung' AND o.name = 'tRechnungPosition')\n        FOR JSON PATH) AS columns_json;",
+        "options": {}
+      },
+      "id": "2b5f66b0-f721-4258-8cba-747822ca2553",
+      "name": "JTL Schema lesen",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -1472,
+        608
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function checkSchema() {\n  const c = config();\n  const r = $input.first().json;\n  if (r.database_name !== c.jtl_database) fail('JTL-Datenbank stimmt nicht: ' + r.database_name + ', erwartet ' + c.jtl_database);\n  if (Number(r.compatibility_level) < 130) fail('JTL-SQL-Kompatibilitaet muss OPENJSON unterstuetzen (mindestens 130).');\n  const cols = arrayJson(r.columns_json, 'JTL-Schema');\n  const required = {\n    'Verkauf.tAuftrag': ['kAuftrag', 'cAuftragsNr', 'cExterneAuftragsnummer', 'kShop', 'nType', 'kZahlungsart',\n      'nStorno', 'nIstReadOnly', 'nIstExterneRechnung', 'nPending', 'bRowversion'],\n    'Verkauf.tAuftragStorno': ['kAuftrag'],\n    'dbo.tZahlungsart': ['kZahlungsart', 'cName', 'nAktiv'],\n    'Rechnung.tRechnungPosition': ['kAuftrag'],\n  };\n  const missing = [];\n  for (const [table, names] of Object.entries(required)) for (const name of names) {\n    if (!cols.some(x => x.schema_name + '.' + x.object_name === table && x.column_name === name)) missing.push(table + '.' + name);\n  }\n  if (missing.length) fail('JTL-Schema weicht ab oder ist nicht lesbar: ' + missing.join(', ') + '. Keine JTL-Aenderung.');\n  const versionCol = cols.find(x => x.schema_name === 'Verkauf' && x.object_name === 'tAuftrag' && x.column_name === 'bRowversion');\n  if (!['timestamp', 'rowversion'].includes(String(versionCol.data_type).toLowerCase())) fail('JTL-Rowversion hat einen unerwarteten Typ.');\n  return one({ database_name: r.database_name, schema_checked: true });\n})();\n"
+      },
+      "id": "d11dc8cb-5785-4e69-9d6b-6e580f4b9e1b",
+      "name": "JTL Schema pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1232,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nSET NOCOUNT ON;\nSELECT kZahlungsart AS payment_id, cName AS payment_name, nAktiv AS active\nFROM dbo.tZahlungsart\nORDER BY kZahlungsart;",
+        "options": {}
+      },
+      "id": "55eb9be5-e107-4a70-be81-4a5a5b358204",
+      "name": "JTL Zahlungsarten lesen",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -992,
+        608
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function checkPayments() {\n  const c = config();\n  const payments = $input.all().map(i => {\n    const r = i.json;\n    positive(r.payment_id, 'Zahlungsart');\n    if (typeof r.payment_name !== 'string') fail('JTL-Zahlungsart ohne Namen.');\n    return { id: r.payment_id, name: r.payment_name, active: bit(r.active, 'Zahlungsart aktiv') };\n  });\n  let found = [];\n  if (c.target_payment_id) found = payments.filter(p => p.id === c.target_payment_id);\n  else if (c.target_payment_name) found = payments.filter(p => p.name === c.target_payment_name);\n  let target_issue = !c.target_payment_id && !c.target_payment_name ? 'ZIELZAHLUNGSART_NICHT_KONFIGURIERT'\n    : found.length !== 1 ? 'ZIELZAHLUNGSART_FEHLT_ODER_MEHRDEUTIG'\n    : !found[0].active ? 'ZIELZAHLUNGSART_INAKTIV'\n    : c.target_payment_name && found[0].name !== c.target_payment_name ? 'ZIELZAHLUNGSART_NAME_PASST_NICHT' : null;\n  const target = target_issue ? null : found[0];\n  const source_ids = payments.filter(p => c.source_payment_ids.includes(p.id)\n    || c.source_payment_names.some(n => n.trim().toLowerCase() === p.name.trim().toLowerCase())).map(p => p.id);\n  if (c.source_payment_ids.some(id => !payments.some(p => p.id === id))) fail('Konfigurierte Ausgangszahlungsart existiert nicht.');\n  if (target && source_ids.includes(target.id)) fail('Ziel- und Ausgangszahlungsart duerfen nicht identisch sein.');\n  if (!c.dry_run && target_issue) fail(target_issue);\n  if (!c.dry_run && !source_ids.length) fail('Keine erlaubte JTL-Ausgangszahlungsart gefunden. Dry-run-Katalog pruefen.');\n  return one({ payments, target, target_issue, source_ids });\n})();\n"
+      },
+      "id": "b595a1c1-8065-4709-8193-5f43578c5fd1",
+      "name": "Zahlungsarten pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -752,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function readBatches() {\n  const c = config();\n  const orders = $('Shopify-Auswahl').first().json.orders;\n  const payload = orders.map(o => ({ id: o.id, match_names: matchNames(o.name) }));\n  if (!payload.length) payload.push({ id: '__EMPTY__', match_names: [] });\n  const batches = [];\n  for (let i = 0; i < payload.length; i += c.sql_batch_size)\n    batches.push({ json: { orders_json: JSON.stringify(payload.slice(i, i + c.sql_batch_size)), shop_id: c.jtl_shop_id } });\n  return batches;\n})();\n"
+      },
+      "id": "6912750a-a831-43ee-8d48-e16ee2b0e5d5",
+      "name": "SQL Lesepakete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nSET NOCOUNT ON;\nSELECT o.id AS shopify_id,\n       (SELECT a.kAuftrag AS jtl_id, a.cAuftragsNr AS jtl_number,\n               a.cExterneAuftragsnummer AS external_number, a.kShop AS shop_id,\n               a.kZahlungsart AS payment_id, z.cName AS payment_name,\n               a.nStorno AS cancelled, a.nIstReadOnly AS read_only,\n               a.nIstExterneRechnung AS external_invoice, a.nPending AS pending,\n               CONVERT(varchar(18), CONVERT(varbinary(8), a.bRowversion), 1) AS row_version,\n               CASE WHEN EXISTS (SELECT 1 FROM Verkauf.tAuftragStorno s\n                                 WHERE s.kAuftrag = a.kAuftrag) THEN 1 ELSE 0 END AS cancellation_record,\n               CASE WHEN EXISTS (SELECT 1 FROM Rechnung.tRechnungPosition r\n                                 WHERE r.kAuftrag = a.kAuftrag) THEN 1 ELSE 0 END AS has_invoice\n        FROM Verkauf.tAuftrag a\n        LEFT JOIN dbo.tZahlungsart z ON z.kZahlungsart = a.kZahlungsart\n        WHERE a.kShop = $2 AND a.nType = 1\n          AND (a.cAuftragsNr IN (SELECT value FROM OPENJSON(o.match_names))\n            OR a.cExterneAuftragsnummer IN (SELECT value FROM OPENJSON(o.match_names)))\n        FOR JSON PATH, INCLUDE_NULL_VALUES) AS candidates_json\nFROM OPENJSON($1) WITH (id nvarchar(80), match_names nvarchar(max) AS JSON) o;",
+        "options": {
+          "queryReplacement": "={{ [$json.orders_json, $json.shop_id] }}"
+        }
+      },
+      "id": "c608274d-5a7e-46a8-91e8-02eb5345678b",
+      "name": "JTL Auftraege lesen",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -272,
+        608
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function planChanges() {\n  const c = config();\n  const selection = $('Shopify-Auswahl').first().json;\n  const catalog = $('Zahlungsarten pruefen').first().json;\n  const db = new Map();\n  for (const item of $input.all()) {\n    const r = item.json;\n    if (typeof r.shopify_id !== 'string' || db.has(r.shopify_id)) fail('JTL-Leseantwort fehlt oder ist doppelt.');\n    db.set(r.shopify_id, arrayJson(r.candidates_json, 'JTL-Kandidaten'));\n  }\n  const rows = [], changes = [], usedIds = new Set();\n  for (const o of selection.orders) {\n    const reason = shopifyReason(o, c);\n    const candidates = db.get(o.id);\n    if (!candidates) fail('JTL-Antwort fuer ' + o.name + ' fehlt.');\n    let status = reason;\n    const a = candidates.length === 1 ? candidates[0] : null;\n    if (!status && !candidates.length) status = 'JTL_NOCH_NICHT_GEFUNDEN';\n    if (!status && candidates.length > 1) status = 'JTL_ZUORDNUNG_MEHRDEUTIG';\n    if (a) {\n      positive(a.jtl_id, 'Auftrag');\n      if (a.shop_id !== c.jtl_shop_id) fail('JTL-Antwort enthaelt fremden Shop.');\n      if (!matchNames(o.name).includes(a.jtl_number) && !matchNames(o.name).includes(a.external_number))\n        fail('JTL-Antwort passt nicht exakt zum Shopify-Bestellnamen.');\n      if (!/^0x[0-9a-fA-F]{16}$/.test(a.row_version)) fail('JTL-Rowversion fehlt.');\n      const cancelled = bit(a.cancelled, 'Storno') || bit(a.cancellation_record, 'Stornodatensatz');\n      const locked = bit(a.read_only, 'Schreibschutz') || bit(a.pending, 'Pending');\n      const external = bit(a.external_invoice, 'externe Rechnung');\n      const invoiced = bit(a.has_invoice, 'Rechnung vorhanden');\n      if (!status && cancelled) status = 'JTL_STORNIERT';\n      if (!status && locked) status = 'JTL_GESPERRT';\n      if (!status && external) status = 'JTL_EXTERNE_RECHNUNG_PRUEFEN';\n      if (!status && catalog.target && a.payment_id === catalog.target.id) status = 'BEREITS_KORREKT';\n      if (!status && invoiced && c.invoice_policy === 'review') status = 'JTL_RECHNUNG_VORHANDEN_PRUEFEN';\n      if (!status && !catalog.source_ids.includes(a.payment_id)) status = 'JTL_AUSGANGSZAHLUNGSART_PRUEFEN';\n      if (!status && catalog.target_issue) status = catalog.target_issue;\n      if (!status) {\n        if (usedIds.has(a.jtl_id)) fail('Mehrere Shopify-Bestellungen zeigen auf denselben JTL-Auftrag.');\n        usedIds.add(a.jtl_id);\n        status = c.dry_run ? 'WUERDE_AENDERN' : 'GEPLANT';\n        changes.push({ shopify_id: o.id, shopify_name: o.name, shopify_updated_at: o.updatedAt,\n          jtl_id: a.jtl_id, current_payment_id: a.payment_id, row_version: a.row_version,\n          match_names: matchNames(o.name) });\n      }\n    }\n    rows.push({ shopify_id: o.id, shopify_name: o.name, created_at: o.createdAt,\n      financial_status: o.displayFinancialStatus, status,\n      jtl_id: a?.jtl_id ?? null, jtl_number: a?.jtl_number ?? '',\n      current_payment_id: a?.payment_id ?? null, current_payment_name: a?.payment_name ?? '',\n      target_payment_id: catalog.target?.id ?? null, target_payment_name: catalog.target?.name ?? c.target_payment_name,\n      has_invoice: a?.has_invoice ?? null,\n      match_count: candidates.length, matching_jtl_ids: candidates.map(x => x.jtl_id).join(', '),\n      changed_at_utc: '', note: a?.has_invoice && c.invoice_policy === 'order_only'\n        ? 'Nur Auftrag: bestehende Rechnung und Zahlungsbuchungen werden nicht angepasst.' : '' });\n  }\n  for (const name of selection.missing_names)\n    rows.push({ shopify_name: name, status: 'SHOPIFY_AUSWAHL_NICHT_GEFUNDEN', note: 'Fehlt im gewaehlten Tag-/Datumsbereich.' });\n  if (!selection.orders.length && c.mode === 'single')\n    rows.push({ shopify_name: c.single_order, status: 'SHOPIFY_BESTELLUNG_NICHT_GEFUNDEN' });\n  if (!c.dry_run && changes.length > c.max_changes)\n    fail(changes.length + ' Aenderungen geplant, max_changes=' + c.max_changes + '. KEINE Aenderung ausgefuehrt. Auswahl begrenzen.');\n  const { orders: selectedOrders, ...selectionMeta } = selection;\n  return one({ rows, changes, catalog, selection: selectionMeta,\n    can_write: c.dry_run === false && changes.length > 0,\n    recheck_body: { query: `query KlarnaRecheck($ids: [ID!]!) { nodes(ids: $ids) { ... on Order { ${orderFields()} } } }`,\n      variables: { ids: changes.map(x => x.shopify_id) } } });\n})();\n"
+      },
+      "id": "b8aa5821-3f6c-4d43-b011-958039cbc78a",
+      "name": "Aenderungsplan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "09942ae2-9abd-4940-accc-b84d5705d3b5",
+              "leftValue": "={{ $json.can_write === true && $(\"Konfiguration\").first().json.dry_run === false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "88fc191f-4dc3-4f4a-9cb9-6801a0ce3181",
+      "name": "Live-Aenderungen vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        208,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://' + $('Konfiguration').first().json.shop_domain + '/admin/api/' + $('Konfiguration').first().json.api_version + '/graphql.json' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.recheck_body }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "95fa2a5d-a246-4adf-b406-eb6a14a01757",
+      "name": "Shopify vor Schreiben lesen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        416
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function verifyLiveShopify() {\n  const c = config();\n  const plan = $('Aenderungsplan').first().json;\n  if (c.dry_run !== false || !plan.can_write) fail('DRY_RUN: Schreibpfad gesperrt.');\n  if (!plan.changes.length || plan.changes.length > c.max_changes || plan.changes.length > 100) fail('Aenderungslimit verletzt.');\n  const nodes = graphqlData(responseBody($input.first())).nodes;\n  if (!Array.isArray(nodes) || nodes.length !== plan.changes.length) fail('Shopify-Rueckpruefung ist unvollstaendig.');\n  const fresh = new Map();\n  for (const o of nodes) {\n    validateOrder(o);\n    if (fresh.has(o.id)) fail('Doppelte Bestell-ID in Shopify-Rueckpruefung.');\n    fresh.set(o.id, o);\n  }\n  for (const p of plan.changes) {\n    const o = fresh.get(p.shopify_id);\n    if (!o || o.name !== p.shopify_name || o.updatedAt !== p.shopify_updated_at || shopifyReason(o, c))\n      fail('Shopify-Bestellung hat sich seit der Planung geaendert: ' + p.shopify_name + '. Keine JTL-Aenderung.');\n  }\n  return one({ ...plan, plan_json: JSON.stringify(plan.changes), shopify_rechecked_at: new Date().toISOString() });\n})();\n"
+      },
+      "id": "94b8e979-1197-40a4-9a47-d0c02b95858d",
+      "name": "Shopify erneut pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nSET NOCOUNT ON;\nSET XACT_ABORT ON;\nSET ANSI_NULLS ON;\nSET QUOTED_IDENTIFIER ON;\nSET ANSI_WARNINGS ON;\nSET ANSI_PADDING ON;\nSET CONCAT_NULL_YIELDS_NULL ON;\nSET ARITHABORT ON;\nSET NUMERIC_ROUNDABORT OFF;\nSET LOCK_TIMEOUT 10000;\n\nDECLARE @dryRun bit = $2, @shop int = $3, @expectedDb nvarchar(128) = $4,\n        @invoicePolicy nvarchar(20) = $5, @target int = $6, @maxChanges int = $7;\nIF @dryRun IS NULL OR @dryRun <> 0\n    THROW 51000, 'DRY_RUN: Schreibzugriff gesperrt.', 1;\nIF DB_NAME() <> @expectedDb OR @expectedDb IS NULL\n    THROW 51001, 'Unerwartete JTL-Datenbank.', 1;\nIF @shop IS NULL OR @shop <= 0 OR @target IS NULL OR @target <= 0\n    THROW 51002, 'Shop oder Zielzahlungsart fehlt.', 1;\nIF @invoicePolicy IS NULL OR @invoicePolicy NOT IN ('review', 'order_only')\n    THROW 51003, 'Ungueltige Rechnungsregel.', 1;\n\nDECLARE @plan TABLE (\n    shopify_id nvarchar(80) NOT NULL PRIMARY KEY,\n    jtl_id int NOT NULL UNIQUE,\n    current_payment_id int NOT NULL,\n    row_version varchar(18) NOT NULL,\n    match_names nvarchar(max) NOT NULL\n);\nINSERT INTO @plan\nSELECT shopify_id, jtl_id, current_payment_id, row_version, match_names\nFROM OPENJSON($1) WITH (\n    shopify_id nvarchar(80), jtl_id int, current_payment_id int,\n    row_version varchar(18), match_names nvarchar(max) AS JSON\n);\nDECLARE @expected int = (SELECT COUNT(*) FROM @plan);\nIF @expected < 1 OR @maxChanges IS NULL OR @maxChanges < 1 OR @maxChanges > 100\n   OR @expected > @maxChanges\n    THROW 51004, 'Aenderungslimit verletzt. Keine Bestellung geaendert.', 1;\nIF EXISTS (SELECT 1 FROM @plan WHERE current_payment_id = @target\n           OR LEN(row_version) <> 18 OR LEFT(row_version, 2) <> '0x'\n           OR TRY_CONVERT(binary(8), row_version, 1) IS NULL\n           OR current_payment_id NOT IN (SELECT TRY_CONVERT(int, value) FROM OPENJSON($8)))\n    THROW 51005, 'Ungueltiger Aenderungsplan oder unerlaubte Ausgangszahlungsart.', 1;\n\nDECLARE @changed TABLE (jtl_id int PRIMARY KEY, old_payment_id int, new_payment_id int);\nBEGIN TRY\n    BEGIN TRANSACTION;\n    DECLARE @lockResult int;\n    EXEC @lockResult = sys.sp_getapplock\n        @Resource = N'BB_KLARNA_AUFTRAGSZAHLUNGSART',\n        @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 10000;\n    IF @lockResult < 0 THROW 51006, 'Ein weiterer Klarna-Schreiblauf ist aktiv.', 1;\n\n    IF NOT EXISTS (SELECT 1 FROM dbo.tZahlungsart WITH (UPDLOCK, HOLDLOCK)\n                   WHERE kZahlungsart = @target AND nAktiv = 1)\n        THROW 51007, 'Zielzahlungsart fehlt oder ist inaktiv.', 1;\n\n    -- Do not silently choose one of multiple matching orders, even if a new match\n    -- appeared between the SELECT and this transaction.\n    IF EXISTS (\n        SELECT 1 FROM @plan p WHERE\n        (SELECT COUNT(*) FROM Verkauf.tAuftrag a WITH (UPDLOCK, HOLDLOCK)\n         WHERE a.kShop = @shop AND a.nType = 1\n           AND (a.cAuftragsNr IN (SELECT value FROM OPENJSON(p.match_names))\n             OR a.cExterneAuftragsnummer IN (SELECT value FROM OPENJSON(p.match_names)))) <> 1\n    ) THROW 51008, 'Auftragszuordnung ist nicht mehr eindeutig.', 1;\n\n    IF EXISTS (\n        SELECT 1 FROM @plan p\n        LEFT JOIN Verkauf.tAuftrag a WITH (UPDLOCK, HOLDLOCK) ON a.kAuftrag = p.jtl_id\n        WHERE a.kAuftrag IS NULL OR a.kShop IS NULL OR a.kShop <> @shop OR a.nType <> 1\n           OR a.kZahlungsart IS NULL OR a.kZahlungsart <> p.current_payment_id\n           OR a.bRowversion <> CONVERT(binary(8), p.row_version, 1)\n           OR a.nStorno <> 0 OR a.nIstReadOnly <> 0 OR a.nPending <> 0\n           OR a.nIstExterneRechnung <> 0\n           OR NOT (a.cAuftragsNr IN (SELECT value FROM OPENJSON(p.match_names))\n                OR ISNULL(a.cExterneAuftragsnummer, '') IN (SELECT value FROM OPENJSON(p.match_names)))\n           OR EXISTS (SELECT 1 FROM Verkauf.tAuftragStorno s WITH (UPDLOCK, HOLDLOCK)\n                      WHERE s.kAuftrag = a.kAuftrag)\n           OR (@invoicePolicy = 'review' AND EXISTS (\n               SELECT 1 FROM Rechnung.tRechnungPosition r WITH (UPDLOCK, HOLDLOCK)\n               WHERE r.kAuftrag = a.kAuftrag))\n    ) THROW 51009, 'JTL-Zustand hat sich geaendert oder der Auftrag ist gesperrt.', 1;\n\n    UPDATE a\n       SET kZahlungsart = @target\n    OUTPUT inserted.kAuftrag, deleted.kZahlungsart, inserted.kZahlungsart INTO @changed\n    FROM Verkauf.tAuftrag a\n    JOIN @plan p ON p.jtl_id = a.kAuftrag\n    WHERE a.kShop = @shop AND a.kZahlungsart = p.current_payment_id\n      AND a.bRowversion = CONVERT(binary(8), p.row_version, 1);\n    DECLARE @actual int = @@ROWCOUNT;\n    IF @actual <> @expected THROW 51010, 'Unerwartete Anzahl geaenderter Auftraege.', 1;\n    IF EXISTS (SELECT 1 FROM @plan p LEFT JOIN Verkauf.tAuftrag a ON a.kAuftrag = p.jtl_id\n               WHERE a.kAuftrag IS NULL OR a.kZahlungsart IS NULL OR a.kZahlungsart <> @target)\n        THROW 51011, 'Ruecklesen der Zahlungsart fehlgeschlagen.', 1;\n    COMMIT TRANSACTION;\n    SELECT p.shopify_id, c.jtl_id, c.old_payment_id, c.new_payment_id,\n           CAST(1 AS bit) AS verified, SYSUTCDATETIME() AS changed_at_utc\n    FROM @changed c JOIN @plan p ON p.jtl_id = c.jtl_id;\nEND TRY\nBEGIN CATCH\n    IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;\n    THROW;\nEND CATCH;",
+        "options": {
+          "queryReplacement": "={{ [$json.plan_json, $('Konfiguration').first().json.dry_run, $('Konfiguration').first().json.jtl_shop_id, $('Konfiguration').first().json.jtl_database, $('Konfiguration').first().json.invoice_policy, $json.catalog.target.id, $('Konfiguration').first().json.max_changes, JSON.stringify($json.catalog.source_ids)] }}"
+        }
+      },
+      "id": "5eb6575e-2391-4b1d-b264-72afb1cee67b",
+      "name": "JTL Zahlungsart setzen",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        928,
+        416
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function verifyWrite() {\n  const c = config();\n  if (c.dry_run !== false) fail('DRY_RUN: unerwartete Schreibantwort.');\n  const plan = $('Shopify erneut pruefen').first().json;\n  const results = $input.all().map(i => i.json);\n  if (results.length !== plan.changes.length) fail('SQL-Ergebnis unvollstaendig. JTL-Zustand vor Wiederholung pruefen.');\n  const byId = new Map();\n  for (const r of results) {\n    const expected = plan.changes.find(p => p.shopify_id === r.shopify_id);\n    if (!expected || byId.has(r.shopify_id) || !bit(r.verified, 'SQL-Verifikation') || r.jtl_id !== expected.jtl_id\n        || r.old_payment_id !== expected.current_payment_id || r.new_payment_id !== plan.catalog.target.id)\n      fail('SQL-Ergebnis passt nicht zum Aenderungsplan. JTL-Zustand pruefen.');\n    byId.set(r.shopify_id, r);\n  }\n  const rows = plan.rows.map(r => byId.has(r.shopify_id)\n    ? { ...r, status: 'GEAENDERT_UND_VERIFIZIERT', changed_at_utc: byId.get(r.shopify_id).changed_at_utc } : r);\n  return one({ ...plan, rows });\n})();\n"
+      },
+      "id": "5ac188c5-ec22-4299-ab2d-befd0d0010d5",
+      "name": "Schreibergebnis pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function report() {\n  const c = config();\n  const p = $input.first().json;\n  const counts = {};\n  for (const r of p.rows) counts[r.status] = (counts[r.status] || 0) + 1;\n  if (p.rows.some(r => r.status === 'GEPLANT')) fail('Offene Aenderungen duerfen nicht als Erfolg gemeldet werden.');\n  return one({ run: { started_at: c.started_at, finished_at: new Date().toISOString(),\n    mode: c.mode, dry_run: c.dry_run, tag: c.tag, created_from: c.created_from, created_before: c.created_before,\n    invoice_policy: c.invoice_policy, max_changes: c.max_changes,\n    database: c.jtl_database, jtl_shop_id: c.jtl_shop_id,\n    scanned_orders: p.selection.scanned_orders, selection_complete: p.selection.selection_complete,\n    pages: p.selection.pages, shop: p.selection.shop, search: p.selection.search,\n    reported_rows: p.rows.length, planned_changes: p.changes.length,\n    actual_changes: counts.GEAENDERT_UND_VERIFIZIERT || 0,\n    within_live_limit: p.changes.length <= c.max_changes, counts,\n    target_issue: p.catalog.target_issue,\n    empty_result: p.rows.length === 0 },\n    payment_methods: p.catalog.payments, target: p.catalog.target, rows: p.rows });\n})();\n"
+      },
+      "id": "264cc653-6d76-4158-a2e1-90dd93eeac6c",
+      "name": "Report erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction fail(message) { throw new Error(message); }\nfunction config() { return $('Konfiguration').first().json; }\nfunction one(json) { return [{ json }]; }\nfunction bit(value, label) {\n  if (value === true || value === 1) return true;\n  if (value === false || value === 0) return false;\n  fail('Unbekannter Wahrheitswert: ' + label);\n}\nfunction positive(value, label) {\n  if (!Number.isSafeInteger(value) || value < 1 || value > 2147483647) fail('Ungueltige ID: ' + label);\n  return value;\n}\nfunction arrayJson(value, label) {\n  const result = typeof value === 'string' ? JSON.parse(value) : value;\n  if (!Array.isArray(result)) fail('Ungueltige Antwort: ' + label);\n  return result;\n}\nfunction orderFields() {\n  return 'id name tags createdAt updatedAt cancelledAt test displayFinancialStatus '\n    + 'paymentGatewayNames disputes { id } '\n    + 'totalPriceSet { shopMoney { amount currencyCode } } '\n    + 'totalRefundedSet { shopMoney { amount currencyCode } }';\n}\nfunction validateOrder(o) {\n  if (!o || typeof o.id !== 'string' || !/^gid:\\/\\/shopify\\/Order\\/\\d+$/.test(o.id)\n      || typeof o.name !== 'string' || !o.name || o.name.length > 50\n      || !Array.isArray(o.tags) || !o.tags.every(t => typeof t === 'string')\n      || !Array.isArray(o.paymentGatewayNames) || !o.paymentGatewayNames.every(g => typeof g === 'string')\n      || !Array.isArray(o.disputes)\n      || typeof o.test !== 'boolean' || !Object.hasOwn(o, 'cancelledAt')\n      || !Number.isFinite(Date.parse(o.createdAt)) || !Number.isFinite(Date.parse(o.updatedAt))\n      || typeof o.displayFinancialStatus !== 'string') fail('Unvollstaendige Shopify-Bestelldaten.');\n  for (const key of ['totalPriceSet', 'totalRefundedSet']) {\n    const m = o[key]?.shopMoney;\n    if (!m || typeof m.amount !== 'string' || !/^\\d+(\\.\\d+)?$/.test(m.amount)\n        || !Number.isFinite(Number(m.amount)) || typeof m.currencyCode !== 'string')\n      fail('Ungueltige Shopify-Betraege fuer ' + o.name);\n  }\n}\nfunction shopifyReason(o, cfg) {\n  validateOrder(o);\n  if (!o.tags.includes(cfg.tag)) return 'TAG_FEHLT';\n  if (o.test) return 'TESTBESTELLUNG';\n  if (o.cancelledAt) return 'SHOPIFY_STORNIERT';\n  if (Number(o.totalRefundedSet.shopMoney.amount) > 0) return 'SHOPIFY_ERSTATTUNG';\n  if (o.disputes.length) return 'SHOPIFY_STREITFALL';\n  if (o.displayFinancialStatus !== 'PAID') return 'SHOPIFY_NICHT_VOLL_BEZAHLT';\n  if (Number(o.totalPriceSet.shopMoney.amount) <= 0) return 'SHOPIFY_NULLBETRAG';\n  const gateways = o.paymentGatewayNames.map(g => g.trim().toLowerCase().replace(/\\s+/g, '_'));\n  if (gateways.length !== 1 || gateways[0] !== 'shopify_payments')\n    return 'SHOPIFY_GATEWAY_PRUEFEN';\n  return null;\n}\nfunction matchNames(name) {\n  // Only the common leading # is optional. Do not remove BB-, BBABO-, dates, etc.\n  return [...new Set([name, name.startsWith('#') ? name.slice(1) : name])];\n}\nfunction responseBody(item) {\n  const r = item.json;\n  if (r.statusCode !== undefined && (r.statusCode < 200 || r.statusCode >= 300))\n    fail('Shopify HTTP-Fehler: ' + r.statusCode);\n  return r.body ?? r;\n}\nfunction graphqlData(body) {\n  if (body.errors?.length) fail('Shopify GraphQL: ' + body.errors.map(e => e.message).join('; '));\n  if (!body.data || typeof body.data !== 'object') fail('Shopify liefert keine Daten.');\n  return body.data;\n}\n\nreturn (function csvRows() {\n  const r = $input.first().json;\n  const safe = value => typeof value === 'string' && /^[=+@\\-\\t\\r]/.test(value) ? \"'\" + value : value;\n  const clean = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, safe(v ?? '')]));\n  const shared = { lauf: r.run.started_at, modus: r.run.mode, dry_run: r.run.dry_run,\n    vollstaendig_abgerufen: r.run.selection_complete, gelesen: r.run.scanned_orders,\n    geplant: r.run.planned_changes, geaendert: r.run.actual_changes, live_limit: r.run.max_changes };\n  const rows = [{ typ: 'ZUSAMMENFASSUNG', ...shared, status: r.run.empty_result ? 'KEINE_TREFFER' : 'ABGESCHLOSSEN',\n    hinweis: JSON.stringify(r.run.counts), ziel_problem: r.run.target_issue ?? '' }];\n  rows.push(...r.rows.map(x => ({ typ: 'BESTELLUNG', ...shared, ...x })));\n  rows.push(...r.payment_methods.map(x => ({ typ: 'ZAHLUNGSART', ...shared,\n    payment_id: x.id, payment_name: x.name, active: x.active })));\n  return rows.map(x => ({ json: clean(x) }));\n})();\n"
+      },
+      "id": "000d73c6-2280-464d-9259-4c021849257e",
+      "name": "CSV Zeilen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "delimiter": ";",
+          "fileName": "={{ 'BB-Klarna-JTL-' + ($('Konfiguration').first().json.dry_run ? 'dry-run-' : 'live-') + $('Konfiguration').first().json.started_at.replace(/[:.]/g, '-') + '.csv' }}",
+          "headerRow": true
+        }
+      },
+      "id": "92d0031b-6a3d-4df2-9967-aa5ac5d69b5d",
+      "name": "Report als CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1888,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## START: zuerst Vorschau\n1. Credentials zuordnen: BB-Shopify-Credential und JTL Datenbank jessebalsam.\n2. In Konfiguration single_order eintragen (BB-... oder Shopify-ID). dry_run = true lassen.\n3. Manuell starten. Report erstellen zeigt Ergebnis und Zahlungsarten-Katalog; Report als CSV liefert eine Datei.\n4. Zielzahlungsart im Katalog pruefen und ID oder exakten Namen eintragen.\n\nFuer Massen-Vorschau: mode = batch. Ohne Datumsfilter werden auch Juli und aeltere Bestellungen gelesen. read_all_orders ist erforderlich.\n\nDie Tag-Erkennung stammt aus Shopify Flow; dieser Workflow klassifiziert keine Klarna-Transaktionen neu.",
+        "height": 510,
+        "width": 950,
+        "color": 5
+      },
+      "id": "f1be8dcf-1f06-4392-b656-73c3d2809e43",
+      "name": "Anleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -3920,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Shopify lesen\nGraphQL mit Cursor-Paginierung und begrenzten Wiederholungen bei Drosselung.\n\nFehlende Rechte, GraphQL-Fehler und Leselimits fuehren zum Abbruch vor jeder JTL-Aenderung. Kein still abgeschnittener Teilbestand.\n\nKein globaler Workflow-Speicher; manuelle Laeufe und parallele Vorschauen teilen keine Bestelldaten.",
+        "height": 330,
+        "width": 1030,
+        "color": 5
+      },
+      "id": "c393d767-d047-4792-94d9-320f318c86a3",
+      "name": "Abrufhinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2752,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## JTL pruefen\nSchema und Datenbank werden vorab gelesen. Zuordnung nur innerhalb jtl_shop_id, Vorgangstyp Auftrag, ueber exakte interne/externe Bestellnummer. Keine automatische Auswahl bei mehreren Treffern.\n\nZielzahlungsart fehlt? Vorschau liefert den vorhandenen Katalog.\n\ninvoice_policy = review: Auftraege mit Rechnungspositionen werden zur Pruefung gemeldet.\nSQL-Adapter basiert auf dokumentiertem JTL-Schema; erster Lauf prueft eure Installation.",
+        "height": 370,
+        "width": 1380,
+        "color": 5
+      },
+      "id": "e379b184-e067-4716-b7a9-439f37c19f89",
+      "name": "JTL Pruefung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1488,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Schreiben nur mit dry_run = false\nDefault: hoechstens 1 Aenderung. Mehr Kandidaten als max_changes: Abbruch vor dem Schreiben.\n\nShopify wird unmittelbar vorher erneut gelesen. SQL prueft Zuordnung, Ausgangszahlungsart und Rowversion in einer Transaktion. Alle geplanten Auftraege oder keiner.\n\nEs wird ausschliesslich Verkauf.tAuftrag.kZahlungsart gesetzt. Zahlungsbuchungen, bestehende Rechnungen, Shopify-Tags und Kundennachrichten werden nicht bearbeitet. JTL-Anwendungsworkflows werden durch direktes SQL nicht gezielt aufgerufen.\n\nNach dem Einzeltest JTL-Oberflaeche und naechsten Connector-Abgleich kontrollieren.",
+        "height": 500,
+        "width": 1110,
+        "color": 3
+      },
+      "id": "d7ff7456-7c64-42bc-b2cb-0035d5af128e",
+      "name": "Schreiben",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        368,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Ergebnis\nReport erstellen: Zusammenfassung, Bestellliste, Zahlungsarten-Katalog.\nReport als CSV: Download aus dem Binary-Bereich.\n\nEin dry_run fuehrt keine SQL-Updates aus und setzt keine Erledigt-Markierungen. n8n kann Ausfuehrungsdaten speichern.\n\nDer Zeitplan ist deaktiviert. Erst nach Einzeltest und Stapeltest einschalten; mode = batch verwenden.",
+        "height": 370,
+        "width": 790,
+        "color": 5
+      },
+      "id": "573e777e-e8d5-4dc3-a730-d7f292c0e50e",
+      "name": "Bericht",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1552,
+        96
+      ]
+    }
+  ],
+  "connections": {
+    "Manuell starten": {
+      "main": [
+        [
+          {
+            "node": "Konfiguration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Konfiguration": {
+      "main": [
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Shopify Rechte lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify Rechte lesen": {
+      "main": [
+        [
+          {
+            "node": "Abruf initialisieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abruf initialisieren": {
+      "main": [
+        [
+          {
+            "node": "Seite vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Shopify Seite lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify Seite lesen": {
+      "main": [
+        [
+          {
+            "node": "Seite auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite auswerten": {
+      "main": [
+        [
+          {
+            "node": "Weitere Seite oder Retry?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Taeglich 06 Uhr - deaktiviert": {
+      "main": [
+        [
+          {
+            "node": "Konfiguration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weitere Seite oder Retry?": {
+      "main": [
+        [
+          {
+            "node": "Shopify Pause",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Shopify-Auswahl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify Pause": {
+      "main": [
+        [
+          {
+            "node": "Seite vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify-Auswahl": {
+      "main": [
+        [
+          {
+            "node": "JTL Schema lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL Schema lesen": {
+      "main": [
+        [
+          {
+            "node": "JTL Schema pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL Schema pruefen": {
+      "main": [
+        [
+          {
+            "node": "JTL Zahlungsarten lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL Zahlungsarten lesen": {
+      "main": [
+        [
+          {
+            "node": "Zahlungsarten pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlungsarten pruefen": {
+      "main": [
+        [
+          {
+            "node": "SQL Lesepakete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SQL Lesepakete": {
+      "main": [
+        [
+          {
+            "node": "JTL Auftraege lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL Auftraege lesen": {
+      "main": [
+        [
+          {
+            "node": "Aenderungsplan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aenderungsplan": {
+      "main": [
+        [
+          {
+            "node": "Live-Aenderungen vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Live-Aenderungen vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "Shopify vor Schreiben lesen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify vor Schreiben lesen": {
+      "main": [
+        [
+          {
+            "node": "Shopify erneut pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify erneut pruefen": {
+      "main": [
+        [
+          {
+            "node": "JTL Zahlungsart setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL Zahlungsart setzen": {
+      "main": [
+        [
+          {
+            "node": "Schreibergebnis pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schreibergebnis pruefen": {
+      "main": [
+        [
+          {
+            "node": "Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report erstellen": {
+      "main": [
+        [
+          {
+            "node": "CSV Zeilen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV Zeilen": {
+      "main": [
+        [
+          {
+            "node": "Report als CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "a0OXfJYfq54YsWzR",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-09-22T13:16:43.839Z",
+      "updatedAt": "2026-09-22T13:16:43.839Z"
+    }
+  ],
+  "activeVersion": null
+}

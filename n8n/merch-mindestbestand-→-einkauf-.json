@@ -1,0 +1,377 @@
+{
+  "id": "Qi7u4zoBkadmkb79",
+  "name": "Merch Mindestbestand → Einkauf",
+  "active": true,
+  "activeVersionId": "87f648af-1400-4980-922a-ec49eaa7c8cc",
+  "createdAt": "2026-08-17T16:42:06.265Z",
+  "updatedAt": "2026-08-17T18:32:52.670Z",
+  "isArchived": false,
+  "versionId": "87f648af-1400-4980-922a-ec49eaa7c8cc",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "69cf7594-c43e-45e4-8d5d-6ed43e3c0b82",
+      "name": "Schedule: Mo–Fr 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -656,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DECLARE @LagerID INT = 29;\nDECLARE @WarengruppeListe TABLE (kWarengruppe INT);\nINSERT INTO @WarengruppeListe VALUES (1),(9);\n\nSELECT\n    a.cArtNr                           AS Artikelnummer,\n    ab.cName                           AS Artikelname,\n    l.fLagerbestand                    AS Lagerbestand,\n\tl.fInAuftraegen\t\t\t\t\t   AS BestandInAufträgen,\n    l.fVerfuegbar                      AS Verfuegbar,\n    a.nMidestbestand                   AS Mindestbestand,\n    COALESCE(l.fVerfuegbar,0) - COALESCE(a.nMidestbestand, a.nMidestbestand,0) AS PufferZumSoll\nFROM dbo.tLagerbestand AS l\nJOIN dbo.tArtikel AS a ON a.kArtikel = l.kArtikel\nINNER JOIN tArtikelBeschreibung AS ab ON ab.kArtikel = a.kArtikel AND ab.kSprache = 1 AND ab.kPlattform = 1\nJOIN dbo.tlagerbestandProLagerLagerartikel AS lb ON lb.kArtikel = a.kArtikel\nWHERE lb.kWarenlager = @LagerID\n  AND a.kWarengruppe IN (SELECT kWarengruppe FROM @WarengruppeListe)\n  AND a.nIstVater = 0\n  AND a.cArtNr NOT LIKE 'B2B%'\n  AND a.cArtNr NOT LIKE '%-ME'\n  AND a.cArtNr NOT LIKE '%- ME'\n  AND a.cArtNr NOT LIKE '%BME'\n  AND a.cArtNr NOT LIKE 'POPUP%'\n  AND COALESCE(l.fVerfuegbar,0) - COALESCE(a.nMidestbestand, a.nMidestbestand,0) < 0\n  AND EXISTS (\n        SELECT 1\n        FROM dbo.tArtikelAttribut AS aa\n        INNER JOIN dbo.tArtikelAttributSprache AS aas ON aas.kArtikelAttribut = aa.kArtikelAttribut\n        WHERE aa.kArtikel = a.kArtikel\n          AND aa.kAttribut = 331\n          AND aas.nWertInt = 1\n      )\nORDER BY PufferZumSoll;",
+        "options": {}
+      },
+      "id": "d023e395-03b8-4ddf-bb25-d160f40cebc9",
+      "name": "JTL MSSQL: Merch Mindestbestand",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        80
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{$input.all().length}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c94a5809-c449-4abc-a937-4ddf8553d436",
+      "name": "IF: Artikel unter Mindestbestand?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -224,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(item => item.json);\n\nlet html = `<style>\n  table { border-collapse: collapse; width: 100%; font-family: sans-serif; }\n  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }\n  th { background-color: #f0f0f0; }\n</style>\n<table>\n  <tr>\n    <th>Artikelnummer</th>\n    <th>Artikelname</th>\n    <th>Gesamtbestand</th>\n    <th>Bestand in Aufträgen</th>\n    <th>Verfügbar</th>\n    <th>Mindestbestand</th>\n    <th>Differenz</th>\n  </tr>`;\n\nfor (const row of rows) {\n  html += `<tr>\n    <td>${row.Artikelnummer}</td>\n    <td>${row.Artikelname}</td>\n    <td>${row.Lagerbestand}</td>\n    <td>${row.BestandInAufträgen}</td>\n    <td>${row.Verfuegbar}</td>\n    <td>${row.Mindestbestand}</td>\n    <td>${row.PufferZumSoll}</td>\n  </tr>`;\n}\nhtml += \"</table>\";\n\nconst body = `<html><body><h3>Bericht | Merch-Mindestbestand:</h3><br>${html}</body></html>`;\n\nreturn [{ json: { subject: \"Bericht | Merch-Mindestbestand\", html: body } }];"
+      },
+      "id": "31aeb814-6880-471d-adc2-f80e7eb02b2b",
+      "name": "Code: HTML-Report bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "=Bücherbüchse Automations <it@buecherbuechse.de>",
+        "toEmail": "einkauf@buecherbuechse.de",
+        "subject": "={{$json.subject}}",
+        "html": "={{$json.html}}",
+        "options": {
+          "ccEmail": "christoph@buecherbuechse.de"
+        }
+      },
+      "id": "c1617cca-b1dc-4e3e-ba0a-e09ee60297f4",
+      "name": "Send Email: Einkauf",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        0
+      ],
+      "webhookId": "99c7871e-6556-420d-8a9f-eafdc5bb394d",
+      "credentials": {
+        "smtp": {
+          "id": "ZzNsJGHozTJiS4R6",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule: Mo–Fr 06:00": {
+      "main": [
+        [
+          {
+            "node": "JTL MSSQL: Merch Mindestbestand",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL MSSQL: Merch Mindestbestand": {
+      "main": [
+        [
+          {
+            "node": "IF: Artikel unter Mindestbestand?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Artikel unter Mindestbestand?": {
+      "main": [
+        [
+          {
+            "node": "Code: HTML-Report bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: HTML-Report bauen": {
+      "main": [
+        [
+          {
+            "node": "Send Email: Einkauf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Schedule: Mo–Fr 06:00": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "Qi7u4zoBkadmkb79",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-17T16:42:06.268Z",
+      "updatedAt": "2026-08-17T16:42:06.268Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "87f648af-1400-4980-922a-ec49eaa7c8cc",
+    "workflowId": "Qi7u4zoBkadmkb79",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 6 * * 1-5"
+              }
+            ]
+          }
+        },
+        "id": "69cf7594-c43e-45e4-8d5d-6ed43e3c0b82",
+        "name": "Schedule: Mo–Fr 06:00",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -656,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "DECLARE @LagerID INT = 29;\nDECLARE @WarengruppeListe TABLE (kWarengruppe INT);\nINSERT INTO @WarengruppeListe VALUES (1),(9);\n\nSELECT\n    a.cArtNr                           AS Artikelnummer,\n    ab.cName                           AS Artikelname,\n    l.fLagerbestand                    AS Lagerbestand,\n\tl.fInAuftraegen\t\t\t\t\t   AS BestandInAufträgen,\n    l.fVerfuegbar                      AS Verfuegbar,\n    a.nMidestbestand                   AS Mindestbestand,\n    COALESCE(l.fVerfuegbar,0) - COALESCE(a.nMidestbestand, a.nMidestbestand,0) AS PufferZumSoll\nFROM dbo.tLagerbestand AS l\nJOIN dbo.tArtikel AS a ON a.kArtikel = l.kArtikel\nINNER JOIN tArtikelBeschreibung AS ab ON ab.kArtikel = a.kArtikel AND ab.kSprache = 1 AND ab.kPlattform = 1\nJOIN dbo.tlagerbestandProLagerLagerartikel AS lb ON lb.kArtikel = a.kArtikel\nWHERE lb.kWarenlager = @LagerID\n  AND a.kWarengruppe IN (SELECT kWarengruppe FROM @WarengruppeListe)\n  AND a.nIstVater = 0\n  AND a.cArtNr NOT LIKE 'B2B%'\n  AND a.cArtNr NOT LIKE '%-ME'\n  AND a.cArtNr NOT LIKE '%- ME'\n  AND a.cArtNr NOT LIKE '%BME'\n  AND a.cArtNr NOT LIKE 'POPUP%'\n  AND COALESCE(l.fVerfuegbar,0) - COALESCE(a.nMidestbestand, a.nMidestbestand,0) < 0\n  AND EXISTS (\n        SELECT 1\n        FROM dbo.tArtikelAttribut AS aa\n        INNER JOIN dbo.tArtikelAttributSprache AS aas ON aas.kArtikelAttribut = aa.kArtikelAttribut\n        WHERE aa.kArtikel = a.kArtikel\n          AND aa.kAttribut = 331\n          AND aas.nWertInt = 1\n      )\nORDER BY PufferZumSoll;",
+          "options": {}
+        },
+        "id": "d023e395-03b8-4ddf-bb25-d160f40cebc9",
+        "name": "JTL MSSQL: Merch Mindestbestand",
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1,
+        "position": [
+          -448,
+          80
+        ],
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "c1",
+                "leftValue": "={{$input.all().length}}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "c94a5809-c449-4abc-a937-4ddf8553d436",
+        "name": "IF: Artikel unter Mindestbestand?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -224,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const rows = $input.all().map(item => item.json);\n\nlet html = `<style>\n  table { border-collapse: collapse; width: 100%; font-family: sans-serif; }\n  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }\n  th { background-color: #f0f0f0; }\n</style>\n<table>\n  <tr>\n    <th>Artikelnummer</th>\n    <th>Artikelname</th>\n    <th>Gesamtbestand</th>\n    <th>Bestand in Aufträgen</th>\n    <th>Verfügbar</th>\n    <th>Mindestbestand</th>\n    <th>Differenz</th>\n  </tr>`;\n\nfor (const row of rows) {\n  html += `<tr>\n    <td>${row.Artikelnummer}</td>\n    <td>${row.Artikelname}</td>\n    <td>${row.Lagerbestand}</td>\n    <td>${row.BestandInAufträgen}</td>\n    <td>${row.Verfuegbar}</td>\n    <td>${row.Mindestbestand}</td>\n    <td>${row.PufferZumSoll}</td>\n  </tr>`;\n}\nhtml += \"</table>\";\n\nconst body = `<html><body><h3>Bericht | Merch-Mindestbestand:</h3><br>${html}</body></html>`;\n\nreturn [{ json: { subject: \"Bericht | Merch-Mindestbestand\", html: body } }];"
+        },
+        "id": "31aeb814-6880-471d-adc2-f80e7eb02b2b",
+        "name": "Code: HTML-Report bauen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "=Bücherbüchse Automations <it@buecherbuechse.de>",
+          "toEmail": "einkauf@buecherbuechse.de",
+          "subject": "={{$json.subject}}",
+          "html": "={{$json.html}}",
+          "options": {
+            "ccEmail": "christoph@buecherbuechse.de"
+          }
+        },
+        "id": "c1617cca-b1dc-4e3e-ba0a-e09ee60297f4",
+        "name": "Send Email: Einkauf",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          224,
+          0
+        ],
+        "webhookId": "99c7871e-6556-420d-8a9f-eafdc5bb394d",
+        "credentials": {
+          "smtp": {
+            "id": "ZzNsJGHozTJiS4R6",
+            "name": "SMTP account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Schedule: Mo–Fr 06:00": {
+        "main": [
+          [
+            {
+              "node": "JTL MSSQL: Merch Mindestbestand",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "JTL MSSQL: Merch Mindestbestand": {
+        "main": [
+          [
+            {
+              "node": "IF: Artikel unter Mindestbestand?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF: Artikel unter Mindestbestand?": {
+        "main": [
+          [
+            {
+              "node": "Code: HTML-Report bauen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code: HTML-Report bauen": {
+        "main": [
+          [
+            {
+              "node": "Send Email: Einkauf",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version 87f648af",
+    "description": "",
+    "autosaved": true,
+    "createdAt": "2026-08-17T18:32:16.315Z",
+    "updatedAt": "2026-08-17T18:32:47.000Z"
+  }
+}

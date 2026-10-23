@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-08T09:28:57.691Z",
-  "createdAt": "2026-06-17T22:47:47.377Z",
   "id": "aw0veIjUy8OLe00a",
   "name": "BB – DSGVO-Versand - große CSV auto-portioniert (IR-2026-0617-BB)",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-06-17T22:47:47.377Z",
+  "updatedAt": "2026-07-08T09:28:57.691Z",
   "isArchived": false,
+  "versionId": "dabf0102-5efa-4c04-80ad-cdbb69d92caa",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -477,6 +480,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -489,21 +493,17 @@
     "callerPolicy": "workflowsFromSameOwner"
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "dabf0102-5efa-4c04-80ad-cdbb69d92caa",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-06-17T22:47:47.382Z",
-      "createdAt": "2026-06-17T22:47:47.382Z",
       "role": "workflow:owner",
       "workflowId": "aw0veIjUy8OLe00a",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-17T22:47:47.382Z",
+      "updatedAt": "2026-06-17T22:47:47.382Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

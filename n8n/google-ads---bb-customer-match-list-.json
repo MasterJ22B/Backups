@@ -1,29 +1,32 @@
 {
-  "updatedAt": "2026-04-14T08:58:15.933Z",
-  "createdAt": "2026-03-09T05:52:12.245Z",
   "id": "jGPMgi0x3FvKB2DV",
   "name": "Google Ads - BB Customer Match List",
   "active": true,
+  "activeVersionId": "cf26411b-e328-4b64-af88-f3ddeb21e78b",
+  "createdAt": "2026-03-09T05:52:12.245Z",
+  "updatedAt": "2026-10-20T08:29:46.751Z",
   "isArchived": false,
+  "versionId": "ab9267e2-6a7f-4312-9651-0acff58c7a16",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT\n  user_email as Email,\n  MAX(CASE WHEN meta_key = 'billing_first_name' THEN meta_value END) as 'First Name',\n  MAX(CASE WHEN meta_key = 'billing_last_name' THEN meta_value END) as 'Last Name',\n  MAX(CASE WHEN meta_key = 'billing_country' THEN meta_value END) as 'Country',\n  MAX(CASE WHEN meta_key = 'billing_postcode' THEN meta_value END) as 'Zip',\n  MAX(CASE WHEN meta_key = 'billing_phone' THEN meta_value END) as 'Phone'\nFROM d034ee28.wp_users users\nJOIN wp_usermeta ON users.ID = wp_usermeta.user_id\nWHERE users.user_status = 0\nGROUP BY users.id;",
+        "query": "\nWITH KundenDaten AS\n(\n    SELECT\n        a.cMail AS EmailAdresse,\n        a.cVorname AS Vorname,\n        a.cName AS Nachname,\n        a.cLand AS Land,\n        a.cPLZ AS Postleitzahl,\n        a.cTel AS Telefonnummer,\n        ROW_NUMBER() OVER\n        (\n            PARTITION BY a.cMail\n            ORDER BY a.cTel\n        ) AS rn\n    FROM dbo.tAdresse AS a\n    WHERE a.cMail IS NOT NULL\n      AND LTRIM(RTRIM(a.cMail)) <> ''\n      AND EXISTS\n      (\n          SELECT 1\n          FROM dbo.tBestellung AS b\n          WHERE b.tKunde_kKunde = a.kKunde\n            AND b.cBestellNr NOT LIKE 'LEAF-%'\n            AND b.cBestellNr NOT LIKE 'CINNA-%'\n            AND b.cBestellNr NOT LIKE 'A-%'\n      )\n)\nSELECT\n    EmailAdresse,\n    Vorname,\n    Nachname,\n    Land,\n    Postleitzahl,\n    Telefonnummer\nFROM KundenDaten\nWHERE rn = 1\nORDER BY EmailAdresse;\n",
         "options": {}
       },
-      "id": "e320f8d9-0479-4832-978c-9b57a4775ac0",
-      "name": "MySQL",
-      "type": "n8n-nodes-base.mySql",
-      "typeVersion": 2.5,
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
       "position": [
-        272,
-        0
+        32,
+        -368
       ],
+      "id": "dd56862d-d453-4223-a95f-de57e7fd94f6",
+      "name": "Microsoft SQL",
       "credentials": {
-        "mySql": {
-          "id": "XD6s1ttnipEf2yQq",
-          "name": "MySQL account 2"
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
         }
       }
     },
@@ -31,39 +34,38 @@
       "parameters": {
         "options": {
           "delimiter": ",",
-          "fileName": "={{ 'BB' + $now.setZone('Europe/Berlin').toFormat('yyyyLLdd_HHmmss') + '_Google_Ads_Customer_Match_List.csv' }}",
-          "headerRow": true
+          "fileName": "bb-customer-match-list.csv"
         }
       },
-      "id": "d94b0661-3a11-48d2-89e6-587a2022123f",
-      "name": "Convert to CSV",
       "type": "n8n-nodes-base.convertToFile",
       "typeVersion": 1.1,
       "position": [
-        528,
-        0
-      ]
+        1792,
+        -352
+      ],
+      "id": "dc78e03a-6d88-4827-9e9d-85cc976687f3",
+      "name": "Convert to File"
     },
     {
       "parameters": {
-        "fromEmail": "Bücherbüchse \n Marketing-Team <workflows@buecherbuechse.de>",
-        "toEmail": "performancemarketing@buecherbuechse.de,christoph@buecherbuechse.de",
-        "subject": "={{ 'Bücherbüchse | Neue Customer Match Liste vom ' + $now.setZone('Europe/Berlin').setLocale('de').toFormat('dd.LL.yyyy') }}",
-        "html": "Hallo liebes Marketing-Team,<br><br>anbei erhaltet ihr die neue Customer Match Liste für Google Ads.",
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de;marc.hemmer@buecherbuechse.de",
+        "subject": "=BB | Google Customer Match List für {{ $now.minus(1,'months').format('MM.yyyy')}}",
+        "emailFormat": "text",
+        "text": "=Anbei befindet sich die bb-customer-match-list.csv vom {{ $now.format('dd.MM.yyyy') }}.\n\nDiese Mail wurde vom n8n Workflow: \"Google Ads - BB Customer Match List\" versendet. \n\nMit freundlichen Grüßen \n\nBB's n8n ",
         "options": {
-          "appendAttribution": false,
           "attachments": "data"
         }
       },
-      "id": "373fc3b4-a4b1-47b1-8f1b-5847a063c6c9",
-      "name": "Send Email",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        784,
-        0
+        2016,
+        -352
       ],
-      "webhookId": "125f0170-6bb0-44e7-987a-2c684f2091fb",
+      "id": "4f936c0d-1d52-4f6f-9d2f-b6d672f4853f",
+      "name": "Send an Email",
+      "webhookId": "d49aa661-e6b9-4f3e-a525-6e80541abbae",
       "credentials": {
         "smtp": {
           "id": "Hx8rTZCW0DgWFZiw",
@@ -73,53 +75,279 @@
     },
     {
       "parameters": {
+        "jsCode": "const countryMap = {\n  'deutschland': 'de',\n  'germany': 'de',\n  'schweiz': 'ch',\n  'switzerland': 'ch',\n  'suisse': 'ch',\n  'österreich': 'at',\n  'oesterreich': 'at',\n  'austria': 'at'\n};\n\nconst supportedPhoneCountries = ['de', 'ch', 'at'];\n\nfunction cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction normalizeCountry(value) {\n  const raw = cleanString(value);\n  if (!raw) return '';\n\n  const key = raw.toLowerCase();\n\n  return countryMap[key] || raw;\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, countryCode) {\n  let phone = cleanString(rawPhone);\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  phone = phone.replace(/[^\\d+]/g, '');\n\n  if (!phone) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  const isSupportedCountry = supportedPhoneCountries.includes(countryCode);\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('+49')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('49')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '49' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('+41')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('41')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '41' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('+43')) {\n      phone = phone.slice(1);\n    } else if (phone.startsWith('43')) {\n      // bleibt so\n    } else if (phone.startsWith('0')) {\n      phone = '43' + phone.slice(1);\n    } else {\n      return {\n        phone: phone.replace(/\\D/g, ''),\n        sonderfall: true\n      };\n    }\n  }\n\n  if (!isSupportedCountry) {\n    let cleaned = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n    if (obviousFakePhone(cleaned)) {\n      return {\n        phone: '',\n        sonderfall: false\n      };\n    }\n\n    return {\n      phone: cleaned,\n      sonderfall: true\n    };\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) {\n    return {\n      phone: '',\n      sonderfall: false\n    };\n  }\n\n  return {\n    phone,\n    sonderfall: false\n  };\n}\n\nreturn items.map(item => {\n  const source = item.json;\n\n  const country = normalizeCountry(source.Land);\n  const phoneResult = normalizePhone(source.Telefonnummer, country);\n\n  item.json = {\n    Email: cleanString(source.EmailAdresse).toLowerCase(),\n    'First Name': cleanString(source.Vorname),\n    'Last Name': cleanString(source.Nachname),\n    Country: country,\n    Zip: cleanString(source.Postleitzahl),\n    Phone: phoneResult.phone,\n    sonderfall: phoneResult.sonderfall\n  };\n\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        -368
+      ],
+      "id": "2d5648db-b2ee-4217-a04c-a3568ae6af8c",
+      "name": "Telefonnummer-Format-Bereinigung"
+    },
+    {
+      "parameters": {
+        "content": "## Timestamp + Abfrage\n",
+        "height": 480,
+        "width": 336,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -576
+      ],
+      "id": "acbf9110-c4f0-41d8-afd1-c1ad0556a942",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Grobe Korrektur der Telefonnummern per Skript",
+        "height": 480,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        224,
+        -576
+      ],
+      "id": "fa409ecf-c853-4d88-84de-0fff9a438cee",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## CSV + Mail-Versand\n",
+        "height": 496,
+        "width": 784,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1376,
+        -592
+      ],
+      "id": "4b7bb254-039d-474f-b8b2-47607c6a6614",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fe0bff12-74c5-4fec-b2f4-ed942e5bc9ef",
+              "leftValue": "={{ $json.sonderfall }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        560,
+        -224
+      ],
+      "id": "a815adf0-d896-4f2d-a687-f9bee8b2c94c",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1184,
+        -336
+      ],
+      "id": "4e871fc9-4f9d-4411-a732-711b171c98c9",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "content": "## Fein-Korrektur über AZURE + Zusammenführung\n",
+        "height": 480,
+        "width": 816,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        512,
+        -576
+      ],
+      "id": "dc5f2690-ab71-4b16-b017-ae707bc4eb0e",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Hotfix 04.05.2026\nMissverständnis: Vorwahl und Nummer sollen NICHT per Semikolon getrennt werden. Leerzeichen sollen simpel entfernt werden.\n",
+        "height": 384,
+        "width": 288,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1392,
+        -528
+      ],
+      "id": "491e0830-1c4d-425e-a45f-3f07a09e9d3f",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  delete item.json.sonderfall;\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -352
+      ],
+      "id": "d00c1a96-d603-4a7d-8c80-63bf7b53a2cd",
+      "name": "Löschen Sonderfall-Attributs "
+    },
+    {
+      "parameters": {
+        "jsCode": "function cleanString(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction obviousFakePhone(digits) {\n  if (!digits) return true;\n  if (digits.length < 7 || digits.length > 15) return true;\n  if (/^(\\d)\\1+$/.test(digits)) return true;\n  if (/^(012345|123456|999999|000000|123456789)/.test(digits)) return true;\n\n  const uniqueDigits = new Set(digits.split(''));\n  if (digits.length >= 8 && uniqueDigits.size <= 2) return true;\n\n  return false;\n}\n\nfunction normalizePhone(rawPhone, country) {\n  const original = cleanString(rawPhone);\n  const countryCode = cleanString(country).toLowerCase();\n\n  if (!original) return '';\n\n  let phone = original.replace(/[^\\d+]/g, '');\n\n  if (!phone) return '';\n\n  if (phone.startsWith('00')) {\n    phone = '+' + phone.slice(2);\n  }\n\n  phone = phone.replace(/\\+/g, '').replace(/\\D/g, '');\n\n  if (obviousFakePhone(phone)) return '';\n\n  if (countryCode === 'de') {\n    if (phone.startsWith('49')) return phone;\n    if (phone.startsWith('0')) return '49' + phone.slice(1);\n\n    // Deutsche Mobilnummer ohne führende 0, z. B. 17650335244\n    if (/^1[5-7]\\d{8,10}$/.test(phone)) {\n      return '49' + phone;\n    }\n\n    // Keine sicher erkennbare deutsche Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'at') {\n    if (phone.startsWith('43')) return phone;\n    if (phone.startsWith('0')) return '43' + phone.slice(1);\n\n    // Österreichische Mobilnummer ohne führende 0, z. B. 6605239952\n    if (/^6\\d{7,11}$/.test(phone)) {\n      return '43' + phone;\n    }\n\n    // Keine sicher erkennbare österreichische Telefonnummer\n    return '';\n  }\n\n  if (countryCode === 'ch') {\n    if (phone.startsWith('41')) return phone;\n    if (phone.startsWith('0')) return '41' + phone.slice(1);\n\n    // Schweizer Mobilnummer ohne führende 0, z. B. 791234567\n    if (/^7\\d{8}$/.test(phone)) {\n      return '41' + phone;\n    }\n\n    // Keine sicher erkennbare Schweizer Telefonnummer\n    return '';\n  }\n\n  return original;\n}\n\nreturn items.map(item => {\n  item.json.Phone = normalizePhone(item.json.Phone, item.json.Country);\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -352
+      ],
+      "id": "5e6c867f-45b9-456b-9c7a-f034b6f62534",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
         "rule": {
           "interval": [
             {
               "field": "months",
-              "triggerAtHour": 3
+              "triggerAtHour": 3,
+              "triggerAtMinute": 11
             }
           ]
         }
       },
-      "id": "02d7983d-3610-4067-9e20-6cf5582e1bd2",
-      "name": "am 1. des Monats",
+      "id": "eaecd4d0-309f-435a-82ad-ba58befa738b",
+      "name": "am 1. des Monats1",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        0,
-        0
+        -128,
+        -368
       ]
     }
   ],
   "connections": {
-    "MySQL": {
+    "Microsoft SQL": {
       "main": [
         [
           {
-            "node": "Convert to CSV",
+            "node": "Telefonnummer-Format-Bereinigung",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Convert to CSV": {
+    "Convert to File": {
       "main": [
         [
           {
-            "node": "Send Email",
+            "node": "Send an Email",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "am 1. des Monats": {
+    "Telefonnummer-Format-Bereinigung": {
       "main": [
         [
           {
-            "node": "MySQL",
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Löschen Sonderfall-Attributs ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Löschen Sonderfall-Attributs ": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "am 1. des Monats1": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL",
             "type": "main",
             "index": 0
           }
@@ -127,10 +355,14 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
-    "availableInMCP": false
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
   },
   "staticData": {
     "node:am 1. des Monats": {
@@ -142,26 +374,21 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "cf26411b-e328-4b64-af88-f3ddeb21e78b",
-  "activeVersionId": "cf26411b-e328-4b64-af88-f3ddeb21e78b",
-  "triggerCount": 1,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-03-09T05:52:12.248Z",
-      "createdAt": "2026-03-09T05:52:12.248Z",
       "role": "workflow:owner",
       "workflowId": "jGPMgi0x3FvKB2DV",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-03-09T05:52:12.248Z",
+      "updatedAt": "2026-03-09T05:52:12.248Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-03-09T05:58:03.000Z",
-    "createdAt": "2026-03-09T05:58:01.234Z",
     "versionId": "cf26411b-e328-4b64-af88-f3ddeb21e78b",
     "workflowId": "jGPMgi0x3FvKB2DV",
     "nodes": [
@@ -290,7 +517,8 @@
     "authors": "Christoph Strauss",
     "name": "Version cf26411b",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-03-09T05:58:01.234Z",
+    "updatedAt": "2026-03-09T05:58:03.000Z"
+  }
 }

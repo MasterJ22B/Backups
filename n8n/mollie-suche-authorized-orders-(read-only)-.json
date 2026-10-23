@@ -1,0 +1,280 @@
+{
+  "id": "LRZd7pRAnC8Sbgqp",
+  "name": "Mollie Suche authorized Orders (read-only)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-08-19T14:43:34.313Z",
+  "updatedAt": "2026-09-17T08:43:42.916Z",
+  "isArchived": false,
+  "versionId": "32380c9a-7d7a-4789-8ce3-e832db017e32",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        1248,
+        336
+      ],
+      "id": "f1db5245-78e3-429c-b41c-b09fa95994fe",
+      "name": "Manuell starten"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================================\n// SUCHE: Mollie-Orders im Status 'authorized' (\"zugelassen\" im Backend)\n// Rein lesend. Blaettert die Orders-Liste und filtert lokal.\n// =====================================================================\nconst CONFIG = {\n  basisUrl:      'https://api.mollie.com/v2',\n  proSeite:      250,        // Maximum der Orders API\n  maxSeiten:     20,        // Schutz gegen Endlosschleife: 500 x 250 = 125.000 Orders\n  sortierung:    'desc',     // neueste zuerst\n\n  // Abbruch, sobald eine Seite nur noch Orders enthaelt, die AELTER sind.\n  // Leer lassen ('') = bis maxSeiten durchblaettern.\n  abbruchAelterAls: '2024-01-01',\n\n  // Welche Status interessieren? 'authorized' ist der offene Fall.\n  // 'shipping' = teilweise versandt, Rest ggf. noch offen.\n  gesuchteStatus: ['authorized', 'shipping'],\n\n  // Fortsetzung eines abgebrochenen Laufs: die 'naechsteUrl' aus dem\n  // Abbruch hier eintragen. Leer = von vorne beginnen.\n  startUrl: ''\n};\n\nreturn [{ json: {\n  config: CONFIG,\n  naechsteUrl: CONFIG.startUrl ||\n    (CONFIG.basisUrl + '/orders?limit=' + CONFIG.proSeite + '&sort=' + CONFIG.sortierung),\n  seite: 0,\n  gefunden: [],\n  gesehen: 0,\n  abgebrochen: false\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        336
+      ],
+      "id": "c96756b9-b015-43e0-8163-c4b0f59f86cd",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.naechsteUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1696,
+        336
+      ],
+      "id": "33c5d4ec-c907-43c7-a24d-eb2208527196",
+      "name": "Mollie: Orders-Seite lesen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "gdWT3FhCohiCfDh7",
+          "name": "Molli API"
+        }
+      },
+      "notes": "Eigenes Bearer-Auth-Credential fuer Mollie zuweisen."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Eine Seite auswerten, Treffer sammeln, naechste Seite bestimmen.\n// Der Zustand (gefunden/seite/gesehen) wird im Item mitgefuehrt, weil der\n// Flow hier eine Schleife bildet und Code-Nodes keinen Speicher haben.\nconst config = $('Config').first().json.config;\nconst vorher = $('Seite auswerten').isExecuted\n  ? $('Seite auswerten').first().json\n  : $('Config').first().json;\n\nconst roh = $input.first().json;\n\n// Mollie antwortet mit application/hal+json -> n8n legt den Body als String ab.\nlet resp = roh;\nlet parseFehler = null;\nif (typeof roh?.data === 'string') {\n  try { resp = JSON.parse(roh.data); } catch (e) { parseFehler = e.message; }\n} else if (roh?.data && typeof roh.data === 'object') {\n  resp = roh.data;\n}\n\n// --- Fehler: abbrechen, aber Zwischenstand behalten -------------------\nif (parseFehler || typeof resp?.status === 'number' || resp?.detail) {\n  return [{ json: { ...vorher,\n    abgebrochen: true,\n    fehler: parseFehler || [resp?.status, resp?.title, resp?.detail].filter(Boolean).join(' – '),\n    naechsteUrl: null }}];\n}\n\nconst orders = resp?._embedded?.orders ?? [];\nconst gesucht = config.gesuchteStatus || ['authorized'];\n\nconst geld = v => (v && v.value !== undefined) ? Number(v.value) : null;\n\nconst neueTreffer = [];\nfor (const o of orders) {\n  if (!gesucht.includes(o?.status)) continue;\n\n  const lines = Array.isArray(o.lines) ? o.lines : [];\n  const summe = f => lines.reduce((s, l) => s + (Number(f(l)) || 0), 0);\n\n  // BEWUSST SCHLANK: der gesammelte Zustand wird bei jeder Iteration\n  // komplett kopiert. Bei ~1.000 Treffern x 200 Seiten zaehlt jedes Feld.\n  // Weggelassen: email, waehrung, createdAt, isCancelable, orderNumber.\n  neueTreffer.push({\n    mollieId:        o.id,\n    // JTL-Bezug: steckt nur in den Metadaten, NICHT in tZahlung.\n    bestellnummer:   String(o.metadata?.order_number ?? o.orderNumber ?? ''),\n    status:          o.status,\n    method:          o.method ?? null,\n    betrag:          geld(o.amount),\n    bereitsErfasst:  geld(o.amountCaptured),\n    authorizedAt:    o.authorizedAt ?? null,\n    expiresAt:       o.expiresAt ?? null,\n    anzahlLines:     lines.length,\n    mengeVersendbar: summe(l => l.shippableQuantity),\n    lineStatus:      [...new Set(lines.map(l => l.status))].join(', ')\n  });\n}\n\nconst gefunden = [...(vorher.gefunden || []), ...neueTreffer];\nconst gesehen  = (vorher.gesehen || 0) + orders.length;\nconst seite    = (vorher.seite || 0) + 1;\n\n// --- Abbruchbedingungen ----------------------------------------------\nlet naechsteUrl = resp?._links?.next?.href ?? null;\nlet grund = null;\n\nif (!naechsteUrl)                         grund = 'letzte Seite erreicht';\nelse if (seite >= config.maxSeiten)       { grund = 'maxSeiten erreicht'; naechsteUrl = null; }\nelse if (config.abbruchAelterAls && orders.length) {\n  const grenze = new Date(config.abbruchAelterAls).getTime();\n  const juengste = Math.max(...orders.map(o => new Date(o.createdAt).getTime() || 0));\n  if (juengste < grenze) { grund = 'nur noch Orders vor ' + config.abbruchAelterAls; naechsteUrl = null; }\n}\n\nreturn [{ json: {\n  config, seite, gesehen, gefunden,\n  naechsteUrl,\n  abgebrochen: naechsteUrl === null,\n  abbruchGrund: grund,\n  trefferDieseSeite: neueTreffer.length,\n  fehler: null\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        336
+      ],
+      "id": "0b28a6f4-d57f-491d-a515-8684aed52739",
+      "name": "Seite auswerten"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "weiter",
+              "leftValue": "={{ $json.naechsteUrl !== null && $json.naechsteUrl !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2128,
+        336
+      ],
+      "id": "f1c557a7-75cc-40e5-b36b-d116121866fb",
+      "name": "Weitere Seite?"
+    },
+    {
+      "parameters": {
+        "amount": 0.1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2128,
+        176
+      ],
+      "id": "8d09f29f-6090-4169-944c-bf3d006e582c",
+      "name": "Wait",
+      "webhookId": "d4e5f6a7-b8c9-4d0e-8f1a-2b3c4d5e6f70"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ergebnis aufbereiten: Kopfzeile plus ein Item pro Treffer.\nconst s = $input.first().json;\nconst treffer = s.gefunden || [];\n\nconst zaehl = (fn) => {\n  const m = {};\n  for (const t of treffer) { const k = fn(t) ?? '(leer)'; m[k] = (m[k] || 0) + 1; }\n  return m;\n};\nconst summe = arr => Math.round(arr.reduce((x, t) => x + (t.betrag || 0), 0) * 100) / 100;\n\n// --- Monatsverteilung: WANN hat das angefangen? ------------------------\n// Beginnen die offenen Faelle ab einem bestimmten Monat, ist es kein\n// abgeschlossener Rueckstand, sondern ein laufendes Leck.\nconst proMonat = {};\nfor (const t of treffer) {\n  const m = String(t.authorizedAt ?? '').slice(0, 7) || '(ohne Datum)';\n  if (!proMonat[m]) proMonat[m] = { anzahl: 0, summe: 0 };\n  proMonat[m].anzahl += 1;\n  proMonat[m].summe = Math.round((proMonat[m].summe + (t.betrag || 0)) * 100) / 100;\n}\n\n// --- Fristen: wieviel Zeit bleibt? ------------------------------------\nconst jetzt = Date.now();\nconst tage = v => v ? Math.floor((new Date(v).getTime() - jetzt) / 86400000) : null;\nconst mitFrist = treffer.filter(t => t.expiresAt);\nconst restTage = mitFrist.map(t => tage(t.expiresAt)).filter(x => x !== null).sort((a, b) => a - b);\n\nconst bereitsAbgelaufen = mitFrist.filter(t => tage(t.expiresAt) < 0);\nconst binnen30 = mitFrist.filter(t => { const d = tage(t.expiresAt); return d >= 0 && d <= 30; });\nconst binnen60 = mitFrist.filter(t => { const d = tage(t.expiresAt); return d >= 0 && d <= 60; });\n\nconst daten = treffer.map(t => t.authorizedAt).filter(Boolean).sort();\n\nconst kopf = {\n  _typ:              'ZUSAMMENFASSUNG',\n\n  // --- Vollstaendigkeit des Scans ---\n  seitenGelesen:     s.seite,\n  ordersGesehen:     s.gesehen,\n  abbruchGrund:      s.abbruchGrund,\n  vollstaendig:      s.abbruchGrund !== 'maxSeiten erreicht' && !s.fehler,\n  fehler:            s.fehler,\n  // Bei unvollstaendigem Scan hier fortsetzen (in Config.startUrl eintragen):\n  fortsetzenAb:      s.abbruchGrund === 'maxSeiten erreicht' ? s.naechsteUrl : null,\n\n  // --- Befund ---\n  trefferGesamt:     treffer.length,\n  summeGesamt:       summe(treffer),\n  proStatus:         zaehl(t => t.status),\n  proMethod:         zaehl(t => t.method),\n\n  // --- Zeitverlauf: Rueckstand oder laufendes Leck? ---\n  proMonat,\n  aeltester:         daten[0] ?? null,\n  neuester:          daten[daten.length - 1] ?? null,\n\n  // --- Zeitdruck ---\n  bereitsAbgelaufen:      bereitsAbgelaufen.length,\n  summeAbgelaufen:        summe(bereitsAbgelaufen),\n  laeuftAbBinnen30Tagen:  binnen30.length,\n  summeBinnen30Tagen:     summe(binnen30),\n  laeuftAbBinnen60Tagen:  binnen60.length,\n  summeBinnen60Tagen:     summe(binnen60),\n  kuerzesteRestfristTage: restTage.length ? restTage[0] : null,\n\n  // --- Teilversand ---\n  teilweiseVersendet:     treffer.filter(t => t.bereitsErfasst).length\n};\n\nreturn [{ json: kopf }, ...treffer\n  .sort((a, b) => String(a.authorizedAt).localeCompare(String(b.authorizedAt)))\n  .map(t => ({ json: { _typ: 'TREFFER', ...t, restfristTage: tage(t.expiresAt) } }))];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        336
+      ],
+      "id": "46234158-51f4-4a4a-889c-10b99ad5ce09",
+      "name": "Ergebnis"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Treffer als CSV-Datei – zum Weitergeben und Auswerten.\n// Die Zusammenfassungszeile wird uebersprungen, sie steht separat im JSON.\nconst TRENNZEICHEN = ';';     // deutsches Excel\nconst DEZIMALKOMMA = true;\nconst BOM          = true;\nconst DATUM_LOKAL  = true;\n\nconst alle    = $input.all().map(i => i.json);\nconst kopf    = alle.find(z => z._typ === 'ZUSAMMENFASSUNG') || {};\nconst treffer = alle.filter(z => z._typ === 'TREFFER');\n\nif (!treffer.length) {\n  return [{ json: { zeilen: 0, hinweis: 'Keine Treffer – keine CSV erzeugt' } }];\n}\n\nconst spalten = ['bestellnummer','mollieId','status','method','betrag','bereitsErfasst',\n                 'authorizedAt','expiresAt','restfristTage','anzahlLines',\n                 'mengeVersendbar','lineStatus'];\n\nconst istIsoDatum = v => typeof v === 'string' && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}/.test(v);\nconst p2 = n => String(n).padStart(2, '0');\nconst formatiereDatum = v => {\n  const d = new Date(v);\n  if (isNaN(d.getTime())) return v;\n  return p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + '.' + d.getFullYear() +\n         ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());\n};\n\nconst alsText = v => {\n  if (v === null || v === undefined) return '';\n  if (typeof v === 'number') return DEZIMALKOMMA ? String(v).replace('.', ',') : String(v);\n  if (typeof v === 'boolean') return v ? 'ja' : 'nein';\n  if (typeof v === 'object') return JSON.stringify(v);\n  if (DATUM_LOKAL && istIsoDatum(v)) return formatiereDatum(v);\n  return String(v);\n};\n\n// RFC 4180\nconst feld = v => {\n  const t = alsText(v);\n  return /[\"\\r\\n]/.test(t) || t.includes(TRENNZEICHEN)\n    ? '\"' + t.replace(/\"/g, '\"\"') + '\"' : t;\n};\n\nconst zeilen = [spalten.join(TRENNZEICHEN)];\nfor (const t of treffer) zeilen.push(spalten.map(sp => feld(t[sp])).join(TRENNZEICHEN));\nconst csv = (BOM ? '\\uFEFF' : '') + zeilen.join('\\r\\n') + '\\r\\n';\n\nconst jetzt = new Date();\nconst stempel = jetzt.getFullYear() + p2(jetzt.getMonth() + 1) + p2(jetzt.getDate()) +\n                '-' + p2(jetzt.getHours()) + p2(jetzt.getMinutes());\nconst dateiname = 'mollie-authorized-' + stempel + '.csv';\n\nreturn [{\n  json: {\n    dateiname,\n    zeilen:            treffer.length,\n    summeGesamt:       kopf.summeGesamt ?? null,\n    vollstaendig:      kopf.vollstaendig ?? null,\n    abbruchGrund:      kopf.abbruchGrund ?? null,\n    fortsetzenAb:      kopf.fortsetzenAb ?? null,\n    proMonat:          kopf.proMonat ?? null,\n    bereitsAbgelaufen: kopf.bereitsAbgelaufen ?? null,\n    groesseKB:         Math.round(Buffer.byteLength(csv, 'utf8') / 1024 * 10) / 10\n  },\n  binary: {\n    data: {\n      data:          Buffer.from(csv, 'utf8').toString('base64'),\n      mimeType:      'text/csv',\n      fileName:      dateiname,\n      fileExtension: 'csv'\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        336
+      ],
+      "id": "61723356-1855-4ac2-817e-f7559cf7bf02",
+      "name": "CSV bauen"
+    },
+    {
+      "parameters": {
+        "content": "## Mollie-Suche: Status 'authorized' (= \"zugelassen\")\n### Sucht von MOLLIE aus, nicht von JTL - so werden auch\n### Orders gefunden, die in tZahlung keine Referenz haben.\n### Die Orders API kennt keinen Statusfilter, deshalb wird\n### geblaettert und lokal gefiltert. Nur GET.\n### Rueckbezug zu JTL ueber metadata.order_number -\n### in tZahlung fehlt fuer diese Faelle jede Referenz!\n### Bricht der Lauf mit 'maxSeiten erreicht' ab: 'fortsetzenAb'\n### aus dem Ergebnis in Config.startUrl eintragen.",
+        "height": 280,
+        "width": 700,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1184,
+        64
+      ],
+      "id": "d636305f-325d-4c24-87e3-df65bd146f32",
+      "name": "SN 1"
+    }
+  ],
+  "connections": {
+    "Manuell starten": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Mollie: Orders-Seite lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie: Orders-Seite lesen": {
+      "main": [
+        [
+          {
+            "node": "Seite auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite auswerten": {
+      "main": [
+        [
+          {
+            "node": "Weitere Seite?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weitere Seite?": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "CSV bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Mollie: Orders-Seite lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "LRZd7pRAnC8Sbgqp",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-19T14:43:34.315Z",
+      "updatedAt": "2026-08-19T14:43:34.315Z"
+    }
+  ],
+  "activeVersion": null
+}

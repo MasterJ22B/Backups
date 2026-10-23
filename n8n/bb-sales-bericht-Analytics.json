@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-10T13:00:34.755Z",
-  "createdAt": "2026-05-30T10:07:38.496Z",
   "id": "IDOsvriyyFxI1Tyc",
   "name": "BB Sales Bericht",
   "active": true,
+  "activeVersionId": "f4d3bf09-fe25-44fa-8245-2b3c4a70bd14",
+  "createdAt": "2026-05-30T10:07:38.496Z",
+  "updatedAt": "2026-09-16T19:09:46.022Z",
   "isArchived": false,
+  "versionId": "631e23eb-9953-49c5-8a1e-131b3b0452d0",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -28,7 +31,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- ══════════════════════════════════════════════════════════════\n-- GET REVENUE: B2C vs B2B\n-- B2C: WooCommerce-Shop ODER JTL-Wawi + Kundengruppe \"Endkunden\"\n-- B2B: JTL-Wawi + Kundengruppe \"Geschäftskunden\"/\"Partnerbuchhandlungen\"\n--      NUR Positionen, die NICHT mit L- oder M- beginnen\n-- ══════════════════════════════════════════════════════════════\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\nSELECT\n    -- ── B2C ──────────────────────────────────────────────────\n    CAST(ROUND(COALESCE(SUM(\n        CASE\n            -- Alles aus WooCommerce (unabhängig von Kundengruppe)\n            WHEN sh.cName = 'BB Shopify'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt / 100.0) * pos.nAnzahl\n\n            -- JTL-Wawi-Aufträge, Kundengruppe \"Endkunden\"\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName = 'Endkunden'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt / 100.0) * pos.nAnzahl\n\n            ELSE 0\n        END\n    ), 0), 2) AS DECIMAL(10,2)) AS Umsatz_B2C,\n\n    -- ── B2B ──────────────────────────────────────────────────\n    CAST(ROUND(COALESCE(SUM(\n        CASE\n            -- JTL-Wawi, Kundengruppen B2B, Artikel NICHT L- / M-\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName IN ('Geschäftskunden', 'Partnerbuchhandlung')\n             AND pos.cArtNr NOT LIKE 'L-%'\n             AND pos.cArtNr NOT LIKE 'C-%'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt / 100.0) * pos.nAnzahl\n\n            ELSE 0\n        END\n    ), 0), 2) AS DECIMAL(10,2)) AS Umsatz_B2B\n\nFROM       tBestellung  AS b\nJOIN       tPlattform   AS pl  ON  b.nPlatform          = pl.nPlattform\nLEFT JOIN  tShop        AS sh  ON  b.kShop              = sh.kShop\n-- Kundengruppe über Kunde → Kundengruppen-Tabelle\nJOIN       tKunde       AS k   ON  b.tKunde_kKunde             = k.kKunde\nJOIN       tKundengruppe AS kg ON  k.kKundengruppe      = kg.kKundengruppe\nJOIN       tBestellPos  AS pos ON  b.kBestellung        = pos.tBestellung_kBestellung\n\nWHERE b.dErstellt BETWEEN\n          -- Beginn des gestrigen Tages (00:00:00)\n          CAST(CAST(GETDATE()-1 AS DATE) AS DATETIME)\n          -- jetzt\n      AND GETDATE()\n  AND b.nStorno  = 0\n  AND b.cType   NOT IN ('U')\n  AND pos.nType  = 1;",
+        "query": "-- ══════════════════════════════════════════════════════════════\n-- GET REVENUE: B2C vs B2B\n-- B2C: WooCommerce-Shop ODER JTL-Wawi + Kundengruppe \"Endkunden\"\n-- B2B: JTL-Wawi + Kundengruppe \"Geschäftskunden\"/\"Partnerbuchhandlungen\"\n--      NUR Positionen, die NICHT mit L- oder M- beginnen\n-- ══════════════════════════════════════════════════════════════\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\nSELECT\n    -- ── B2C ──────────────────────────────────────────────────\n    CAST(ROUND(COALESCE(SUM(\n        CASE\n            -- Alles aus WooCommerce (unabhängig von Kundengruppe)\n            WHEN sh.cName = 'BB Shopify'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt / 100.0) * pos.nAnzahl\n\n            -- JTL-Wawi-Aufträge, Kundengruppe \"Endkunden\"\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName = 'Endkunden'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt / 100.0) * pos.nAnzahl\n\n            ELSE 0\n        END\n    ), 0), 2) AS DECIMAL(10,2)) AS Umsatz_B2C,\n\n    -- ── B2B ──────────────────────────────────────────────────\n    CAST(ROUND(COALESCE(SUM(\n        CASE\n            -- JTL-Wawi, Kundengruppen B2B, Artikel NICHT L- / M-\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName IN ('Geschäftskunden', 'Partnerbuchhandlung')\n             AND pos.cArtNr NOT LIKE 'L-%'\n             AND pos.cArtNr NOT LIKE 'C-%'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt / 100.0) * pos.nAnzahl\n\n            ELSE 0\n        END\n    ), 0), 2) AS DECIMAL(10,2)) AS Umsatz_B2B\n\nFROM       tBestellung  AS b\nJOIN       tPlattform   AS pl  ON  b.nPlatform          = pl.nPlattform\nLEFT JOIN  tShop        AS sh  ON  b.kShop              = sh.kShop\n-- Kundengruppe über Kunde → Kundengruppen-Tabelle\nJOIN       tKunde       AS k   ON  b.tKunde_kKunde             = k.kKunde\nJOIN       tKundengruppe AS kg ON  k.kKundengruppe      = kg.kKundengruppe\nJOIN       tBestellPos  AS pos ON  b.kBestellung        = pos.tBestellung_kBestellung\n\nWHERE b.dErstellt BETWEEN\n          -- Beginn des gestrigen Tages (00:00:00)\n          CAST(CAST(GETDATE()-1 AS DATE) AS DATETIME)\n          -- jetzt\n      AND GETDATE()\n\n  AND b.nStorno  = 0\n  AND b.cType   NOT IN ('U')\n  AND pos.nType  = 1;",
         "options": {}
       },
       "id": "ce24cdb3-8d8a-4b40-a212-2a2247d7df50",
@@ -69,28 +72,7 @@
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "-- ══════════════════════════════════════════════════════════════\n-- GET ORDER DETAILS: Produktstatistik B2C + B2B pro Artikel\n-- B2C: WooCommerce-Shop ODER JTL-Wawi + Kundengruppe \"Endkunden\"\n-- B2B: JTL-Wawi + Kundengruppe \"Geschäftskunden\"/\"Partnerbuchhandlungen\"\n--      NUR Positionen, die NICHT mit L- oder M- beginnen\n-- ══════════════════════════════════════════════════════════════\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\nSELECT\n    ta.cArtNr                                               AS Artikelnummer,\n    MAX(tab.cName)                                          AS Artikelname,\n\n    -- ── B2C Menge ────────────────────────────────────────────\n    SUM(\n        CASE\n            WHEN sh.cName = 'BB Shopify'\n                THEN CONVERT(INT, pos.nAnzahl)\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName = 'Endkunden'\n                THEN CONVERT(INT, pos.nAnzahl)\n            ELSE 0\n        END\n    )                                                       AS Menge_B2C,\n\n    -- ── B2C Umsatz ───────────────────────────────────────────\n    CAST(ROUND(SUM(\n        CASE\n            WHEN sh.cName = 'BB Shopify'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt / 100.0) * pos.nAnzahl\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName = 'Endkunden'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt / 100.0) * pos.nAnzahl\n            ELSE 0\n        END\n    ), 2) AS DECIMAL(10,2))                                 AS Umsatz_B2C,\n\n    -- ── B2B Menge ────────────────────────────────────────────\n    SUM(\n        CASE\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName IN ('Geschäftskunden', 'Partnerbuchhandlungen')\n             AND ta.cArtNr NOT LIKE 'L-%'\n             AND ta.cArtNr NOT LIKE 'M-%'\n                THEN CONVERT(INT, pos.nAnzahl)\n            ELSE 0\n        END\n    )                                                       AS Menge_B2B,\n\n    -- ── B2B Umsatz ───────────────────────────────────────────\n    CAST(ROUND(SUM(\n        CASE\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName IN ('Geschäftskunden', 'Partnerbuchhandlungen')\n             AND ta.cArtNr NOT LIKE 'L-%'\n             AND ta.cArtNr NOT LIKE 'M-%'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt / 100.0) * pos.nAnzahl\n            ELSE 0\n        END\n    ), 2) AS DECIMAL(10,2))                                 AS Umsatz_B2B\n\nFROM       tArtikel             AS ta\nJOIN       tBestellPos          AS pos ON  ta.cArtNr                    = pos.cArtNr\nJOIN       tBestellung          AS b   ON  b.kBestellung                = pos.tBestellung_kBestellung\nJOIN       tArtikelBeschreibung AS tab ON  ta.kArtikel                  = tab.kArtikel\nJOIN       tPlattform           AS pl  ON  b.nPlatform                  = pl.nPlattform\nLEFT JOIN  tShop                AS sh  ON  b.kShop                      = sh.kShop\nJOIN       tKunde               AS k   ON  b.tKunde_kKunde                     = k.kKunde\nJOIN       tKundengruppe        AS kg  ON  k.kKundengruppe              = kg.kKundengruppe\n\nWHERE b.dErstellt BETWEEN\n          CAST(CAST(GETDATE()-1 AS DATE) AS DATETIME)\n      AND GETDATE()\n  AND b.nStorno  = 0\n  AND b.cType   NOT IN ('U')\n  AND pos.nType  = 1\n  -- Nur Zeilen, die für B2C oder B2B relevant sind (verhindert ungrouped Datenmüll)\n  AND (\n        sh.cName = 'BB Shopify'\n     OR (pl.cName = 'JTL-Wawi' AND kg.cName = 'Endkunden')\n     OR (pl.cName = 'JTL-Wawi'\n         AND kg.cName IN ('Geschäftskunden', 'Partnerbuchhandlung')\n         AND ta.cArtNr NOT LIKE 'L-%'\n         AND ta.cArtNr NOT LIKE 'C-%')\n  )\n\nGROUP BY ta.cArtNr\nORDER BY SUM(CONVERT(INT, pos.nAnzahl)) DESC;",
-        "options": {}
-      },
-      "id": "0b901c1d-63ab-4983-b2ea-4d2376045d0f",
-      "name": "GET ORDER DETAILS1",
-      "type": "n8n-nodes-base.microsoftSql",
-      "typeVersion": 1,
-      "position": [
-        1040,
-        -144
-      ],
-      "credentials": {
-        "microsoftSql": {
-          "id": "a6mkpraM66kvytdS",
-          "name": "JTL Datenbank jessebalsam"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// ── Daten aus vorherigen Nodes holen ──────────────────────────────────────\nconst rev         = $('GET REVENUE1').first().json;\nconst cnt         = $('GET ORDERS COUNT1').first().json;\nconst orderDetails = $('GET ORDER DETAILS1').all();\n\nconst umsatzB2C   = rev.Umsatz_B2C   ?? '0.00';\nconst umsatzB2B   = rev.Umsatz_B2B   ?? '0.00';\nconst anzahlB2C   = cnt.Bestellungen_B2C  ?? 0;\nconst anzahlB2B   = cnt.Bestellungen_B2B   ?? 0;\n\n// ── Produkttabelle aufbauen ────────────────────────────────────────────────\nlet tableRows = '';\nfor (const item of orderDetails) {\n  const d = item.json;\n  // Zeile nur rendern wenn Werte > 0 vorhanden\n  const hasB2C = (d.Menge_B2C > 0 || d.Umsatz_B2C > 0);\n  const hasB2B = (d.Menge_B2B > 0 || d.Umsatz_B2B > 0);\n  if (!hasB2C && !hasB2B) continue;\n\n  tableRows += `\n  <tr bgcolor=\"#ffffff\">\n    <td>${d.Artikelnummer}</td>\n    <td>${d.Artikelname}</td>\n    <td style=\"text-align:right;\">${hasB2C ? d.Menge_B2C : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2C ? d.Umsatz_B2C + '&euro;' : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2B ? d.Menge_B2B : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2B ? d.Umsatz_B2B + '&euro;' : '-'}</td>\n  </tr>`;\n}\n\nconst productTable = `\n<table cellspacing=\"0\" cellpadding=\"5\" border=\"1\"\n       style=\"border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;\">\n  <tr bgcolor=\"#1a1a1a\" style=\"color:white;\">\n    <td colspan=\"2\"></td>\n    <td colspan=\"2\" style=\"text-align:center;background:#fac3c6;color:black;\"><b>B2C</b></td>\n    <td colspan=\"2\" style=\"text-align:center;text-color:white;background:#000000;\"><b>B2B</b></td>\n  </tr>\n  <tr bgcolor=\"#333333\" style=\"color:white;\">\n    <td><b>Artikelnummer</b></td>\n    <td><b>Artikelname</b></td>\n    <td style=\"background:#fac3c6;color:black;\"><b>Menge</b></td>\n    <td style=\"background:#fac3c6;color:black;\"><b>Umsatz</b></td>\n    <td style=\"text-color:white;background:#000000;\"><b>Menge</b></td>\n    <td style=\"text-color:white;background:#000000;\"><b>Umsatz</b></td>\n  </tr>\n  ${tableRows}\n</table>`;\n\n// ── Datumsformatierung (de-DE) ─────────────────────────────────────────────\nconst yesterday = DateTime.now()\n  .setZone('Europe/Berlin')\n  .minus({ days: 1 });\n\nconst formatted = yesterday.toFormat('dd.MM.yyyy');\n\n// ── E-Mail-Body ────────────────────────────────────────────────────────────\nconst emailHtml = `\n<html>\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n<body style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;\">\n  Hallo liebes BB-Team,<br><br>\n  folgend erhaltet ihr den neuen Bestell-Bericht:<br><br>\n\n  <table cellspacing=\"0\" cellpadding=\"6\" border=\"0\"\n         style=\"font-family:Arial,sans-serif;font-size:14px;\">\n    <tr>\n      <td></td>\n      <td style=\"background:#fac3c6;color:black;padding:4px 12px;\"><b>B2C</b></td>\n      <td style=\"text-color:white;background:#000000;color:white;padding:4px 12px;\"><b>B2B</b></td>\n    </tr>\n    <tr>\n      <td><b>Gesamtumsatz</b></td>\n      <td style=\"text-align:right;\">${umsatzB2C} EUR</td>\n      <td style=\"text-align:right;\">${umsatzB2B} EUR</td>\n    </tr>\n    <tr>\n      <td><b>Bestellungen</b></td>\n      <td style=\"text-align:right;\">${anzahlB2C}</td>\n      <td style=\"text-align:right;\">${anzahlB2B}</td>\n    </tr>\n  </table>\n\n  <br><b>PRODUKTSTATISTIK:</b><br><br>\n  ${productTable}\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    subject:     `BB | Sales Report vom ${formatted}`,\n    emailHtml,\n    umsatzB2C,\n    umsatzB2B,\n    anzahlB2C,\n    anzahlB2B\n  }\n}];"
+        "jsCode": "// ── Daten aus vorherigen Nodes holen ──────────────────────────────────────\nconst rev         = $('GET REVENUE1').first().json;\nconst cnt         = $('GET ORDERS COUNT1').first().json;\nconst orderDetails = $('GET ORDER DETAILS').all();\n\nconst umsatzB2C   = rev.Umsatz_B2C   ?? '0.00';\nconst umsatzB2B   = rev.Umsatz_B2B   ?? '0.00';\nconst anzahlB2C   = cnt.Bestellungen_B2C  ?? 0;\nconst anzahlB2B   = cnt.Bestellungen_B2B   ?? 0;\n\n// ── Produkttabelle aufbauen ────────────────────────────────────────────────\nlet tableRows = '';\nfor (const item of orderDetails) {\n  const d = item.json;\n  // Zeile nur rendern wenn Werte > 0 vorhanden\n  const hasB2C = (d.Menge_B2C > 0 || d.Umsatz_B2C > 0);\n  const hasB2B = (d.Menge_B2B > 0 || d.Umsatz_B2B > 0);\n  if (!hasB2C && !hasB2B) continue;\n\n  tableRows += `\n  <tr bgcolor=\"#ffffff\">\n    <td>${d.Artikelnummer}</td>\n    <td>${d.Artikelname}</td>\n    <td style=\"text-align:right;\">${hasB2C ? d.Menge_B2C : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2C ? d.Umsatz_B2C + '&euro;' : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2B ? d.Menge_B2B : '-'}</td>\n    <td style=\"text-align:right;\">${hasB2B ? d.Umsatz_B2B + '&euro;' : '-'}</td>\n  </tr>`;\n}\n\nconst productTable = `\n<table cellspacing=\"0\" cellpadding=\"5\" border=\"1\"\n       style=\"border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;\">\n  <tr bgcolor=\"#1a1a1a\" style=\"color:white;\">\n    <td colspan=\"2\"></td>\n    <td colspan=\"2\" style=\"text-align:center;background:#fac3c6;color:black;\"><b>B2C</b></td>\n    <td colspan=\"2\" style=\"text-align:center;text-color:white;background:#000000;\"><b>B2B</b></td>\n  </tr>\n  <tr bgcolor=\"#333333\" style=\"color:white;\">\n    <td><b>Artikelnummer</b></td>\n    <td><b>Artikelname</b></td>\n    <td style=\"background:#fac3c6;color:black;\"><b>Menge</b></td>\n    <td style=\"background:#fac3c6;color:black;\"><b>Umsatz</b></td>\n    <td style=\"text-color:white;background:#000000;\"><b>Menge</b></td>\n    <td style=\"text-color:white;background:#000000;\"><b>Umsatz</b></td>\n  </tr>\n  ${tableRows}\n</table>`;\n\n// ── Datumsformatierung (de-DE) ─────────────────────────────────────────────\nconst yesterday = DateTime.now()\n  .setZone('Europe/Berlin')\n  .minus({ days: 1 });\n\nconst formatted = yesterday.toFormat('dd.MM.yyyy');\n\n// ── E-Mail-Body ────────────────────────────────────────────────────────────\nconst emailHtml = `\n<html>\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n<body style=\"font-family:Arial,sans-serif;font-size:14px;color:#222;\">\n  Hallo liebes BB-Team,<br><br>\n  folgend erhaltet ihr den neuen Bestell-Bericht:<br><br>\n\n  <table cellspacing=\"0\" cellpadding=\"6\" border=\"0\"\n         style=\"font-family:Arial,sans-serif;font-size:14px;\">\n    <tr>\n      <td></td>\n      <td style=\"background:#fac3c6;color:black;padding:4px 12px;\"><b>B2C</b></td>\n      <td style=\"text-color:white;background:#000000;color:white;padding:4px 12px;\"><b>B2B</b></td>\n    </tr>\n    <tr>\n      <td><b>Gesamtumsatz</b></td>\n      <td style=\"text-align:right;\">${umsatzB2C} EUR</td>\n      <td style=\"text-align:right;\">${umsatzB2B} EUR</td>\n    </tr>\n    <tr>\n      <td><b>Bestellungen</b></td>\n      <td style=\"text-align:right;\">${anzahlB2C}</td>\n      <td style=\"text-align:right;\">${anzahlB2B}</td>\n    </tr>\n  </table>\n\n  <br><b>PRODUKTSTATISTIK:</b><br><br>\n  ${productTable}\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    subject:     `BB | Sales Report vom ${formatted}`,\n    emailHtml,\n    umsatzB2C,\n    umsatzB2B,\n    anzahlB2C,\n    anzahlB2B\n  }\n}];"
       },
       "id": "2735626a-f08f-4a64-8169-cf8528b5a243",
       "name": "Build Email Content1",
@@ -124,6 +106,27 @@
           "name": "SMTP account 3"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- ══════════════════════════════════════════════════════════════\n-- GET ORDER DETAILS: Produktstatistik B2C + B2B pro Artikel\n-- B2C: WooCommerce-Shop ODER JTL-Wawi + Kundengruppe \"Endkunden\"\n-- B2B: JTL-Wawi + Kundengruppe \"Geschäftskunden\"/\"Partnerbuchhandlungen\"\n--      NUR Positionen, die NICHT mit L- oder M- beginnen\n-- ══════════════════════════════════════════════════════════════\n\nSET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\n;WITH Bestellzeilen AS (\n    SELECT\n        ta.kArtikel,\n        ta.cArtNr,\n        CASE\n            WHEN sh.cName = 'BB Shopify' THEN CONVERT(INT, pos.nAnzahl)\n            WHEN pl.cName = 'JTL-Wawi' AND kg.cName = 'Endkunden' THEN CONVERT(INT, pos.nAnzahl)\n            ELSE 0\n        END AS MengeB2C,\n        CASE\n            WHEN sh.cName = 'BB Shopify' THEN pos.fVkNetto * (1.0 - pos.fRabatt/100.0) * pos.nAnzahl\n            WHEN pl.cName = 'JTL-Wawi' AND kg.cName = 'Endkunden' THEN pos.fVkNetto * (1.0 - pos.fRabatt/100.0) * pos.nAnzahl\n            ELSE 0\n        END AS UmsatzB2C,\n        CASE\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName IN ('Geschäftskunden', 'Partnerbuchhandlungen')\n             AND ta.cArtNr NOT LIKE 'L-%' AND ta.cArtNr NOT LIKE 'M-%'\n                THEN CONVERT(INT, pos.nAnzahl)\n            ELSE 0\n        END AS MengeB2B,\n        CASE\n            WHEN pl.cName = 'JTL-Wawi'\n             AND kg.cName IN ('Geschäftskunden', 'Partnerbuchhandlungen')\n             AND ta.cArtNr NOT LIKE 'L-%' AND ta.cArtNr NOT LIKE 'M-%'\n                THEN pos.fVkNetto * (1.0 - pos.fRabatt/100.0) * pos.nAnzahl\n            ELSE 0\n        END AS UmsatzB2B\n    FROM tArtikel ta\n    JOIN tBestellPos pos ON ta.cArtNr = pos.cArtNr\n    JOIN tBestellung b ON b.kBestellung = pos.tBestellung_kBestellung\n    JOIN tPlattform pl ON b.nPlatform = pl.nPlattform\n    LEFT JOIN tShop sh ON b.kShop = sh.kShop\n    JOIN tKunde k ON b.tKunde_kKunde = k.kKunde\n    JOIN tKundengruppe kg ON k.kKundengruppe = kg.kKundengruppe\n    WHERE b.dErstellt BETWEEN\n          CAST(CAST(GETDATE()-1 AS DATE) AS DATETIME)\n          -- jetzt \n  AND GETDATE()\n      AND b.nStorno = 0\n      AND b.cType NOT IN ('U')\n      AND pos.nType = 1\n      AND (\n            sh.cName = 'BB Shopify'\n         OR (pl.cName = 'JTL-Wawi' AND kg.cName = 'Endkunden')\n         OR (pl.cName = 'JTL-Wawi'\n             AND kg.cName IN ('Geschäftskunden', 'Partnerbuchhandlungen')\n             AND ta.cArtNr NOT LIKE 'L-%' AND ta.cArtNr NOT LIKE 'C-%')\n      )\n)\nSELECT\n    bz.cArtNr AS Artikelnummer,\n    (SELECT TOP 1 tab.cName\n     FROM tArtikelBeschreibung tab\n     WHERE tab.kArtikel = bz.kArtikel\n       AND tab.kPlattform = 1\n    ) AS Artikelname,\n    SUM(bz.MengeB2C)                                   AS Menge_B2C,\n    CAST(ROUND(SUM(bz.UmsatzB2C), 2) AS DECIMAL(10,2)) AS Umsatz_B2C,\n    SUM(bz.MengeB2B)                                   AS Menge_B2B,\n    CAST(ROUND(SUM(bz.UmsatzB2B), 2) AS DECIMAL(10,2)) AS Umsatz_B2B\nFROM Bestellzeilen bz\nGROUP BY bz.cArtNr, bz.kArtikel\nORDER BY SUM(bz.MengeB2C) DESC;",
+        "options": {}
+      },
+      "id": "0b901c1d-63ab-4983-b2ea-4d2376045d0f",
+      "name": "GET ORDER DETAILS",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        -144
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
     }
   ],
   "connections": {
@@ -153,18 +156,7 @@
       "main": [
         [
           {
-            "node": "GET ORDER DETAILS1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "GET ORDER DETAILS1": {
-      "main": [
-        [
-          {
-            "node": "Build Email Content1",
+            "node": "GET ORDER DETAILS",
             "type": "main",
             "index": 0
           }
@@ -181,8 +173,20 @@
           }
         ]
       ]
+    },
+    "GET ORDER DETAILS": {
+      "main": [
+        [
+          {
+            "node": "Build Email Content1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -203,26 +207,28 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "f4d3bf09-fe25-44fa-8245-2b3c4a70bd14",
-  "activeVersionId": "f4d3bf09-fe25-44fa-8245-2b3c4a70bd14",
-  "triggerCount": 1,
+  "tags": [
+    {
+      "id": "E4CQ3SHLqbdJpF7F",
+      "name": "Analytics",
+      "createdAt": "2026-05-01T14:33:37.336Z",
+      "updatedAt": "2026-05-01T14:33:37.336Z"
+    }
+  ],
   "shared": [
     {
-      "updatedAt": "2026-05-30T10:07:38.499Z",
-      "createdAt": "2026-05-30T10:07:38.499Z",
       "role": "workflow:owner",
       "workflowId": "IDOsvriyyFxI1Tyc",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-05-30T10:07:38.499Z",
+      "updatedAt": "2026-05-30T10:07:38.499Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-08-10T15:18:37.000Z",
-    "createdAt": "2026-08-10T13:00:34.756Z",
     "versionId": "f4d3bf09-fe25-44fa-8245-2b3c4a70bd14",
     "workflowId": "IDOsvriyyFxI1Tyc",
     "nodes": [
@@ -407,14 +413,8 @@
     "authors": "Christoph Strauss",
     "name": "Version f4d3bf09",
     "description": "",
-    "autosaved": false
-  },
-  "tags": [
-    {
-      "updatedAt": "2026-05-01T14:33:37.336Z",
-      "createdAt": "2026-05-01T14:33:37.336Z",
-      "id": "E4CQ3SHLqbdJpF7F",
-      "name": "Analytics"
-    }
-  ]
+    "autosaved": false,
+    "createdAt": "2026-08-10T13:00:34.756Z",
+    "updatedAt": "2026-08-10T15:18:37.000Z"
+  }
 }

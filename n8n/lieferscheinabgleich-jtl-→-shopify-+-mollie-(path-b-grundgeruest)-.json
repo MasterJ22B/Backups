@@ -1,0 +1,1124 @@
+{
+  "updatedAt": "2026-08-12T09:27:03.452Z",
+  "createdAt": "2026-08-12T09:16:46.660Z",
+  "id": "sDSsCAxsWkrVxpKq",
+  "name": "Lieferscheinabgleich JTL → Shopify + Mollie (Path B Grundgeruest)",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 1 – Trigger, Konfiguration, Shopify-Token",
+        "height": 300,
+        "width": 900,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -784,
+        448
+      ],
+      "name": "SN 1 Setup",
+      "id": "703a0351-1325-49ec-939d-093a0b377cbe"
+    },
+    {
+      "parameters": {
+        "content": "## 2 – JTL: Kandidaten + Vollstaendigkeitspruefung\n### Read-only. Keine Schreibzugriffe auf die DB.",
+        "height": 300,
+        "width": 620,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        144,
+        448
+      ],
+      "name": "SN 2 JTL",
+      "id": "96db191d-9be5-46a6-94fd-70403a336bc4"
+    },
+    {
+      "parameters": {
+        "content": "## 3 – Buendelung auf Lieferschein-Ebene\n### 1 Lieferschein = 1 physische Sendung = spaeter 1 Shopify-Fulfillment.\n### Lieferscheine je Bestellung chronologisch – wichtig fuer die Restmengen.",
+        "height": 300,
+        "width": 620,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        800,
+        448
+      ],
+      "name": "SN 3 Vorbereitung",
+      "id": "6e04eb62-33e5-4309-8ac8-86780b8efbde"
+    },
+    {
+      "parameters": {
+        "content": "## 4 – Shopify Lookup + Zuordnung (LESEND)\n### Holt offene FulfillmentOrder-Positionen (sku + remainingQuantity),\n### vorhandene Trackingnummern und den Fulfillment-Status.\n### Mapping ueber sku ODER Titel – Schalter: CONFIG.skuMatching.\n### Menge immer auf remainingQuantity gedeckelt.",
+        "height": 400,
+        "width": 1180,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        448
+      ],
+      "name": "SN 4 Lookup",
+      "id": "351d04e6-a85e-42fb-bb18-7a4b1bd9eb3e"
+    },
+    {
+      "parameters": {
+        "content": "## 5 – Shopify Schreiben (DEAKTIVIERT)\n### Erst aktivieren, wenn der Lookup verifiziert ist. Gate: CONFIG.dryRun = false",
+        "height": 320,
+        "width": 1180,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        928
+      ],
+      "name": "SN 5 Schreiben",
+      "id": "da3e7992-51a4-47cb-9cf3-7079e9becfd9"
+    },
+    {
+      "parameters": {
+        "content": "## 7 – Report\n### Zaehlt Shopify- und Mollie-Ausgaenge getrennt.",
+        "height": 400,
+        "width": 860,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4496,
+        352
+      ],
+      "name": "SN 6 Report",
+      "id": "ef06d2bf-e5a5-4dc0-8e37-8b9d40eb3c71"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -736,
+        496
+      ],
+      "name": "Manuell starten (Test)",
+      "id": "039ec784-8d0e-478d-869d-b480b9b76016"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtMinute": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -736,
+        640
+      ],
+      "name": "Schedule Trigger",
+      "id": "a8ca0f57-4ae4-4e6e-b826-bd246f73cf99",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -320,
+        560
+      ],
+      "name": "Shopify Token holen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "id": "13f6b29f-a271-4faf-9a1d-553dfd5d9694",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "/* =====================================================================\n   JTL: versendete Lieferscheine im Zeitfenster.\n   FUEHRENDES OBJEKT: Lieferschein / Lieferscheinposition.\n   Ausgabe: EINE ZEILE PRO LIEFERSCHEINPOSITION.\n   -- n8n-Version (Zeitfenster aus Config) --\n\n   Verifiziert 2026-08-11:\n     - Versandart liegt auf Versand-Ebene: tVersand.kVersandArt\n     - Stammtabelle: dbo.tversandart (cName, cAmazonCarrierCode, ...)\n     - Positionstext in tBestellpos: cString (nicht cName)\n   ===================================================================== */\nDECLARE @von datetime2(0) = '{{ $now.setZone($('Config').first().json.config.zeitzone).minus({ minutes: $('Config').first().json.config.fensterMinuten }).toFormat('yyyy-MM-dd HH:mm:ss') }}';\n\nWITH VersendeteLieferscheine AS (\n    SELECT  ls.kLieferschein,\n            ls.kBestellung,\n            ls.cLieferscheinNr,\n            v.dVersendet,\n            v.cIdentCode,\n            v.cLogistiker,\n            v.kVersandArt\n    FROM        [eazybusiness].[dbo].[tLieferschein] ls\n    INNER JOIN  [eazybusiness].[dbo].[tVersand]      v ON v.kLieferschein = ls.kLieferschein\n    WHERE   v.dVersendet IS NOT NULL AND v.dVersendet >= @von\n      AND   ISNULL(v.kVersandArt, 0) NOT IN (108)   -- \"Kein Versand\" ausklammern\n),\nKandidaten AS (\n    SELECT DISTINCT vls.kBestellung\n    FROM   VersendeteLieferscheine vls\n    WHERE  vls.dVersendet >= @von\n),\nBestellungen AS (\n    SELECT  b.kBestellung, b.cBestellNr, b.cInetBestellNr, b.kShop,\n            b.nKomplettAusgeliefert\n    FROM        [eazybusiness].[dbo].[tBestellung] b\n    INNER JOIN  Kandidaten k ON k.kBestellung = b.kBestellung\n    WHERE   b.kShop   = 3\n      AND   b.nStorno = 0\n      AND   b.nPlatform = 2\n      AND   (b.cInetBestellNr IS NULL OR b.cInetBestellNr NOT LIKE 'BB-%')\n      AND   NOT EXISTS (SELECT 1 FROM [eazybusiness].[Verkauf].[tAuftragStorno] s\n                        WHERE s.kAuftrag = b.kBestellung)\n),\nPositionen AS (\n    /* FUEHREND: die Positionen des Lieferscheins.\n       tBestellpos haengt nur dran, um Artikelbezug und Bestellmenge\n       zu liefern.                                                      */\n    SELECT  vls.kLieferschein,\n            vls.kBestellung,\n            vls.cLieferscheinNr,\n            vls.dVersendet,\n            vls.cIdentCode,\n            vls.kVersandArt,\n            lp.kLieferscheinPos,\n            lp.fAnzahl                AS fMengeGeliefert,\n            bp.kBestellPos,\n            bp.tArtikel_kArtikel      AS kArtikel,\n            bp.cArtNr,\n            bp.cString                AS cArtikelname,\n            bp.nAnzahl                AS nMengeBestellt,\n            ROW_NUMBER() OVER (PARTITION BY vls.kLieferschein\n                               ORDER BY lp.kLieferscheinPos) AS nLieferscheinPosNr\n    FROM        VersendeteLieferscheine vls\n    INNER JOIN  [eazybusiness].[dbo].[tLieferscheinPos] lp ON lp.kLieferschein = vls.kLieferschein\n    INNER JOIN  [eazybusiness].[dbo].[tBestellpos]      bp ON bp.kBestellPos   = lp.kBestellPos\n    WHERE   bp.nType = 1\n)\nSELECT  /* --- Bestellung --- */\n        bs.kBestellung,\n        bs.cBestellNr,\n        /* --- Lieferschein --- */\n        pos.kLieferschein,\n        pos.cLieferscheinNr,\n        pos.dVersendet,\n        pos.cIdentCode,\n        va.cAmazonCarrierCode AS Carrier,\n        /* --- Lieferscheinposition --- */\n        pos.nLieferscheinPosNr,\n        pos.kLieferscheinPos,\n        pos.kBestellPos,\n        /* --- Artikel --- */\n        pos.cArtNr,\n        pos.cArtikelname,\n        pos.fMengeGeliefert,\n        pos.nMengeBestellt\nFROM        Positionen       pos\nINNER JOIN  Bestellungen     bs ON bs.kBestellung = pos.kBestellung\nLEFT  JOIN  [eazybusiness].[dbo].[tversandart] va ON va.kVersandArt = pos.kVersandArt\nLEFT  JOIN  [eazybusiness].[dbo].[tArtikel]    ta ON ta.kArtikel    = pos.kArtikel\nORDER BY bs.kBestellung, pos.dVersendet, pos.kLieferschein, pos.kLieferscheinPos;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        560
+      ],
+      "name": "JTL: Kandidaten + Vollstaendigkeit",
+      "alwaysOutputData": true,
+      "id": "6f1b53ff-eae9-41a9-b2ba-1b1e92aa4d54",
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "75c3dd79-5366-4edd-b17b-ae8efd09a296",
+              "leftValue": "={{ $json.kBestellung !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        560
+      ],
+      "name": "Treffer vorhanden?",
+      "id": "f83dee12-bb4e-43ae-b957-9969909c92d3"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        624,
+        640
+      ],
+      "name": "Kein Treffer – Ende",
+      "id": "366a7885-922b-491c-92d9-438ba85350ac"
+    },
+    {
+      "parameters": {
+        "jsCode": "// SQL liefert EINE ZEILE PRO LIEFERSCHEINPOSITION.\n// Hier: Buendelung zu einem Item pro LIEFERSCHEIN (= eine physische Sendung).\nconst config = $('Config').first().json.config;\nconst rows = $input.all().map(i => i.json)\n  .filter(r => r && r.kLieferschein !== undefined && r.kLieferschein !== null);\n\nconst txt = v => String(v ?? '').trim();\nconst map = new Map();\n\nfor (const r of rows) {\n  const key = Number(r.kLieferschein);\n  if (!map.has(key)) {\n    const nr = txt(r[config.bestellnummerFeld]);\n    map.set(key, {\n      // --- Lieferschein ---\n      kLieferschein:    key,\n      cLieferscheinNr:  txt(r.cLieferscheinNr) || null,\n      dVersendet:       r.dVersendet ?? null,\n      trackingNummer:   txt(r.cIdentCode) || null,\n      trackingCarrier:  txt(r.Carrier) || null,\n      // --- Bestellung ---\n      kBestellung:      Number(r.kBestellung),\n      bestellnummer:    nr,\n      shopifyOrderName: config.shopifyNamePrefix + nr,\n      // --- Positionen ---\n      positionen:       [],\n      runId:            $execution.id\n    });\n  }\n\n  const ls   = map.get(key);\n  const art  = txt(r[config.artikelnummerFeld]);\n  const menge = Number(r.fMengeGeliefert) || 0;\n\n  // Gleiche Artikelnummer innerhalb EINES Lieferscheins zusammenfassen\n  const vorhanden = ls.positionen.find(p => p.cArtNr === art);\n  if (vorhanden) {\n    vorhanden.mengeGeliefert += menge;\n    vorhanden.mengeBestellt  += Number(r.nMengeBestellt) || 0;\n    vorhanden.kBestellPos.push(Number(r.kBestellPos));\n  } else {\n    ls.positionen.push({\n      cArtNr:         art,\n      cArtikelname:   txt(r.cArtikelname) || null,\n      mengeGeliefert: menge,\n      mengeBestellt:  Number(r.nMengeBestellt) || 0,\n      kBestellPos:    [Number(r.kBestellPos)]\n    });\n  }\n}\n\nlet alle = [...map.values()];\n\n// Whitelist: schneidet alles ausser den genannten Bestellnummern weg.\n// Greift VOR testLimit, damit eine gezielte Bestellung nicht wegsortiert wird.\nconst weisseListe = (config.nurBestellnummern || [])\n  .map(v => String(v ?? '').trim())\n  .filter(Boolean);\nif (weisseListe.length) {\n  const erlaubteNummern = new Set(weisseListe);\n  alle = alle.filter(ls => erlaubteNummern.has(ls.bestellnummer));\n}\n\n// Chronologisch: entscheidend fuer die Restmengen-Reihenfolge im Matching\nalle.sort((a, b) =>\n  String(a.dVersendet).localeCompare(String(b.dVersendet)) ||\n  a.kLieferschein - b.kLieferschein);\n\n// testLimit begrenzt BESTELLUNGEN, nie Lieferscheine – sonst wird eine\n// Bestellung zerrissen und die Restmengen-Logik stimmt nicht mehr.\nif (config.testLimit > 0) {\n  const erlaubt = new Set();\n  for (const ls of alle) {\n    if (erlaubt.size >= config.testLimit && !erlaubt.has(ls.shopifyOrderName)) continue;\n    erlaubt.add(ls.shopifyOrderName);\n  }\n  alle = alle.filter(ls => erlaubt.has(ls.shopifyOrderName));\n}\n\nreturn alle.map(json => ({ json }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        560
+      ],
+      "name": "Lieferscheine gruppieren",
+      "id": "7cf9db96-1a96-4ff9-8703-348071e0ce0f"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lieferscheine nach Bestellung gruppieren, dann Bestellungen in Batches\n// schneiden – ein GraphQL-Lookup je Batch.\nconst config = $('Config').first().json.config;\nconst alle   = $input.all().map(i => i.json);\n\nconst perOrder = new Map();\nfor (const ls of alle) {\n  const k = ls.shopifyOrderName;\n  if (!perOrder.has(k)) {\n    perOrder.set(k, {\n      shopifyOrderName: k,\n      bestellnummer:    ls.bestellnummer,\n      kBestellung:      ls.kBestellung,\n      lieferscheine:    []\n    });\n  }\n  perOrder.get(k).lieferscheine.push(ls);\n}\n\n// Innerhalb der Bestellung: Lieferscheine in Versandreihenfolge.\nfor (const o of perOrder.values()) {\n  o.lieferscheine.sort((a, b) =>\n    String(a.dVersendet).localeCompare(String(b.dVersendet)) ||\n    a.kLieferschein - b.kLieferschein);\n  o.anzahlLieferscheine = o.lieferscheine.length;\n}\n\nconst bestellungen = [...perOrder.values()];\nconst groesse = Math.max(1, Math.min(Number(config.batchGroesse) || 25, 100));\n\nconst out = [];\nfor (let i = 0; i < bestellungen.length; i += groesse) {\n  const teil = bestellungen.slice(i, i + groesse);\n  out.push({ json: {\n    batchIndex:          out.length,\n    anzahlBestellungen:  teil.length,\n    anzahlLieferscheine: teil.reduce((s, o) => s + o.lieferscheine.length, 0),\n    bestellungen:        teil\n  }});\n}\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        560
+      ],
+      "name": "Batches bilden",
+      "id": "d238ecd6-babc-416a-8037-6493b5fd6c00"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1504,
+        560
+      ],
+      "name": "Loop Over Batches",
+      "id": "99d89a4e-bbff-425b-a313-5055458112c1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sammel-Lookup je Batch. Wir brauchen jetzt drei Dinge pro Bestellung:\n//   1. offene FulfillmentOrder-Positionen mit sku + remainingQuantity\n//   2. bereits hinterlegte Trackingnummern (Doppelt-Erkennung)\n//   3. den aktuellen Fulfillment-Status\nconst config = $('Config').first().json.config;\nconst batch  = $input.first().json;\n\nconst q = batch.bestellungen.map(o => 'name:' + o.shopifyOrderName).join(' OR ');\n\nconst query = `query($q: String!) {\n  orders(first: ${Math.max(1, batch.anzahlBestellungen)}, query: $q) {\n    edges { node {\n      id\n      name\n      closed\n      cancelledAt\n      displayFulfillmentStatus\n      fulfillments(first: ${config.fulfillmentsProBestellung}) {\n        id\n        status\n        createdAt\n        trackingInfo(first: 5) { number company }\n      }\n      fulfillmentOrders(first: ${config.foProBestellung}) {\n        edges { node {\n          id\n          status\n          lineItems(first: ${config.lineItemsProFo}) {\n            edges { node {\n              id\n              sku\n              productTitle\n              variantTitle\n              totalQuantity\n              remainingQuantity\n              lineItem { id sku name }\n            } }\n          }\n        } }\n      }\n    } }\n  }\n}`;\n\nreturn [{ json: {\n  batchIndex:          batch.batchIndex,\n  anzahlBestellungen:  batch.anzahlBestellungen,\n  anzahlLieferscheine: batch.anzahlLieferscheine,\n  bestellungen:        batch.bestellungen,\n  gqlBody: JSON.stringify({ query, variables: { q } })\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        624
+      ],
+      "name": "Query bauen (Orders-Lookup)",
+      "id": "9110acc5-a708-4cf8-a507-e59ca229c7f9"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Shopify Token holen').first().json.access_token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1920,
+        624
+      ],
+      "name": "Shopify: Orders holen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "id": "095829ab-1148-4697-8069-af6cd859a401",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// KERN: Zuordnung JTL-Lieferscheinposition -> Shopify FulfillmentOrder-Position.\n// Umschaltbar ueber config.skuMatching:\n//   true  -> ausschliesslich ueber sku\n//   false -> ausschliesslich ueber Titel (exakt, dann normalisiert)\n// Migrierte Bestellungen tragen (noch) KEINE sku auf Positionsebene (Matrixify-Import).\n// Ausgabe: ein Item pro LIEFERSCHEIN mit fertigem Plan (noch ohne Schreib-Call).\nconst config = $('Config').first().json.config;\nconst src    = $('Query bauen (Orders-Lookup)').first().json;\nconst resp   = $input.first().json;\n\nconst FO_OFFEN  = ['OPEN', 'IN_PROGRESS', 'SCHEDULED'];\nconst normName  = s => String(s ?? '').replace(/^#/, '').trim();\nconst normSku   = s => String(s ?? '').trim().toUpperCase();\nconst alsListe  = v => Array.isArray(v) ? v : (v?.edges || []).map(e => e.node);\n\n// Stufe 1: nur trimmen + Kleinschreibung\nconst titelExakt = s => String(s ?? '').trim().toLowerCase();\n// Stufe 2: Diakritika weg, alles Nicht-Alphanumerische zu einem Leerzeichen\nconst titelNorm  = s => String(s ?? '')\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .toLowerCase()\n  .replace(/[^a-z0-9]+/g, ' ')\n  .trim();\n\n// --- Harter Fehler: ganzer Batch bekommt error -------------------------\nif (resp?.error || resp?.errors) {\n  const msg = 'Orders-Lookup fehlgeschlagen: ' +\n              JSON.stringify(resp.error || resp.errors).slice(0, 500);\n  const out = [];\n  for (const best of src.bestellungen) {\n    for (const ls of best.lieferscheine) {\n      out.push({ json: { ...ls, batchIndex: src.batchIndex,\n        shopifyStatus: 'error', shopifyAktion: 'skip', shopifyMessage: msg,\n        zuordnung: [], lineItemsByFulfillmentOrder: [], matchStufen: [],\n        summeGeliefert: ls.positionen.reduce((s, p) => s + p.mengeGeliefert, 0),\n        summeZugeordnet: 0 } });\n    }\n  }\n  return out;\n}\n\nconst gefunden = new Map();\nfor (const e of (resp?.data?.orders?.edges || [])) {\n  gefunden.set(normName(e.node.name), e.node);\n}\n\nconst out = [];\n\nfor (const best of src.bestellungen) {\n  const order = gefunden.get(normName(best.shopifyOrderName));\n\n  // ---- Bestellung nicht in Shopify -----------------------------------\n  if (!order) {\n    for (const ls of best.lieferscheine) {\n      out.push({ json: { ...ls, batchIndex: src.batchIndex,\n        shopifyStatus: 'skipped_not_found', shopifyAktion: 'skip',\n        shopifyMessage: 'Keine Shopify-Bestellung mit name=' + ls.shopifyOrderName,\n        zuordnung: [], lineItemsByFulfillmentOrder: [], matchStufen: [],\n        summeGeliefert: ls.positionen.reduce((s, p) => s + p.mengeGeliefert, 0),\n        summeZugeordnet: 0 } });\n    }\n    continue;\n  }\n\n  // ---- vorhandene Trackingnummern (Doppelt-Erkennung) ----------------\n  const trackingVorhanden = new Set();\n  for (const f of alsListe(order.fulfillments)) {\n    for (const t of alsListe(f?.trackingInfo)) {\n      if (t?.number) trackingVorhanden.add(normSku(t.number));\n    }\n  }\n\n  // ---- Restmengen-Pool aus den OFFENEN FulfillmentOrders -------------\n  const pool      = [];\n  const skusInFo  = new Set();\n  const foPosAlle = [];\n  const foStatusListe = [];\n\n  for (const fe of (order.fulfillmentOrders?.edges || [])) {\n    const fo = fe.node;\n    foStatusListe.push(fo.status);\n    for (const le of (fo.lineItems?.edges || [])) {\n      const li    = le.node;\n      const sku   = normSku(li.sku ?? li.lineItem?.sku);\n      const titel = li.productTitle || li.lineItem?.name || null;\n      if (sku) skusInFo.add(sku);\n      foPosAlle.push({\n        foStatus: fo.status, sku: sku || null, titel,\n        variante: li.variantTitle || null,\n        gesamt: Number(li.totalQuantity) || 0,\n        rest:   Number(li.remainingQuantity) || 0\n      });\n      if (!FO_OFFEN.includes(fo.status)) continue;\n      const rest = Number(li.remainingQuantity) || 0;\n      if (rest <= 0) continue;\n      pool.push({\n        foId: fo.id, foliId: li.id, sku, titel, rest,\n        tExakt: titelExakt(titel), tNorm: titelNorm(titel)\n      });\n    }\n  }\n\n  // ---- Kollisionsschutz Stufe 2 --------------------------------------\n  // Normalisieren darf zwei verschiedene Artikel nicht auf denselben\n  // Schluessel zusammenfallen lassen. Solche Schluessel werden gesperrt.\n  const normGruppen = new Map();\n  for (const k of pool) {\n    if (!k.tNorm) continue;\n    if (!normGruppen.has(k.tNorm)) normGruppen.set(k.tNorm, new Set());\n    normGruppen.get(k.tNorm).add(k.tExakt);\n  }\n  const normGesperrt = new Set(\n    [...normGruppen.entries()].filter(([, v]) => v.size > 1).map(([k]) => k));\n\n  // ---- Lieferscheine in Versandreihenfolge abarbeiten ----------------\n  for (const ls of best.lieferscheine) {\n    const basis = { ...ls,\n      batchIndex:                 src.batchIndex,\n      shopifyOrderId:             order.id,\n      shopifyOrderNameGefunden:   order.name,\n      shopifyOrderClosed:         !!order.closed,\n      shopifyStatusVorher:        order.displayFulfillmentStatus,\n      anzahlFulfillmentOrders:    foStatusListe.length,\n      fulfillmentOrderStatus:     foStatusListe,\n      offeneShopifyPositionen:    pool.filter(p => p.rest > 0).length,\n      shopifySkus:                [...skusInFo],\n      shopifyFoPositionen:        foPosAlle,\n      anzahlFoPositionen:         foPosAlle.length,\n      anzahlFoPositionenOhneSku:  foPosAlle.filter(p => !p.sku).length,\n      normSchluesselGesperrt:     config.skuMatching ? [] : [...normGesperrt],\n      matchingModus:              config.skuMatching ? 'sku' : 'titel'\n    };\n    const skip = (status, message) => out.push({ json: { ...basis,\n      shopifyAktion: 'skip', shopifyStatus: status, shopifyMessage: message,\n      zuordnung: [], summeGeliefert: ls.positionen.reduce((s, p) => s + p.mengeGeliefert, 0),\n      summeZugeordnet: 0, lineItemsByFulfillmentOrder: [], matchStufen: [] } });\n\n    if (order.cancelledAt) { skip('skipped_cancelled', 'Bestellung in Shopify storniert'); continue; }\n\n    if (ls.trackingNummer && trackingVorhanden.has(normSku(ls.trackingNummer))) {\n      skip('skipped_already_shipped',\n           'Trackingnummer ' + ls.trackingNummer + ' ist in Shopify bereits hinterlegt');\n      continue;\n    }\n\n    // ---- Positionsweise zuordnen ------------------------------------\n    const zuordnung = [];\n    const perFo     = new Map();\n\n    for (const p of ls.positionen) {\n      const pSku   = normSku(p.cArtNr);\n      const pExakt = titelExakt(p.cArtikelname);\n      const pNorm  = titelNorm(p.cArtikelname);\n\n      // Aktive Stufen ergeben sich aus config.skuMatching.\n      const stufen = config.skuMatching\n        ? [ { name: 'sku',         passt: k => !!pSku   && !!k.sku    && k.sku    === pSku } ]\n        : [ { name: 'titel_exakt', passt: k => !!pExakt && !!k.tExakt && k.tExakt === pExakt },\n            { name: 'titel_norm',  passt: k => !!pNorm  && !!k.tNorm  && k.tNorm  === pNorm\n                                               && !normGesperrt.has(pNorm) } ];\n\n      let offen = Math.round(Number(p.mengeGeliefert) || 0);\n      const treffer    = [];\n      const stufenUsed = [];\n\n      for (const stufe of stufen) {\n        if (offen <= 0) break;\n        for (const k of pool) {\n          if (offen <= 0) break;\n          if (k.rest <= 0 || !stufe.passt(k)) continue;\n          const n = Math.min(offen, k.rest);\n          k.rest -= n;\n          offen  -= n;\n          treffer.push({ fulfillmentOrderId: k.foId, fulfillmentOrderLineItemId: k.foliId,\n                         menge: n, stufe: stufe.name, shopifyTitel: k.titel });\n          if (!stufenUsed.includes(stufe.name)) stufenUsed.push(stufe.name);\n          if (!perFo.has(k.foId)) perFo.set(k.foId, []);\n          perFo.get(k.foId).push({ id: k.foliId, quantity: n });\n        }\n      }\n\n      // Diagnose bei Nichttreffern – NIE zum Zuordnen verwendet, nur protokolliert.\n      let aehnlich = null;\n      if (!treffer.length && pNorm) {\n        const kand = pool.filter(k => k.tNorm &&\n          (k.tNorm.includes(pNorm) || pNorm.includes(k.tNorm)));\n        if (kand.length) aehnlich = kand.map(k => k.titel);\n      }\n      // Im sku-Modus: haette der Titel gepasst? Zeigt den Pflegefortschritt an.\n      const titelWuerdePassen = (config.skuMatching && !treffer.length && !!pExakt)\n        ? pool.some(k => k.rest > 0 && k.tExakt === pExakt)\n        : false;\n\n      const zugeordnet = Math.round(Number(p.mengeGeliefert) || 0) - offen;\n      let pStatus;\n      if (zugeordnet > 0 && offen === 0)        pStatus = 'ok';\n      else if (zugeordnet > 0)                  pStatus = 'teilweise';\n      else if (config.skuMatching) {\n        if (!pSku)                              pStatus = 'jtl_ohne_artikelnummer';\n        else if (titelWuerdePassen)             pStatus = 'sku_fehlt_titel_wuerde_passen';\n        else if (skusInFo.has(pSku))            pStatus = 'kein_rest_offen';\n        else                                    pStatus = 'sku_nicht_in_shopify';\n      } else {\n        if (normGesperrt.has(pNorm))            pStatus = 'titel_mehrdeutig';\n        else if (aehnlich)                      pStatus = 'titel_nur_aehnlich';\n        else                                    pStatus = 'titel_nicht_gefunden';\n      }\n\n      zuordnung.push({\n        cArtNr:              p.cArtNr,\n        cArtikelname:        p.cArtikelname,\n        mengeGeliefert:      p.mengeGeliefert,\n        mengeZugeordnet:     zugeordnet,\n        mengeOffenGeblieben: offen,\n        status:              pStatus,\n        stufen:              stufenUsed,\n        titelWuerdePassen,\n        aehnlicheTitel:      aehnlich,\n        treffer\n      });\n    }\n\n    const summeGeliefert  = zuordnung.reduce((s, z) => s + (Number(z.mengeGeliefert) || 0), 0);\n    const summeZugeordnet = zuordnung.reduce((s, z) => s + z.mengeZugeordnet, 0);\n    const matchStufen     = [...new Set(zuordnung.flatMap(z => z.stufen))];\n    const lineItemsByFulfillmentOrder = [...perFo.entries()]\n      .map(([foId, items]) => ({ fulfillmentOrderId: foId, fulfillmentOrderLineItems: items }));\n\n    // ---- Entscheidung ----------------------------------------------\n    let status, aktion, msg = null;\n    if (summeZugeordnet > 0) {\n      const teil = zuordnung.some(z => z.mengeOffenGeblieben > 0);\n      status = config.dryRun ? 'ready_dry_run' : 'ready';\n      aktion = config.dryRun ? 'dry_run' : 'create';\n      if (teil) msg = 'TEILZUORDNUNG – nicht alle Lieferscheinpositionen konnten zugeordnet werden';\n      if (matchStufen.includes('titel_norm')) {\n        msg = (msg ? msg + ' | ' : '') +\n              'Treffer nur ueber normalisierten Titel – pruefen';\n      }\n    } else if (order.displayFulfillmentStatus === 'FULFILLED') {\n      status = 'skipped_already_fulfilled';\n      aktion = 'skip';\n      msg    = 'Bestellung in Shopify bereits vollstaendig versendet';\n    } else if (!pool.length) {\n      status = 'skipped_no_open_lineitems';\n      aktion = 'skip';\n      msg    = 'Keine offene FulfillmentOrder-Position (Status: ' + order.displayFulfillmentStatus + ')';\n    } else {\n      status = 'skipped_no_match';\n      aktion = 'skip';\n      msg    = config.skuMatching\n        ? (zuordnung.some(z => z.titelWuerdePassen)\n            ? 'Keine sku zuordenbar – Titel wuerde passen, sku in Shopify noch nicht gepflegt'\n            : 'Keine Position ueber sku zuordenbar')\n        : 'Keine Position ueber den Titel zuordenbar';\n    }\n\n    out.push({ json: { ...basis,\n      shopifyAktion: aktion, shopifyStatus: status, shopifyMessage: msg,\n      zuordnung, summeGeliefert, summeZugeordnet, matchStufen,\n      lineItemsByFulfillmentOrder } });\n  }\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        624
+      ],
+      "name": "Lookup-Antwort auswerten",
+      "id": "073bda5f-7219-47ae-b1a5-7772a55359e9"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2a5a184a-1068-4422-8f74-4ee9e449afd1",
+              "leftValue": "={{ $json.shopifyAktion === 'create' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2368,
+        624
+      ],
+      "name": "Fulfillment anlegen?",
+      "id": "b1890bd1-4fff-4ce3-87ed-ae1610405195"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2368,
+        1008
+      ],
+      "name": "Wait (Rate-Limit)",
+      "webhookId": "ce2f0b13-0dc0-4635-91b2-134fe5f5c81a",
+      "id": "9c6758e9-de48-461e-9b5d-773a52edb9c9"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Body fuer fulfillmentCreate – positionsgenau, ein Call pro Lieferschein.\nconst config = $('Config').first().json.config;\nconst item   = $input.first().json;\n\nconst fulfillment = {\n  notifyCustomer: config.notifyCustomer,\n  lineItemsByFulfillmentOrder: item.lineItemsByFulfillmentOrder\n};\n\nif (config.trackingSenden && item.trackingNummer) {\n  fulfillment.trackingInfo = {\n    number:  item.trackingNummer,\n    company: item.trackingCarrier || 'DHL'\n  };\n}\n\nconst body = {\n  query: `mutation fulfillmentCreate($fulfillment: FulfillmentInput!) {\n    fulfillmentCreate(fulfillment: $fulfillment) {\n      fulfillment {\n        id\n        status\n        createdAt\n        totalQuantity\n        trackingInfo(first: 5) { number company url }\n      }\n      userErrors { field message }\n    }\n  }`,\n  variables: { fulfillment }\n};\n\nreturn [{ json: { ...item, gqlBody: JSON.stringify(body) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        1088
+      ],
+      "name": "⚠️ Query bauen (fulfillmentCreate)",
+      "id": "b0a58012-6842-4fa2-8b0b-2322721de44f"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Shopify Token holen').first().json.access_token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1920,
+        1088
+      ],
+      "name": "⚠️ Shopify: fulfillmentCreate",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "id": "da38835d-ed56-4893-accf-5efd5ae25c3e",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const src  = $('⚠️ Query bauen (fulfillmentCreate)').item.json;\nconst resp = $input.first().json;\n\nif (resp?.error || resp?.errors) {\n  return [{ json: { ...src, shopifyStatus: 'error',\n    shopifyMessage: 'HTTP/GraphQL-Fehler: ' + JSON.stringify(resp.error || resp.errors).slice(0, 500) } }];\n}\n\nconst res  = resp?.data?.fulfillmentCreate;\nconst errs = res?.userErrors || [];\nif (errs.length) {\n  return [{ json: { ...src, shopifyStatus: 'error',\n    shopifyMessage: 'userErrors: ' + JSON.stringify(errs) } }];\n}\n\nreturn [{ json: { ...src, shopifyStatus: 'done', shopifyMessage: null,\n                  shopifyFulfillmentId: res?.fulfillment?.id || null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        1088
+      ],
+      "name": "⚠️ Fulfillment-Ergebnis pruefen",
+      "id": "aa68be23-8b28-48c8-8371-6f3358ce94a8"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Zusammenfassung ueber alle Batches. Kein Schreibzugriff.\nconst config = $('Config').first().json.config;\nconst zeilen = $input.all().map(i => i.json);\n\nconst zaehler = {};\nfor (const z of zeilen) zaehler[z.entscheidung] = (zaehler[z.entscheidung] || 0) + 1;\n\nconst bestellungen = new Set(zeilen.map(z => z.bestellnummer));\nconst wuerdeMelden = zeilen.filter(z => z.wuerdeMelden === 'JA');\nconst teilzuordnung = wuerdeMelden.filter(z => (z.hinweis || '').startsWith('TEILZUORDNUNG'));\nconst stufenZaehler = {};\nfor (const z of zeilen) stufenZaehler[z.matchStufen] = (stufenZaehler[z.matchStufen] || 0) + 1;\n\nconst mollieZaehler = {};\nfor (const z of zeilen) {\n  const k = z.mollieStatus ?? '(kein Mollie-Durchlauf)';\n  mollieZaehler[k] = (mollieZaehler[k] || 0) + 1;\n}\n\nconst problemStatus = ['skipped_no_match', 'skipped_not_found', 'skipped_no_open_lineitems', 'error'];\nconst probleme = zeilen.filter(z => problemStatus.includes(z.entscheidung));\n\nconst esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst trStat = Object.entries(zaehler).sort((a,b)=>b[1]-a[1])\n  .map(([k,v]) => '<tr><td>' + esc(k) + '</td><td align=\"right\">' + v + '</td></tr>').join('');\n\nconst spalten = ['bestellnummer','cLieferscheinNr','versendetAm','shopifyStatusVorher',\n                 'positionenJTL','zuordnung','matchStufen','wuerdeMelden',\n                 'entscheidung','hinweis','titelWuerdePassen'];\nconst kopf = '<tr>' + spalten.map(s => '<th align=\"left\">' + s + '</th>').join('') + '</tr>';\nconst body = zeilen.slice(0, 200).map(z =>\n  '<tr>' + spalten.map(s => '<td>' + esc(z[s]) + '</td>').join('') + '</tr>').join('');\n\nconst zusammenfassung = {\n  runId:                 $execution.id,\n  dryRun:                config.dryRun,\n  fensterMinuten:        config.fensterMinuten,\n  testLimit:             config.testLimit,\n  matchingModus:         config.skuMatching ? 'sku' : 'titel',\n  lieferscheineGesamt:   zeilen.length,\n  bestellungenGesamt:    bestellungen.size,\n  wuerdeGemeldet:        wuerdeMelden.length,\n  davonTeilzuordnung:    teilzuordnung.length,\n  proEntscheidung:       zaehler,\n  proMatchStufe:         stufenZaehler,\n  proMollieStatus:       mollieZaehler,\n  problemfaelle:         probleme.length,\n  skuFehltTitelPasst:    zeilen.filter(z => z.titelWuerdePassen === 'JA').length,\n  problemBeispiele:      probleme.slice(0, 25).map(z => ({\n                            bestellnummer: z.bestellnummer,\n                            lieferschein: z.cLieferscheinNr,\n                            entscheidung: z.entscheidung,\n                            positionen: z.positionenJTL,\n                            hinweis: z.hinweis })),\n  teilzuordnungBeispiele: teilzuordnung.slice(0, 25).map(z => ({\n                            bestellnummer: z.bestellnummer,\n                            lieferschein: z.cLieferscheinNr,\n                            zuordnung: z.zuordnung }))\n};\n\nreturn [{ json: {\n  ...zusammenfassung,\n  tabelle: zeilen,\n  titel:  'JTL -> Shopify Fulfillment DEBUG – Run ' + $execution.id,\n  sendto: config.reportEmpfaenger,\n  mailText:\n    '<h3>JTL &rarr; Shopify Fulfillment (Debug)</h3>' +\n    '<p>Modus: <b>' + (config.skuMatching ? 'sku' : 'titel') +\n      '</b> &middot; Dry-Run: <b>' + config.dryRun + '</b> &middot; Fenster: <b>' +\n      config.fensterMinuten + ' min</b><br>' +\n    'Lieferscheine: <b>' + zeilen.length + '</b> aus <b>' + bestellungen.size +\n      '</b> Bestellungen &middot; wuerde melden: <b>' + wuerdeMelden.length + '</b>' +\n      ' (davon Teilzuordnung: ' + teilzuordnung.length + ')' +\n      (config.skuMatching\n        ? '<br>Ohne sku, aber Titel wuerde passen: <b>' +\n          zeilen.filter(z => z.titelWuerdePassen === 'JA').length + '</b>'\n        : '') + '</p>' +\n    '<table border=\"1\" cellpadding=\"4\" cellspacing=\"0\">' + trStat + '</table>' +\n    '<h4>Mollie (Path B)</h4><table border=\"1\" cellpadding=\"4\" cellspacing=\"0\">' +\n      Object.entries(mollieZaehler).sort((a,b)=>b[1]-a[1])\n        .map(([k,v]) => '<tr><td>' + esc(k) + '</td><td align=\"right\">' + v + '</td></tr>').join('') +\n      '</table>' +\n    '<h4>Matching-Stufen</h4><table border=\"1\" cellpadding=\"4\" cellspacing=\"0\">' +\n      Object.entries(stufenZaehler).sort((a,b)=>b[1]-a[1])\n        .map(([k,v]) => '<tr><td>' + esc(k) + '</td><td align=\"right\">' + v + '</td></tr>').join('') +\n      '</table>' +\n    '<h4>Detail (max. 200)</h4>' +\n    '<table border=\"1\" cellpadding=\"4\" cellspacing=\"0\" style=\"font-size:11px\">' +\n      kopf + body + '</table>'\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        560
+      ],
+      "name": "Auswertung bauen",
+      "id": "0b274c12-b35c-4403-927b-05923ded3dd2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "54bf65b9-941d-4520-88e4-6240f32942cf",
+              "leftValue": "={{ $('Config').first().json.config.reportMailSenden }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4784,
+        560
+      ],
+      "name": "Report mailen?",
+      "id": "788316d8-aef3-4348-aa9e-0a44b8d7e8a0"
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "={{ $json.sendto }}",
+        "subject": "={{ $json.titel }}",
+        "html": "={{ $json.mailText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        5008,
+        496
+      ],
+      "name": "Report-Mail",
+      "webhookId": "a9db9a3d-088b-4cfe-a8f5-17015bfec9c9",
+      "id": "46ec669f-8c9a-48b2-9385-6805bbb16ccd",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      },
+      "notes": "⚠️ PLATZHALTER: Empfaenger in CONFIG.reportEmpfaenger"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        5008,
+        640
+      ],
+      "name": "Ende",
+      "id": "af59f256-ced6-402c-94c1-267eba3641be"
+    },
+    {
+      "parameters": {
+        "jsCode": "// FLACHE DEBUG-TABELLE: eine Zeile pro Lieferschein.\n// In n8n als Table-View lesbar – zeigt Zuordnung und geplante Aktion.\nconst config = $('Config').first().json.config;\nconst items  = $input.all().map(i => i.json)\n  .filter(i => i && i.kLieferschein !== undefined);\n\nconst perOrder = {};\nfor (const i of items) perOrder[i.bestellnummer] = (perOrder[i.bestellnummer] || 0) + 1;\n\nconst posText = z =>\n  z.cArtNr + ' ' + z.mengeZugeordnet + '/' + z.mengeGeliefert +\n  (z.stufen && z.stufen.length ? ' <' + z.stufen.join('+') + '>' : '') +\n  (z.status === 'ok' ? '' : ' [' + z.status + ']');\n\nitems.sort((a, b) =>\n  String(a.bestellnummer).localeCompare(String(b.bestellnummer)) ||\n  String(a.dVersendet).localeCompare(String(b.dVersendet)));\n\nreturn items.map(i => {\n  const z = i.zuordnung || [];\n  return { json: {\n    // --- Bestellung ---\n    bestellnummer:            i.bestellnummer,\n    lieferscheineDerBestellung: perOrder[i.bestellnummer] || 1,\n    kBestellung:              i.kBestellung,\n    // --- Lieferschein ---\n    cLieferscheinNr:          i.cLieferscheinNr,\n    versendetAm:              i.dVersendet,\n    trackingNummer:           i.trackingNummer,\n    carrier:                  i.trackingCarrier,\n    // --- Shopify vorher ---\n    shopifyGefunden:          i.shopifyOrderId ? 'ja' : 'nein',\n    shopifyStatusVorher:      i.shopifyStatusVorher ?? null,\n    shopifyOrderClosed:       i.shopifyOrderClosed ?? null,\n    offeneShopifyPositionen:  i.offeneShopifyPositionen ?? null,\n    // --- Zuordnung ---\n    positionenJTL:            (i.positionen || []).map(x => x.cArtNr + ' x' + x.mengeGeliefert).join(' | '),\n    shopifySkus:              (i.shopifySkus && i.shopifySkus.length)\n                                ? i.shopifySkus.join(' | ')\n                                : (i.anzahlFoPositionen ? '(alle Positionen OHNE sku)' : '(keine FO-Position)'),\n    shopifyPositionen:        (i.shopifyFoPositionen || []).map(p =>\n                                (p.sku || '(ohne sku)') + ' rest=' + p.rest +\n                                (p.titel ? ' «' + p.titel + '»' : '')).join(' | '),\n    foPositionenOhneSku:      i.anzahlFoPositionenOhneSku ?? null,\n    matchingModus:            i.matchingModus ?? (config.skuMatching ? 'sku' : 'titel'),\n    matchStufen:              (i.matchStufen || []).join(' + ') || '-',\n    titelWuerdePassen:        (i.zuordnung || []).some(x => x.titelWuerdePassen) ? 'JA' : '',\n    aehnlicheTitel:           ((i.zuordnung || [])\n                                .flatMap(x => x.aehnlicheTitel || [])\n                                .join(' | ')) || '',\n    zuordnung:                z.length ? z.map(posText).join(' | ') : '(nicht geprueft)',\n    mengeGeliefert:           i.summeGeliefert ?? null,\n    mengeZugeordnet:          i.summeZugeordnet ?? null,\n    // --- Entscheidung ---\n    wuerdeMelden:             (i.summeZugeordnet > 0) ? 'JA' : 'nein',\n    entscheidung:             i.shopifyStatus,\n    aktion:                   i.shopifyAktion,\n    hinweis:                  i.shopifyMessage,\n    anzahlFulfillmentCalls:   (i.lineItemsByFulfillmentOrder || []).length,\n    // --- Rohdaten fuer Detailanalyse ---\n    _plan:                    i.lineItemsByFulfillmentOrder || [],\n    _zuordnungDetail:         z,\n    _shopifyOrderId:          i.shopifyOrderId ?? null,\n    dryRun:                   config.dryRun,\n    runId:                    i.runId\n  }};\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        544
+      ],
+      "id": "54d96b41-e577-413d-a854-d2c0512f2274",
+      "name": "Debug-Tabelle"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================================\n// ZENTRALE KONFIGURATION – hier pflegen\n// DEBUG-STAND: Lieferschein-basiertes Fulfillment (Ansatz A), rein lesend.\n// =====================================================================\nconst CONFIG = {\n  // --- Zeitfenster ------------------------------------------------------\n  fensterMinuten: 5000,              // Debug-Fenster (~50 h)\n  zeitzone: 'Europe/Berlin',\n\n  // --- Abgrenzung der Altbestellungen (verifiziert 2026-08-10) ----------\n  kShopAlt: 3,                       // migrierter WooCommerce-Shop (in der SQL fest)\n  bestellnummerFeld: 'cBestellNr',   // entspricht Shopify order.name (ohne '#')\n  artikelnummerFeld: 'cArtNr',       // Quelle fuer den sku-Abgleich\n\n  // --- Matching-Modus ---------------------------------------------------\n  // true  = Abgleich AUSSCHLIESSLICH ueber sku (cArtNr <-> Shopify sku)\n  // false = Abgleich AUSSCHLIESSLICH ueber Titel (exakt, dann normalisiert)\n  // Umstellen, sobald die sku in den Shopify-Bestellungen gepflegt sind.\n  // Im sku-Modus meldet der Report zusaetzlich, bei welchen Positionen der\n  // Titel gepasst haette -> Fortschrittsanzeige fuer die Nachpflege.\n  skuMatching: false,\n  shopifyNamePrefix: '',\n\n  // --- Shopify ----------------------------------------------------------\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n  batchGroesse: 25,                  // Bestellungen pro GraphQL-Sammelabfrage\n  foProBestellung: 10,               // FulfillmentOrders je Bestellung\n  lineItemsProFo: 50,                // Positionen je FulfillmentOrder\n  fulfillmentsProBestellung: 25,     // vorhandene Fulfillments (Trackingnr-Abgleich)\n\n  // --- Betrieb ----------------------------------------------------------\n  // Whitelist fuer kontrollierte Erstlaeufe. Leeres Array = kein Filter.\n  // Beispiel: ['2038576']  -> es wird ausschliesslich diese Bestellung verarbeitet.\n  nurBestellnummern: ['2038660'],\n  testLimit: 0,        // 0 = alle Bestellungen; >0 = nur die ersten N (Testbetrieb)\n  dryRun: false,        // true = KEIN Schreib-Call an Shopify\n  notifyCustomer: false,\n  trackingSenden: true,   // Trackingnr des Lieferscheins mitschicken\n  reportMailSenden: true,\n\n  // --- PATH B: Mollie ---------------------------------------------------\n  // GRUNDGERUEST. Alles hier ist noch nicht verifiziert.\n  mollieAktiv:        false,   // false = Mollie-Schleife laeuft, meldet aber nur 'deaktiviert'\n  mollieDryRun:       true,    // true  = kein Schreib-Call an Mollie\n  mollieBasisUrl:     'https://api.mollie.com/v2',\n  // Nur bei diesen JTL-Zahlungsarten ist ein Mollie-Vorgang zu erwarten.\n  // 12 = Klarna/Rechnung laut bisheriger Analyse – PLATZHALTER, bitte pruefen.\n  mollieZahlungsartIds: [12],\n  // true = Mollie erst ansprechen, wenn die Shopify-Bestellung vollstaendig\n  // versendet ist. Braucht 'shopifyStatusNachher' – siehe TODO im Kandidaten-Node.\n  mollieNurBeiVollstaendig: true,\n  reportEmpfaenger: 'jesse.balsam@buecherbuechse.de'\n};\n\nreturn [{ json: { config: CONFIG } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        560
+      ],
+      "name": "Config",
+      "id": "01d983ad-64db-4a65-9a2d-37b4b977149d"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================================\n// SQL-Ergebnis als CSV-Datei ausgeben (Paralleler Zweig, rein lesend)\n// Node-Typ: Code  |  Modus: \"Run Once for All Items\"\n// Eingang:  direkt vom SQL-Node \"JTL: Kandidaten + Vollstaendigkeit\"\n// Ausgang:  ein Item mit Binaerdatei -> im Ausgabefenster herunterladbar\n// =====================================================================\n\n// --- Einstellungen ----------------------------------------------------\nconst TRENNZEICHEN   = ';';     // ';' fuer deutsches Excel, ',' fuer international\nconst DEZIMALKOMMA   = true;    // true -> 1,5   false -> 1.5\nconst BOM            = true;    // true -> Excel erkennt UTF-8 (Umlaute korrekt)\nconst DATUM_LOKAL    = true;    // true -> 10.08.2026 13:35:08, false -> ISO-Rohwert\nconst DATEINAME      = 'jtl-lieferscheinpositionen';\n\n// --- Rohdaten ---------------------------------------------------------\nconst zeilen = $input.all()\n  .map(i => i.json)\n  .filter(r => r && Object.keys(r).length > 0);\n\nif (!zeilen.length) {\n  return [{ json: { zeilen: 0, hinweis: 'Keine Daten – keine CSV erzeugt' } }];\n}\n\n// --- Spalten in Reihenfolge des ersten Auftretens ----------------------\nconst spalten = [];\nfor (const z of zeilen) {\n  for (const k of Object.keys(z)) {\n    if (!spalten.includes(k)) spalten.push(k);\n  }\n}\n\n// --- Formatierung -----------------------------------------------------\nconst istIsoDatum = v =>\n  typeof v === 'string' && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}/.test(v);\n\nconst formatiereDatum = v => {\n  const d = new Date(v);\n  if (isNaN(d.getTime())) return v;\n  const p = n => String(n).padStart(2, '0');\n  return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear() +\n         ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());\n};\n\nconst alsText = v => {\n  if (v === null || v === undefined) return '';\n  if (typeof v === 'number') {\n    return DEZIMALKOMMA ? String(v).replace('.', ',') : String(v);\n  }\n  if (typeof v === 'boolean') return v ? 'ja' : 'nein';\n  if (v instanceof Date) return formatiereDatum(v.toISOString());\n  if (typeof v === 'object') return JSON.stringify(v);\n  if (DATUM_LOKAL && istIsoDatum(v)) return formatiereDatum(v);\n  return String(v);\n};\n\n// RFC 4180: Feld quoten, wenn Trennzeichen, Anfuehrungszeichen oder\n// Zeilenumbruch enthalten sind; enthaltene Anfuehrungszeichen verdoppeln.\nconst feld = v => {\n  const s = alsText(v);\n  return /[\"\\r\\n]/.test(s) || s.includes(TRENNZEICHEN)\n    ? '\"' + s.replace(/\"/g, '\"\"') + '\"'\n    : s;\n};\n\n// --- CSV bauen --------------------------------------------------------\nconst csvZeilen = [ spalten.join(TRENNZEICHEN) ];\nfor (const z of zeilen) {\n  csvZeilen.push(spalten.map(s => feld(z[s])).join(TRENNZEICHEN));\n}\nconst csv = (BOM ? '\\uFEFF' : '') + csvZeilen.join('\\r\\n') + '\\r\\n';\n\n// --- Dateiname mit Zeitstempel ---------------------------------------\nconst jetzt = new Date();\nconst p = n => String(n).padStart(2, '0');\nconst stempel = jetzt.getFullYear() + p(jetzt.getMonth() + 1) + p(jetzt.getDate()) +\n                '-' + p(jetzt.getHours()) + p(jetzt.getMinutes());\nconst dateiname = DATEINAME + '-' + stempel + '.csv';\n\n// --- Ausgabe ----------------------------------------------------------\nreturn [{\n  json: {\n    dateiname,\n    zeilen:  zeilen.length,\n    spalten: spalten.length,\n    spaltennamen: spalten,\n    groesseKB: Math.round(Buffer.byteLength(csv, 'utf8') / 1024 * 10) / 10,\n    runId: $execution.id\n  },\n  binary: {\n    data: {\n      data:          Buffer.from(csv, 'utf8').toString('base64'),\n      mimeType:      'text/csv',\n      fileName:      dateiname,\n      fileExtension: 'csv'\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        992
+      ],
+      "id": "ad7105b8-4c45-4f16-aadb-556d6794ab8a",
+      "name": "Debug CSV"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PATH B – Schritt 1: Wer kommt fuer Mollie ueberhaupt in Frage?\n// Eingang: die flachen Zeilen aus 'Debug-Tabelle' (= Ergebnis der Shopify-Schleife).\n// Die Shopify-Schleife ist an dieser Stelle KOMPLETT durchgelaufen.\nconst config = $('Config').first().json.config;\nconst zeilen = $input.all().map(i => i.json);\n\n// Shopify-Ausgaenge, nach denen ein Mollie-Vorgang sinnvoll ist.\nconst SHOPIFY_OK = ['done', 'ready', 'ready_dry_run', 'skipped_already_shipped',\n                    'skipped_already_fulfilled'];\n\nconst out = zeilen.map(z => {\n  const basis = {\n    ...z,\n    mollieId:      null,\n    mollieAktion:  'skip',\n    mollieStatus:  null,\n    mollieMessage: null,\n    mollieResponse: null\n  };\n\n  if (!config.mollieAktiv) {\n    return { json: { ...basis, mollieStatus: 'deaktiviert',\n      mollieMessage: 'config.mollieAktiv = false' } };\n  }\n\n  if (!SHOPIFY_OK.includes(z.entscheidung)) {\n    return { json: { ...basis, mollieStatus: 'skipped_kein_shopify_erfolg',\n      mollieMessage: 'Shopify-Ergebnis: ' + z.entscheidung } };\n  }\n\n  // ---------------------------------------------------------------------\n  // TODO / PLATZHALTER\n  // Der fachlich richtige Ausloeser ist: Bestellung in Shopify ist NACH dem\n  // Fulfillment vollstaendig versendet (displayFulfillmentStatus = FULFILLED).\n  // Dieses Feld existiert derzeit NICHT – die fulfillmentCreate-Antwort liefert\n  // nur das Fulfillment, nicht den neuen Bestellstatus.\n  // Zu ergaenzen: im Node '⚠️ Query bauen (fulfillmentCreate)' die Mutation um\n  //   fulfillment { order { displayFulfillmentStatus } }\n  // erweitern und den Wert in '⚠️ Fulfillment-Ergebnis pruefen' als\n  // 'shopifyStatusNachher' durchreichen.\n  // Solange das fehlt, wird ersatzweise der Stand VOR dem Fulfillment\n  // herangezogen – das ist bewusst unscharf und darf nicht scharf gehen.\n  // ---------------------------------------------------------------------\n  const statusNachher = z.shopifyStatusNachher ?? null;\n\n  if (config.mollieNurBeiVollstaendig) {\n    if (statusNachher === null) {\n      return { json: { ...basis, mollieStatus: 'offen_status_unbekannt',\n        mollieMessage: 'PLATZHALTER: shopifyStatusNachher fehlt – siehe TODO im Node' } };\n    }\n    if (statusNachher !== 'FULFILLED') {\n      return { json: { ...basis, mollieStatus: 'skipped_nicht_vollstaendig',\n        mollieMessage: 'Shopify-Status nach Fulfillment: ' + statusNachher } };\n    }\n  }\n\n  // Kandidat – die Mollie-ID holt der naechste Node aus JTL.\n  return { json: { ...basis, mollieStatus: 'kandidat' } };\n});\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        544
+      ],
+      "id": "05204b3e-e6b0-49e6-97da-955e26e60cbc",
+      "name": "Mollie-Kandidaten bauen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PATH B – Schritt 3: Aus der JTL-Zahlung die Mollie-Aktion ableiten.\n// Eingang 'Loop Mollie' = das Item, Eingang SQL = die Zahlungszeile(n).\n// PLATZHALTER: Feldnamen und Endpunktwahl sind noch nicht verifiziert.\nconst config = $('Config').first().json.config;\nconst item   = $('Loop Mollie').first().json;\n\n// Der SQL-Node ist im Grundgeruest deaktiviert -> Eingang kann leer sein.\nconst zahlung = $input.all().map(i => i.json).find(r => r && Object.keys(r).length) || null;\n\nconst basis = { ...item };\n\n// Frueh raus, wenn schon der Kandidaten-Node abgewunken hat.\nif (item.mollieStatus && item.mollieStatus !== 'kandidat') {\n  return [{ json: basis }];\n}\n\nif (!zahlung) {\n  return [{ json: { ...basis, mollieAktion: 'skip',\n    mollieStatus: 'offen_keine_zahlung',\n    mollieMessage: 'PLATZHALTER: SQL-Node deaktiviert oder keine Zahlung gefunden' } }];\n}\n\nconst mollieId = String(zahlung.MollieId ?? '').trim();\n\nif (!mollieId) {\n  return [{ json: { ...basis, mollieAktion: 'skip',\n    mollieStatus: 'skipped_keine_mollie_id',\n    mollieMessage: 'cExternalTransactionId ist leer' } }];\n}\n\n// ---------------------------------------------------------------------\n// TODO / PLATZHALTER – Endpunktwahl\n// Bisheriger Kenntnisstand: 'tr_' = Payments API, 'ord_' = Orders API.\n// Welcher Aufruf fachlich der richtige ist (Capture vs. Shipment) und ob\n// die Altbestellungen ueberhaupt 'ord_' fuehren, ist NICHT geklaert.\n// Beide Varianten stehen hier nur als Geruest.\n// ---------------------------------------------------------------------\nlet pfad = null, methode = 'POST', variante = null;\n\nif (mollieId.startsWith('tr_')) {\n  variante = 'payment';\n  pfad = '/payments/' + mollieId + '/captures';   // PLATZHALTER\n} else if (mollieId.startsWith('ord_')) {\n  variante = 'order';\n  pfad = '/orders/' + mollieId + '/shipments';    // PLATZHALTER\n} else {\n  return [{ json: { ...basis, mollieId, mollieAktion: 'skip',\n    mollieStatus: 'skipped_unbekanntes_praefix',\n    mollieMessage: 'Mollie-ID ohne bekanntes Praefix: ' + mollieId } }];\n}\n\n// Zahlungsart gegenpruefen, falls konfiguriert\nconst zahlungsart = Number(zahlung.kZahlungsart ?? 0);\nif ((config.mollieZahlungsartIds || []).length &&\n    !config.mollieZahlungsartIds.includes(zahlungsart)) {\n  return [{ json: { ...basis, mollieId, mollieAktion: 'skip',\n    mollieStatus: 'skipped_zahlungsart',\n    mollieMessage: 'kZahlungsart ' + zahlungsart + ' nicht in mollieZahlungsartIds' } }];\n}\n\n// PLATZHALTER: Body ist noch leer – Betrag/Positionen sind ungeklaert.\nconst body = {};\n\nreturn [{ json: { ...basis,\n  mollieId,\n  mollieVariante:  variante,\n  mollieUrl:       config.mollieBasisUrl + pfad,\n  mollieMethode:   methode,\n  mollieBody:      JSON.stringify(body),\n  mollieZahlungsart: zahlungsart,\n  mollieAktion:    config.mollieDryRun ? 'dry_run' : 'send',\n  mollieStatus:    config.mollieDryRun ? 'bereit_dry_run' : 'bereit',\n  mollieMessage:   null } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        752
+      ],
+      "id": "286b6350-d4cf-4115-8eb5-d775e281bcc6",
+      "name": "Mollie-Aktion bestimmen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PATH B – Schritt 5: Antwort von Mollie auswerten.\n// PLATZHALTER: Erfolgskriterien sind noch nicht verifiziert.\nconst src  = $('Mollie-Aktion bestimmen').item.json;\nconst resp = $input.first().json;\n\nif (resp?.error || resp?.status >= 400) {\n  return [{ json: { ...src,\n    mollieStatus:  'error',\n    mollieMessage: JSON.stringify(resp.error || resp).slice(0, 500),\n    mollieResponse: resp } }];\n}\n\nreturn [{ json: { ...src,\n  mollieStatus:    'done',\n  mollieMessage:   null,\n  mollieVorgangId: resp?.id ?? null,\n  mollieResponse:  resp } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4272,
+        688
+      ],
+      "id": "79ad0c83-4c5d-4784-9d4e-cab70db98bc1",
+      "name": "⚠️ Mollie-Ergebnis pruefen",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        3168,
+        560
+      ],
+      "id": "ac9e2f93-5b5c-45b6-bd7a-5c459060f713",
+      "name": "Loop Mollie"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- PLATZHALTER – Feldnamen NICHT verifiziert.\n-- Ziel: zu einer Bestellung die Mollie-Referenz aus JTL holen.\n-- Bekannt aus frueherer Analyse: cExternalTransactionId traegt fuehrende\n-- Leerzeichen, daher zwingend LTRIM/RTRIM.\nSELECT TOP 1\n    z.kBestellung,\n    LTRIM(RTRIM(z.cExternalTransactionId)) AS MollieId,\n    z.cName                                AS Zahlungsart,\n    z.kZahlungsart                         AS kZahlungsart\nFROM [eazybusiness].[dbo].[tZahlung] z\nWHERE z.kBestellung = {{ $json.kBestellung }}\n  AND LTRIM(RTRIM(ISNULL(z.cExternalTransactionId, ''))) <> ''\nORDER BY z.kZahlung DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        3376,
+        752
+      ],
+      "id": "f6e05158-abd2-4e78-a0e6-f19ae0ec0194",
+      "name": "JTL: Mollie-Zahlung holen",
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "mollie-send",
+              "leftValue": "={{ $json.mollieAktion }}",
+              "rightValue": "send",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3824,
+        752
+      ],
+      "id": "547cf788-005c-4f8b-b520-47a4997bf3c4",
+      "name": "Mollie senden?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.mollieUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.mollieBody }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4048,
+        688
+      ],
+      "id": "0b8318a6-ba8f-4d4c-9ef6-875e93450fde",
+      "name": "⚠️ Mollie: API-Call",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "disabled": true,
+      "notes": "PLATZHALTER. Authentifizierung fehlt: Credential vom Typ 'Header Auth' anlegen (Authorization: Bearer <Mollie API Key>) und hier zuweisen."
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4048,
+        944
+      ],
+      "id": "8e6024b4-f161-4b98-8d93-db9537d95617",
+      "name": "Wait (Mollie)",
+      "webhookId": "b7f3c2a1-4e5d-4a8b-9c1f-2d3e4f5a6b7c"
+    },
+    {
+      "parameters": {
+        "content": "## 6 – PATH B: Mollie (GRUNDGERUEST)\n### Laeuft ERST, wenn die Shopify-Schleife komplett durch ist –\n### eigene Schleife, nicht verschachtelt.\n### Alle Schreibknoten deaktiviert. PLATZHALTER offen:\n### 1) Ausloeser 'shopifyStatusNachher' fehlt noch\n### 2) SQL auf tZahlung nicht verifiziert\n### 3) Capture vs. Shipment ungeklaert\n### 4) Request-Body leer, Mollie-Credential fehlt",
+        "height": 828,
+        "width": 1520,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2944,
+        416
+      ],
+      "id": "056aba77-1e01-4618-b060-8474c1a24f2e",
+      "name": "SN 7 Mollie"
+    }
+  ],
+  "connections": {
+    "Manuell starten (Test)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify Token holen": {
+      "main": [
+        [
+          {
+            "node": "JTL: Kandidaten + Vollstaendigkeit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL: Kandidaten + Vollstaendigkeit": {
+      "main": [
+        [
+          {
+            "node": "Debug CSV",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Treffer vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Treffer vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "Lieferscheine gruppieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kein Treffer – Ende",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batches bilden": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Batches": {
+      "main": [
+        [
+          {
+            "node": "Debug-Tabelle",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Query bauen (Orders-Lookup)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (Orders-Lookup)": {
+      "main": [
+        [
+          {
+            "node": "Shopify: Orders holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify: Orders holen": {
+      "main": [
+        [
+          {
+            "node": "Lookup-Antwort auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup-Antwort auswerten": {
+      "main": [
+        [
+          {
+            "node": "Fulfillment anlegen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fulfillment anlegen?": {
+      "main": [
+        [
+          {
+            "node": "⚠️ Query bauen (fulfillmentCreate)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚠️ Query bauen (fulfillmentCreate)": {
+      "main": [
+        [
+          {
+            "node": "⚠️ Shopify: fulfillmentCreate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚠️ Shopify: fulfillmentCreate": {
+      "main": [
+        [
+          {
+            "node": "⚠️ Fulfillment-Ergebnis pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚠️ Fulfillment-Ergebnis pruefen": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auswertung bauen": {
+      "main": [
+        [
+          {
+            "node": "Report mailen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report mailen?": {
+      "main": [
+        [
+          {
+            "node": "Report-Mail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ende",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lieferscheine gruppieren": {
+      "main": [
+        [
+          {
+            "node": "Batches bilden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debug-Tabelle": {
+      "main": [
+        [
+          {
+            "node": "Mollie-Kandidaten bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Shopify Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie-Kandidaten bauen": {
+      "main": [
+        [
+          {
+            "node": "Loop Mollie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Mollie": {
+      "main": [
+        [
+          {
+            "node": "Auswertung bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "JTL: Mollie-Zahlung holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL: Mollie-Zahlung holen": {
+      "main": [
+        [
+          {
+            "node": "Mollie-Aktion bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie-Aktion bestimmen": {
+      "main": [
+        [
+          {
+            "node": "Mollie senden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie senden?": {
+      "main": [
+        [
+          {
+            "node": "⚠️ Mollie: API-Call",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚠️ Mollie: API-Call": {
+      "main": [
+        [
+          {
+            "node": "⚠️ Mollie-Ergebnis pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚠️ Mollie-Ergebnis pruefen": {
+      "main": [
+        [
+          {
+            "node": "Wait (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Mollie)": {
+      "main": [
+        [
+          {
+            "node": "Loop Mollie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "4dad212f-0387-4f45-b4a8-d4f2f0be51f3",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-08-12T09:16:46.662Z",
+      "createdAt": "2026-08-12T09:16:46.662Z",
+      "role": "workflow:owner",
+      "workflowId": "sDSsCAxsWkrVxpKq",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null
+}

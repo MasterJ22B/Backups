@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-05T07:37:23.495Z",
-  "createdAt": "2026-08-04T08:25:33.124Z",
   "id": "0myOWesDw67tT7Bz",
   "name": "Shopify-Bestellungen-mit-App-Bearbeitung-finden-n8n-filter",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-08-04T08:25:33.124Z",
+  "updatedAt": "2026-08-21T08:24:27.110Z",
   "isArchived": false,
+  "versionId": "485232b6-833a-4be0-8568-529abf43699d",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -383,27 +386,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "485232b6-833a-4be0-8568-529abf43699d",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-08-04T08:25:33.126Z",
-      "createdAt": "2026-08-04T08:25:33.126Z",
       "role": "workflow:owner",
       "workflowId": "0myOWesDw67tT7Bz",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-04T08:25:33.126Z",
+      "updatedAt": "2026-08-04T08:25:33.126Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

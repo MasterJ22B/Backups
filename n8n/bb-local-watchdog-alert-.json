@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-06-23T13:16:26.954Z",
-  "createdAt": "2026-06-23T08:49:21.312Z",
   "id": "i2jPC4J7udWQnC2I",
   "name": "BB Local Watchdog Alert",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-06-23T08:49:21.312Z",
+  "updatedAt": "2026-06-23T13:16:26.954Z",
   "isArchived": false,
+  "versionId": "430c2f2b-fc03-41be-afe3-fca4a5601793",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -110,27 +113,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "430c2f2b-fc03-41be-afe3-fca4a5601793",
-  "activeVersionId": null,
-  "triggerCount": 1,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-06-23T08:49:21.316Z",
-      "createdAt": "2026-06-23T08:49:21.316Z",
       "role": "workflow:owner",
       "workflowId": "i2jPC4J7udWQnC2I",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-23T08:49:21.316Z",
+      "updatedAt": "2026-06-23T08:49:21.316Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

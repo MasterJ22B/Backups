@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-30T20:00:23.000Z",
-  "createdAt": "2026-05-02T06:19:33.617Z",
   "id": "kNxCirR9BHerOjij",
   "name": "Instagram – Daily Token Refresh",
   "active": true,
+  "activeVersionId": "a39b73fe-b09b-407a-a1d5-7bc816e21596",
+  "createdAt": "2026-05-02T06:19:33.617Z",
+  "updatedAt": "2026-07-30T20:00:23.000Z",
   "isArchived": false,
+  "versionId": "c9de8861-d3e9-43a8-bf89-35f6ccddc8c7",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -322,6 +325,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -342,26 +346,34 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "c9de8861-d3e9-43a8-bf89-35f6ccddc8c7",
-  "activeVersionId": "a39b73fe-b09b-407a-a1d5-7bc816e21596",
-  "triggerCount": 1,
+  "tags": [
+    {
+      "id": "E4CQ3SHLqbdJpF7F",
+      "name": "Analytics",
+      "createdAt": "2026-05-01T14:33:37.336Z",
+      "updatedAt": "2026-05-01T14:33:37.336Z"
+    },
+    {
+      "id": "pb0xe68LqS3s2WdC",
+      "name": "Instagram",
+      "createdAt": "2026-05-01T14:33:37.303Z",
+      "updatedAt": "2026-05-01T14:33:37.303Z"
+    }
+  ],
   "shared": [
     {
-      "updatedAt": "2026-07-30T20:00:23.808Z",
-      "createdAt": "2026-07-30T20:00:23.808Z",
       "role": "workflow:owner",
       "workflowId": "kNxCirR9BHerOjij",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-30T20:00:23.808Z",
+      "updatedAt": "2026-07-30T20:00:23.808Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-07-05T15:50:04.000Z",
-    "createdAt": "2026-07-05T15:49:52.818Z",
     "versionId": "a39b73fe-b09b-407a-a1d5-7bc816e21596",
     "workflowId": "kNxCirR9BHerOjij",
     "nodes": [
@@ -685,20 +697,8 @@
     "authors": "Christoph Strauss",
     "name": "Version a39b73fe",
     "description": "",
-    "autosaved": true
-  },
-  "tags": [
-    {
-      "updatedAt": "2026-05-01T14:33:37.336Z",
-      "createdAt": "2026-05-01T14:33:37.336Z",
-      "id": "E4CQ3SHLqbdJpF7F",
-      "name": "Analytics"
-    },
-    {
-      "updatedAt": "2026-05-01T14:33:37.303Z",
-      "createdAt": "2026-05-01T14:33:37.303Z",
-      "id": "pb0xe68LqS3s2WdC",
-      "name": "Instagram"
-    }
-  ]
+    "autosaved": true,
+    "createdAt": "2026-07-05T15:49:52.818Z",
+    "updatedAt": "2026-07-05T15:50:04.000Z"
+  }
 }

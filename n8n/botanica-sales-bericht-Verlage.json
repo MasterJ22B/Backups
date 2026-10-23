@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-05-30T10:35:39.619Z",
-  "createdAt": "2026-04-29T23:19:16.678Z",
   "id": "E9CBshBVKo5sT9cC",
   "name": "BOTANICA Sales Bericht",
   "active": true,
+  "activeVersionId": "334b0112-5e83-4a64-93f4-9a10fcd70764",
+  "createdAt": "2026-04-29T23:19:16.678Z",
+  "updatedAt": "2026-05-30T10:35:39.619Z",
   "isArchived": false,
+  "versionId": "334b0112-5e83-4a64-93f4-9a10fcd70764",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -183,6 +186,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -203,26 +207,28 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "334b0112-5e83-4a64-93f4-9a10fcd70764",
-  "activeVersionId": "334b0112-5e83-4a64-93f4-9a10fcd70764",
-  "triggerCount": 1,
+  "tags": [
+    {
+      "id": "7yj1m1x4xrHvUucU",
+      "name": "Verlage",
+      "createdAt": "2026-03-08T13:05:09.107Z",
+      "updatedAt": "2026-03-08T13:05:09.107Z"
+    }
+  ],
   "shared": [
     {
-      "updatedAt": "2026-04-29T23:19:16.681Z",
-      "createdAt": "2026-04-29T23:19:16.681Z",
       "role": "workflow:owner",
       "workflowId": "E9CBshBVKo5sT9cC",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-04-29T23:19:16.681Z",
+      "updatedAt": "2026-04-29T23:19:16.681Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-05-30T10:36:15.000Z",
-    "createdAt": "2026-05-30T10:35:39.620Z",
     "versionId": "334b0112-5e83-4a64-93f4-9a10fcd70764",
     "workflowId": "E9CBshBVKo5sT9cC",
     "nodes": [
@@ -407,14 +413,8 @@
     "authors": "Christoph Strauss",
     "name": "Version 334b0112",
     "description": "",
-    "autosaved": true
-  },
-  "tags": [
-    {
-      "updatedAt": "2026-03-08T13:05:09.107Z",
-      "createdAt": "2026-03-08T13:05:09.107Z",
-      "id": "7yj1m1x4xrHvUucU",
-      "name": "Verlage"
-    }
-  ]
+    "autosaved": true,
+    "createdAt": "2026-05-30T10:35:39.620Z",
+    "updatedAt": "2026-05-30T10:36:15.000Z"
+  }
 }

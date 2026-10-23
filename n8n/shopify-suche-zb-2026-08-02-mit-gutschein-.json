@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-06T10:57:06.345Z",
-  "createdAt": "2026-08-06T10:20:27.242Z",
   "id": "ijMVCXbEFY0iLyDJ",
   "name": "Shopify-Suche-ZB-2026-08-02-mit-Gutschein",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-08-06T10:20:27.242Z",
+  "updatedAt": "2026-08-06T10:57:06.345Z",
   "isArchived": false,
+  "versionId": "858be533-dcbf-47be-8949-648ebece8d4e",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -478,27 +481,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "858be533-dcbf-47be-8949-648ebece8d4e",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-08-06T10:20:27.245Z",
-      "createdAt": "2026-08-06T10:20:27.245Z",
       "role": "workflow:owner",
       "workflowId": "ijMVCXbEFY0iLyDJ",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-06T10:20:27.245Z",
+      "updatedAt": "2026-08-06T10:20:27.245Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

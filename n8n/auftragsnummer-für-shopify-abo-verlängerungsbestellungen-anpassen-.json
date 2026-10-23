@@ -1112,6 +1112,7 @@
   "versionId": "a3104f9b-df9e-48ea-8d5a-018fee9e3a27",
   "activeVersionId": "a3104f9b-df9e-48ea-8d5a-018fee9e3a27",
   "triggerCount": 1,
+  "tags": [],
   "shared": [
     {
       "updatedAt": "2026-05-26T11:14:26.500Z",
@@ -2207,6 +2208,5 @@
     "name": "Version a3104f9b",
     "description": "",
     "autosaved": true
-  },
-  "tags": []
+  }
 }

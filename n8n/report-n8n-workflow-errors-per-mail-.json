@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-04-14T08:58:57.639Z",
-  "createdAt": "2025-12-27T19:03:23.757Z",
   "id": "q5DzCEjzYL4DBhox",
   "name": "Report n8n workflow errors per Mail",
   "active": true,
+  "activeVersionId": "e609fa5f-084c-4781-a74c-8f8619931e1d",
+  "createdAt": "2025-12-27T19:03:23.757Z",
+  "updatedAt": "2026-04-14T08:58:57.639Z",
   "isArchived": false,
+  "versionId": "e609fa5f-084c-4781-a74c-8f8619931e1d",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -88,33 +91,29 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": false,
     "binaryMode": "separate"
   },
   "staticData": null,
+  "pinData": {},
   "meta": {
     "templateId": "2159",
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "e609fa5f-084c-4781-a74c-8f8619931e1d",
-  "activeVersionId": "e609fa5f-084c-4781-a74c-8f8619931e1d",
-  "triggerCount": 0,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-01-27T12:05:37.475Z",
-      "createdAt": "2026-01-27T12:05:37.475Z",
       "role": "workflow:owner",
       "workflowId": "q5DzCEjzYL4DBhox",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-01-27T12:05:37.475Z",
+      "updatedAt": "2026-01-27T12:05:37.475Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2025-12-27T19:05:17.000Z",
-    "createdAt": "2025-12-27T19:05:13.360Z",
     "versionId": "e609fa5f-084c-4781-a74c-8f8619931e1d",
     "workflowId": "q5DzCEjzYL4DBhox",
     "nodes": [
@@ -204,7 +203,8 @@
     "authors": "Christoph Strauss",
     "name": "Version e609fa5f",
     "description": "",
-    "autosaved": false
-  },
-  "tags": []
+    "autosaved": false,
+    "createdAt": "2025-12-27T19:05:13.360Z",
+    "updatedAt": "2025-12-27T19:05:17.000Z"
+  }
 }

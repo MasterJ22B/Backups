@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-06T08:03:45.362Z",
-  "createdAt": "2026-07-22T09:04:54.275Z",
   "id": "Sb76ZhmkLRLUQb7P",
   "name": "Variabler-Preiskorrektur-Flow-CSV",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-07-22T09:04:54.275Z",
+  "updatedAt": "2026-08-06T08:03:45.362Z",
   "isArchived": false,
+  "versionId": "b7c4121d-bea4-414a-86a0-84b3fd4e6815",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -863,27 +866,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "b7c4121d-bea4-414a-86a0-84b3fd4e6815",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-22T09:04:54.278Z",
-      "createdAt": "2026-07-22T09:04:54.278Z",
       "role": "workflow:owner",
       "workflowId": "Sb76ZhmkLRLUQb7P",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-22T09:04:54.278Z",
+      "updatedAt": "2026-07-22T09:04:54.278Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-09T11:09:44.168Z",
-  "createdAt": "2026-07-09T11:08:14.727Z",
   "id": "qcM9LO52KiaquDAs",
   "name": "BB-Katalog-IDs-auslesen",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-07-09T11:08:14.727Z",
+  "updatedAt": "2026-08-21T08:23:43.551Z",
   "isArchived": false,
+  "versionId": "2075ccd1-36f2-47e0-9755-9c1799462395",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -224,27 +227,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "2075ccd1-36f2-47e0-9755-9c1799462395",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-09T11:08:14.729Z",
-      "createdAt": "2026-07-09T11:08:14.729Z",
       "role": "workflow:owner",
       "workflowId": "qcM9LO52KiaquDAs",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-09T11:08:14.729Z",
+      "updatedAt": "2026-07-09T11:08:14.729Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

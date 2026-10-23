@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-09T07:33:30.823Z",
-  "createdAt": "2026-06-10T13:21:31.533Z",
   "id": "m0g84ikP8IKcYoqs",
   "name": "Shopify-Namenskorrektur-via-JTL",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-06-10T13:21:31.533Z",
+  "updatedAt": "2026-07-09T07:33:30.823Z",
   "isArchived": false,
+  "versionId": "627ee216-a29f-4980-9cf0-5126f57cb533",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -838,26 +841,23 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "627ee216-a29f-4980-9cf0-5126f57cb533",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-06-10T13:21:31.537Z",
-      "createdAt": "2026-06-10T13:21:31.537Z",
       "role": "workflow:owner",
       "workflowId": "m0g84ikP8IKcYoqs",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-10T13:21:31.537Z",
+      "updatedAt": "2026-06-10T13:21:31.537Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

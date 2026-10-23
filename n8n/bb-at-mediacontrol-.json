@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-21T11:04:11.177Z",
-  "createdAt": "2026-05-12T07:59:19.060Z",
   "id": "jIcxuRNooLiGazWP",
   "name": "BB AT MediaControl",
   "active": true,
+  "activeVersionId": "30e91057-fe6b-455b-839f-1bcb226f0bbb",
+  "createdAt": "2026-05-12T07:59:19.060Z",
+  "updatedAt": "2026-09-25T08:33:16.425Z",
   "isArchived": false,
+  "versionId": "30e91057-fe6b-455b-839f-1bcb226f0bbb",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -148,7 +151,9 @@
         "toEmail": "={{ $json.sendto }}",
         "subject": "={{ $json.titel }} - Flow FTP Erfolg",
         "html": "={{ $json.mailText }}",
-        "options": {}
+        "options": {
+          "attachments": "=data"
+        }
       },
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
@@ -520,6 +525,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -538,33 +544,28 @@
       ]
     },
     "global": {
-      "titel": "BB | MediaControl AT vom 2026-08-11",
+      "titel": "BB | MediaControl AT vom 2026-10-21",
       "sendto": "jesse.balsam@buecherbuechse.de,christoph@buecherbuechse.de, lisa@buecherbuechse.de,helen.hilpert@buecherbuechse.de",
-      "anzahlUmgewandeltePakete": 2,
-      "anzahlUmgewandelteBuecher": 2
+      "anzahlUmgewandeltePakete": 3,
+      "anzahlUmgewandelteBuecher": 3
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "c9054b66-24e6-4fc2-8cdb-90c0422984ac",
-  "activeVersionId": "c9054b66-24e6-4fc2-8cdb-90c0422984ac",
-  "triggerCount": 1,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-05-12T07:59:19.063Z",
-      "createdAt": "2026-05-12T07:59:19.063Z",
       "role": "workflow:owner",
       "workflowId": "jIcxuRNooLiGazWP",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-05-12T07:59:19.063Z",
+      "updatedAt": "2026-05-12T07:59:19.063Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-07-21T11:04:18.000Z",
-    "createdAt": "2026-07-21T11:04:11.178Z",
-    "versionId": "c9054b66-24e6-4fc2-8cdb-90c0422984ac",
+    "versionId": "30e91057-fe6b-455b-839f-1bcb226f0bbb",
     "workflowId": "jIcxuRNooLiGazWP",
     "nodes": [
       {
@@ -709,7 +710,9 @@
           "toEmail": "={{ $json.sendto }}",
           "subject": "={{ $json.titel }} - Flow FTP Erfolg",
           "html": "={{ $json.mailText }}",
-          "options": {}
+          "options": {
+            "attachments": "=data"
+          }
         },
         "type": "n8n-nodes-base.emailSend",
         "typeVersion": 2.1,
@@ -1083,9 +1086,10 @@
     },
     "nodeGroups": [],
     "authors": "Jesse Balsam",
-    "name": "Version c9054b66",
+    "name": "Version 30e91057",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-09-25T08:33:16.426Z",
+    "updatedAt": "2026-09-25T08:33:20.000Z"
+  }
 }

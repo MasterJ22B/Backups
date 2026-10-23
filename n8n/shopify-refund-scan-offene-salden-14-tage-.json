@@ -1,0 +1,1162 @@
+{
+  "id": "Je9LeYjIY9Ew2E9r",
+  "name": "Shopify-Refund-Scan-offene-Salden-14-Tage",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-22T07:53:59.710Z",
+  "updatedAt": "2026-10-21T04:50:20.840Z",
+  "isArchived": false,
+  "versionId": "6df3e040-792d-49be-bca1-565b5cb87dd5",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "id": "a54bbf76-6ead-4ef1-b9b4-f54661740293",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        2928,
+        1376
+      ],
+      "name": "Täglich 07:00"
+    },
+    {
+      "parameters": {},
+      "id": "c415fdfe-510d-4492-8083-3761138540f5",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        2928,
+        1568
+      ],
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === Zentrale Konfiguration – hier pflegen ===\n\n// Rollierendes Fenster: die letzten TAGE Tage bis jetzt.\nconst TAGE = 90;\nconst jetzt = new Date();\nconst von = new Date(jetzt.getTime() - TAGE * 24 * 60 * 60 * 1000);\n\nconst CONFIG = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  tage: TAGE,\n  // Wird bei jedem Lauf neu berechnet, daher kein fixes Datum im Code.\n  createdAtMin: von.toISOString(),\n  // null = \"bis jetzt\". Fixes Ende z.B.: '2026-09-01T21:59:59Z'\n  createdAtMax: null,\n\n  // Produktunabhängig: keine Pflicht-SKU. Zum Einschränken hier eine SKU\n  // eintragen, dann greift der Flow nur auf Bestellungen mit dieser Position.\n  pflichtSku: null,\n\n  // Optionaler Länderfilter, z.B. ['DE'] oder ['DE','AT']. null = alle.\n  nurLaender: null,\n\n  // Einzelne Bestellungen ausschließen (orderId als Zahl)\n  ausnahmen: [],\n\n  // === Stufe 2: Refund-Kette ===\n\n  // true = es wird NICHTS erstattet, der Flow protokolliert nur, was er täte.\n  // Für den ersten scharfen Lauf einmal auf true stellen und den Report lesen.\n  trockenlauf: true,\n\n  // Gestaffelte Sicherungen gegen einen systematischen Fehler. Dieser Flow\n  // läuft täglich und produktunabhängig – er hat keine Pflicht-SKU als\n  // Sicherheitsgurt, also muss die Betragsseite ihn ersetzen.\n  mindestBetrag: 0.01,        // darunter: kein Refund (Centbeträge)\n  maxBetrag: 10.00,           // pro Bestellung – darüber: manuell prüfen\n  maxSummeProLauf: 150.00,    // Summe aller Refunds eines Laufs\n  maxKandidatenProLauf: 50,   // darüber: Notbremse, gar kein Refund im Lauf\n\n  // Tag nach erfolgreichem Refund – macht die Läufe im Admin nachvollziehbar\n  tag: `n8n-api-${$workflow.id}`,\n\n  notifyCustomer: false,\n  note: 'Automatische Rückerstattung offener Saldo'\n};\n\nconst staticData = $getWorkflowStaticData('global');\nstaticData.config = CONFIG;\nstaticData.kandidaten = [];\nstaticData.skipped = [];\nstaticData.ergebnisse = {};\nstaticData.refundSumme = 0;\nstaticData.stats = { seiten: 0, geprueft: 0, ohneOffenenSaldo: 0 };\n\nreturn [{ json: { config: CONFIG } }];\n"
+      },
+      "id": "0ff73675-92c6-4d3c-8707-00385049f73d",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3152,
+        1472
+      ],
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "id": "dc8049f7-f066-4327-b647-8a1e9da486f3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3376,
+        1472
+      ],
+      "name": "Token holen",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst shop = config.shop;\n\nlet initUrl = `https://${shop}.myshopify.com/admin/api/${config.apiVersion}/orders.json`\n  + `?limit=250`\n  + `&status=any`\n  + `&order=${encodeURIComponent('created_at asc')}`\n  + `&created_at_min=${encodeURIComponent(config.createdAtMin)}`\n  + `&fields=id,name,created_at,currency,presentment_currency,financial_status,`\n  + `total_price,current_total_price,total_outstanding,shipping_address,line_items,`\n  + `refunds,tags`;\n\nif (config.createdAtMax) {\n  initUrl += `&created_at_max=${encodeURIComponent(config.createdAtMax)}`;\n}\n\n// Zweiter Reset: der Flow laeuft taeglich, staticData ueberlebt Executions.\nconst staticData = $getWorkflowStaticData('global');\nstaticData.kandidaten = [];\nstaticData.skipped = [];\nstaticData.ergebnisse = {};\nstaticData.refundSumme = 0;\nstaticData.stats = { seiten: 0, geprueft: 0, ohneOffenenSaldo: 0 };\n\nreturn [{\n  json: {\n    nextUrl: initUrl,\n    hasNext: true,\n    accessToken: $('Token holen').first().json.access_token\n  }\n}];\n"
+      },
+      "id": "31ac2b5c-c9f1-46f7-885f-118d5fca08fb",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        1472
+      ],
+      "name": "Array leeren + Start URL setzen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "72a683b8-5fa3-48d1-bab3-08f9d288cd9d",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3856,
+        1472
+      ],
+      "name": "GET Bestellungen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst orders = response.body?.orders || response.orders || [];\nconst headers = response.headers || {};\n\nconst config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.kandidaten)) staticData.kandidaten = [];\nif (!Array.isArray(staticData.skipped)) staticData.skipped = [];\nif (!staticData.stats) staticData.stats = { seiten: 0, geprueft: 0, ohneOffenenSaldo: 0 };\n\nstaticData.stats.seiten++;\nlet gesamt = 0;\n\nfor (const order of orders) {\n  gesamt++;\n  staticData.stats.geprueft++;\n\n  // REST liefert total_outstanding als String. Negativ = wir schulden dem Kunden.\n  // null/'' waeren bei Number() eine 0 und wuerden lautlos rausfallen -> vorher abfangen.\n  const roh = order.total_outstanding;\n  const outstanding = (roh === null || roh === undefined || roh === '') ? NaN : Number(roh);\n\n  if (!Number.isFinite(outstanding)) {\n    staticData.skipped.push({\n      orderId: order.id, orderName: order.name,\n      grund: 'total_outstanding fehlt oder ist unlesbar: ' + roh\n    });\n    continue;\n  }\n\n  // Kein Guthaben zugunsten des Kunden -> still verwerfen, sonst wird der\n  // Report so lang wie die Bestellliste.\n  if (outstanding >= 0) {\n    staticData.stats.ohneOffenenSaldo++;\n    continue;\n  }\n\n  const aktivePositionen = (order.line_items || [])\n    .filter(li => Number(li.current_quantity) > 0);\n\n  // Bereits erstattete Summe aus den Refund-Transaktionen der Bestellung.\n  const bereitsErstattet = (order.refunds || []).reduce((s, r) =>\n    s + (r.transactions || []).reduce((t, tx) => t + Number(tx.amount || 0), 0), 0);\n\n  const offenerBetrag = Math.abs(outstanding);\n\n  // Vorab-Einstufung fuer Stufe 2 - hier wird noch nichts erstattet.\n  let einstufung = 'AUTO_REFUND_FAEHIG';\n  if (offenerBetrag < config.mindestBetrag) einstufung = 'UNTER_MINDESTBETRAG';\n  else if (offenerBetrag > config.maxBetrag) einstufung = 'UEBER_MAXBETRAG_MANUELL';\n\n  const datensatz = {\n    orderId: order.id,\n    orderName: order.name,\n    createdAt: order.created_at,\n    currency: order.presentment_currency || order.currency,\n    land: order.shipping_address?.country_code || null,\n    financialStatus: order.financial_status,\n    totalPrice: order.total_price,\n    totalOutstandingRest: order.total_outstanding,\n    offenerBetrag: offenerBetrag.toFixed(2),\n    bereitsErstattet: bereitsErstattet.toFixed(2),\n    anzahlRefunds: (order.refunds || []).length,\n    einstufung,\n    orderTags: order.tags || '',\n    aktivePositionen: aktivePositionen.length,\n    aktiveSkus: aktivePositionen.map(li => String(li.sku || '').trim())\n  };\n\n  if (Array.isArray(config.ausnahmen) && config.ausnahmen.includes(order.id)) {\n    staticData.skipped.push({ ...datensatz, grund: 'Bestellung steht in Config.ausnahmen' });\n    continue;\n  }\n\n  // Produktunabhaengig: greift nur, wenn in der Config eine SKU gesetzt ist.\n  if (config.pflichtSku && !datensatz.aktiveSkus.includes(String(config.pflichtSku).trim())) {\n    staticData.skipped.push({ ...datensatz, grund: 'Pflicht-SKU ' + config.pflichtSku + ' nicht in der Bestellung' });\n    continue;\n  }\n\n  if (Array.isArray(config.nurLaender) && !config.nurLaender.includes(datensatz.land)) {\n    staticData.skipped.push({ ...datensatz, grund: 'Land ' + datensatz.land + ' nicht in Config.nurLaender' });\n    continue;\n  }\n\n  staticData.kandidaten.push(datensatz);\n}\n\n// Cursor-Pagination über Link-Header (rel=\"next\").\n// Filterparameter gehören NUR in die erste URL, danach nur page_info + limit.\nconst linkHeader = String(headers.link || headers.Link || '');\nlet nextUrl = null;\nconst nextPart = linkHeader.split(',').find(p => p.includes('rel=\"next\"'));\nif (nextPart) {\n  const m = nextPart.match(/<([^>]+)>/);\n  if (m) nextUrl = m[1];\n}\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    seiteBestellungen: gesamt,\n    bestellungenGeprueft: staticData.stats.geprueft,\n    kandidatenGesamt: staticData.kandidaten.length,\n    uebersprungenGesamt: staticData.skipped.length\n  }\n}];\n"
+      },
+      "id": "2ed84557-464a-4531-8ea8-7d98d7b392d8",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4064,
+        1472
+      ],
+      "name": "NextURL weitergeben + Kandidaten prüfen"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "id": "7f9f49a4-2f58-4e26-ac98-9ea54764dfc9",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4304,
+        1472
+      ],
+      "name": "Wait",
+      "webhookId": "d28971cd-ff19-4c8b-adbd-975a8ca394aa"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6fafdafc-89a2-42de-97c0-f5ff220ba52f",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "eef1b13a-f997-491f-9ce9-86bd3819114a",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4512,
+        1472
+      ],
+      "name": "Gibt es NextURL?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "id": "dabc1ea3-b73e-4b8e-8dc2-078972c6ccae",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4752,
+        1312
+      ],
+      "name": "Token holen 1",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "5531dd2c-1af7-4154-9d24-a4b867801776",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        4992,
+        1520
+      ],
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const tokenItem = $input.first().json;\nconst urlItem = $input.last().json;\n\nreturn [{\n  json: {\n    accessToken: tokenItem.access_token,\n    nextUrl: urlItem.nextUrl,\n    hasNext: urlItem.hasNext\n  }\n}];\n"
+      },
+      "id": "dbf9c9d8-435f-4508-b8a0-76be23892206",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5232,
+        1520
+      ],
+      "name": "Token + NextURL zusammenführen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst kandidaten = staticData.kandidaten || [];\n\n// Notbremse: finden sich auf einmal auffaellig viele Kandidaten, ist mit hoher\n// Wahrscheinlichkeit etwas systematisch kaputt (Filter, Datenlage, API).\n// Dann wird in diesem Lauf GAR NICHTS erstattet - auch nicht die ersten paar.\nconst notbremse = kandidaten.length > config.maxKandidatenProLauf;\nstaticData.notbremse = notbremse;\n\n// Ein Item pro Kandidat. Daran haengt die Refund-Kette.\nreturn kandidaten.map(k => ({\n  json: {\n    ...k,\n    notbremse,\n    orderGid: `gid://shopify/Order/${k.orderId}`,\n    adminUrl: `https://admin.shopify.com/store/${config.shop}/orders/${k.orderId}`\n  }\n}));\n"
+      },
+      "id": "827c2447-1ff8-4e0f-bf59-a70dbbcc5bd8",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4752,
+        1792
+      ],
+      "name": "Kandidaten vorbereiten",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "10721a01-0fed-4a1c-91fa-4ec6fce83a0f",
+              "leftValue": "={{ $json.orderGid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2b0c79b8-d847-4839-8288-76ebdd138afd",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4944,
+        1792
+      ],
+      "name": "Gibt es Kandidaten?"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "e8354df7-b65f-4cac-99ea-a9395bcefc1f",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        5184,
+        1888
+      ],
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst kandidaten = staticData.kandidaten || [];\nconst skipped = staticData.skipped || [];\nconst ergebnisse = staticData.ergebnisse || {};\nconst stats = staticData.stats || { seiten: 0, geprueft: 0, ohneOffenenSaldo: 0 };\n\n// Kandidat + Refund-Ergebnis zu einer Zeile zusammenfuehren. Die Zeilenart\n// bleibt KANDIDAT, damit der Mail-Node unveraendert weiterlaeuft.\nconst zeilen = kandidaten.map(k => {\n  const e = ergebnisse[k.orderId] || {};\n  return {\n    ...k,\n    refundStatus: e.status || 'NICHT_VERARBEITET',\n    refundBetrag: e.refundBetrag || '0.00',\n    refundId: e.refundId || null,\n    tagGesetzt: e.tagGesetzt === true,\n    manuellPruefen: e.manuellPruefen === true || !ergebnisse[k.orderId],\n    grund: e.grund || (ergebnisse[k.orderId] ? null : 'Kein Ergebnis – Loop abgebrochen?')\n  };\n});\n\nconst summe = (liste, feld) => liste\n  .reduce((s, r) => s + Number(r[feld] || 0), 0)\n  .toFixed(2);\n\nconst nach = (s) => zeilen.filter(z => z.refundStatus === s);\nconst erstattet = zeilen.filter(z => z.refundStatus === 'OK');\nconst pending = nach('PENDING');\nconst trocken = nach('TROCKENLAUF');\nconst pruefen = zeilen.filter(z => z.manuellPruefen);\n\nconst zusammenfassung = {\n  zeile: 'ZUSAMMENFASSUNG',\n  lauf: new Date().toISOString(),\n  modus: config.trockenlauf ? 'TROCKENLAUF – es wurde nichts erstattet' : 'SCHARF',\n  notbremse: staticData.notbremse === true,\n\n  zeitraumTage: config.tage,\n  zeitraumVon: config.createdAtMin,\n  zeitraumBis: config.createdAtMax || 'jetzt',\n  seitenGeholt: stats.seiten,\n  bestellungenGeprueft: stats.geprueft,\n  ohneOffenenSaldo: stats.ohneOffenenSaldo,\n\n  kandidaten: zeilen.length,\n  summeOffen: summe(zeilen, 'offenerBetrag'),\n\n  erstattetOk: erstattet.length,\n  summeErstattet: summe(erstattet, 'refundBetrag'),\n  pending: pending.length,\n  summePending: summe(pending, 'refundBetrag'),\n  trockenlaufWuerdeErstatten: trocken.length,\n  summeTrockenlauf: summe(trocken, 'refundBetrag'),\n\n  ueberMaxbetrag: nach('UEBER_MAXBETRAG').length,\n  unterMindestbetrag: nach('UNTER_MINDESTBETRAG').length,\n  saldoAusgeglichen: nach('KEIN_BEDARF').length,\n  limitErreicht: nach('LIMIT_LAUF').length,\n  fehler: zeilen.filter(z => ['GRAPHQL_FEHLER', 'USER_ERROR', 'KEIN_REFUND',\n    'GATEWAY_FEHLER', 'KEINE_TRANSAKTION', 'NICHT_ERSTATTBAR'].includes(z.refundStatus)).length,\n\n  manuellPruefen: pruefen.length,\n  imFetchUebersprungen: skipped.length,\n\n  budgetVerbraucht: Number(staticData.refundSumme || 0).toFixed(2),\n  budgetGrenze: Number(config.maxSummeProLauf).toFixed(2)\n};\n\n// Zu Prüfende zuerst, dann nach offenem Betrag absteigend.\nconst sortiert = [...zeilen].sort((a, b) =>\n  (b.manuellPruefen === true) - (a.manuellPruefen === true)\n  || Number(b.offenerBetrag) - Number(a.offenerBetrag));\n\nreturn [\n  { json: zusammenfassung },\n  ...sortiert.map(z => ({ json: { zeile: 'KANDIDAT', ...z } })),\n  ...skipped.map(s => ({ json: { zeile: 'UEBERSPRUNGEN', ...s } }))\n];\n"
+      },
+      "id": "fdb8a12f-e5db-4358-ab48-33627262149d",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5584,
+        1728
+      ],
+      "name": "Report erstellen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "id": "37300933-f1eb-48fc-ae82-3695a3af3c39",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5392,
+        1936
+      ],
+      "name": "Token holen 2",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input dieses Nodes ist 'Token holen 2' (OAuth-Antwort), nicht die Bestellung.\n// Die Bestelldaten deshalb direkt aus dem Loop holen.\nconst item = $('Loop Over Items').first().json;\n\n// maximumRefundableV2 auf order.transactions liefert immer 0 – der Wert wird\n// nur im Kontext von SuggestedRefund befuellt. Deshalb suggestedRefund abfragen.\nconst body = {\n  query: `query($id: ID!) {\n    order(id: $id) {\n      id\n      name\n      totalOutstandingSet { presentmentMoney { amount currencyCode } }\n      suggestedRefund {\n        maximumRefundableSet { presentmentMoney { amount currencyCode } }\n        suggestedTransactions {\n          gateway\n          kind\n          amountSet { presentmentMoney { amount currencyCode } }\n          maximumRefundableSet { presentmentMoney { amount currencyCode } }\n          parentTransaction { id kind status }\n        }\n      }\n      transactions(first: 20) {\n        id\n        kind\n        status\n        gateway\n        amountSet { presentmentMoney { amount currencyCode } }\n      }\n    }\n  }`,\n  variables: { id: item.orderGid }\n};\n\nreturn {\n  json: {\n    ...item,\n    accessToken: $('Token holen 2').first().json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n};\n"
+      },
+      "id": "16a27146-47a0-4cde-ac81-ce58420c7078",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5584,
+        1936
+      ],
+      "name": "Query bauen (Order-Saldo)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "id": "0f3bebd6-4453-4b8a-a124-f77beab57e33",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5792,
+        1936
+      ],
+      "name": "Order-Saldo abfragen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.item.json;\nconst order = resp?.data?.order;\nif (!order) {\n  throw new Error('Order-Query ohne Ergebnis: ' + JSON.stringify(resp).slice(0, 500));\n}\n\nconst config = $('Config').first().json.config;\nconst src = $('Loop Over Items').first().json;\nconst staticData = $getWorkflowStaticData('global');\n\n// Der Saldo wird hier ERNEUT gelesen, nicht aus dem Fetch uebernommen.\n// Zwischen Scan und Refund koennen Minuten liegen; in der Zeit kann jemand\n// manuell erstattet haben. Sonst erstattet der Flow ein zweites Mal.\nconst outstanding = Number(order.totalOutstandingSet?.presentmentMoney?.amount || 0);\nconst currency = order.totalOutstandingSet?.presentmentMoney?.currencyCode || src.currency;\n\n// Obergrenze + Parent aus suggestedRefund. maximumRefundableV2 auf\n// order.transactions liefert immer 0 und ist als Deckel unbrauchbar.\nconst sr = order.suggestedRefund || null;\nconst sugg = (sr?.suggestedTransactions || [])[0] || null;\n\nlet maxRefund = Number(\n  sugg?.maximumRefundableSet?.presentmentMoney?.amount\n  ?? sr?.maximumRefundableSet?.presentmentMoney?.amount\n  ?? 0\n);\nlet parentId = sugg?.parentTransaction?.id || null;\nlet gateway = sugg?.gateway || null;\n\n// Fallback ueber die Transaktionsliste, falls suggestedRefund leer bleibt\nif (!parentId || !maxRefund) {\n  const parent = (order.transactions || []).find(t =>\n    ['SALE', 'CAPTURE'].includes(t.kind) && t.status === 'SUCCESS'\n  );\n  parentId = parentId || parent?.id || null;\n  gateway = gateway || parent?.gateway || null;\n  if (!maxRefund) {\n    maxRefund = Number(parent?.amountSet?.presentmentMoney?.amount || 0);\n  }\n}\n\nconst gewuenscht = Math.abs(Math.min(outstanding, 0));\nconst bisher = Number(staticData.refundSumme || 0);\n\nlet refundNoetig = false;\nlet betrag = 0;\nlet gedeckelt = false;\nlet status = null;\nlet grund = null;\nlet manuellPruefen = false;\n\nif (src.notbremse) {\n  status = 'NOTBREMSE';\n  grund = 'Mehr als ' + config.maxKandidatenProLauf + ' Kandidaten im Lauf – '\n    + 'kein automatischer Refund, bitte Ursache prüfen';\n  manuellPruefen = true;\n} else if (outstanding >= 0) {\n  status = 'KEIN_BEDARF';\n  grund = 'Saldo inzwischen ausgeglichen (outstanding ' + outstanding + ') – ggf. bereits erstattet';\n} else if (gewuenscht < config.mindestBetrag) {\n  status = 'UNTER_MINDESTBETRAG';\n  grund = 'Betrag ' + gewuenscht.toFixed(2) + ' unter Config.mindestBetrag';\n} else if (gewuenscht > config.maxBetrag) {\n  status = 'UEBER_MAXBETRAG';\n  grund = 'Betrag ' + gewuenscht.toFixed(2) + ' über Config.maxBetrag ('\n    + config.maxBetrag + ') – manuell erstatten';\n  manuellPruefen = true;\n} else if (bisher + gewuenscht > config.maxSummeProLauf) {\n  status = 'LIMIT_LAUF';\n  grund = 'Lauf-Limit erreicht: bereits ' + bisher.toFixed(2) + ' von max. '\n    + config.maxSummeProLauf + ' erstattet – Rest manuell oder nächster Lauf';\n  manuellPruefen = true;\n} else if (!parentId || !gateway) {\n  status = 'KEINE_TRANSAKTION';\n  grund = 'Keine erstattbare Zahlungstransaktion gefunden – manuell erstatten';\n  manuellPruefen = true;\n} else {\n  betrag = Math.round(Math.min(gewuenscht, maxRefund) * 100) / 100;\n  gedeckelt = betrag < gewuenscht;\n\n  if (betrag <= 0) {\n    status = 'NICHT_ERSTATTBAR';\n    grund = 'Erstattbarer Betrag ist 0 (maxRefund ' + maxRefund + ') – manuell erstatten';\n    manuellPruefen = true;\n  } else if (config.trockenlauf) {\n    status = 'TROCKENLAUF';\n    grund = 'Trockenlauf aktiv – würde ' + betrag.toFixed(2) + ' ' + currency + ' erstatten';\n  } else {\n    refundNoetig = true;\n    // Budget sofort reservieren, nicht erst nach dem Erfolg: ein haengender\n    // Refund darf das Lauf-Limit nicht umgehen.\n    staticData.refundSumme = bisher + betrag;\n    if (gedeckelt) {\n      grund = 'Teilerstattung: ' + betrag.toFixed(2) + ' von ' + gewuenscht.toFixed(2)\n        + ' (Limit ' + maxRefund + ')';\n    }\n  }\n}\n\nreturn {\n  json: {\n    orderId: src.orderId,\n    orderGid: order.id,\n    orderName: order.name,\n    land: src.land,\n    adminUrl: src.adminUrl,\n    currency,\n    outstanding,\n    maxRefund,\n    refundNoetig,\n    refundBetrag: betrag.toFixed(2),\n    gedeckelt,\n    parentTransactionId: parentId,\n    gateway,\n    status,\n    grund,\n    manuellPruefen,\n    accessToken: $('Token holen 2').first().json.access_token\n  }\n};\n"
+      },
+      "id": "e4876fe0-cbd7-4c98-ac9d-25ad94f1ad6f",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5984,
+        1936
+      ],
+      "name": "Refund-Betrag ermitteln"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "58eac249-556f-45bb-8319-3049357fe73f",
+              "leftValue": "={{ $json.refundNoetig }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "adf0e09a-93f9-455e-a8b5-77b94b841a27",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6192,
+        1936
+      ],
+      "name": "Gibt es einen Refund?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\nconst config = $('Config').first().json.config;\n\n// WICHTIG: keine refundLineItems. Reine Geldrueckgabe, keine Retoure, keine\n// Bestandsbuchung. Bei Bestellungen, deren Position per Order Edit auf 0\n// gesetzt wurde, lehnt Shopify ein RefundLineItem darauf ohnehin ab.\n// Refund.transactions ist eine Connection -> edges { node { ... } }.\nconst body = {\n  query: `mutation refundCreate($input: RefundInput!) {\n    refundCreate(input: $input) {\n      refund {\n        id\n        createdAt\n        totalRefundedSet { presentmentMoney { amount currencyCode } }\n        transactions(first: 5) {\n          edges {\n            node { id kind status gateway errorCode }\n          }\n        }\n      }\n      userErrors { field message }\n    }\n  }`,\n  variables: {\n    input: {\n      orderId: item.orderGid,\n      currency: item.currency,\n      notify: config.notifyCustomer,\n      note: config.note,\n      transactions: [{\n        orderId: item.orderGid,\n        parentId: item.parentTransactionId,\n        gateway: item.gateway,\n        kind: 'REFUND',\n        amount: item.refundBetrag\n      }]\n    }\n  }\n};\n\nreturn {\n  json: {\n    ...item,\n    gqlBody: JSON.stringify(body)\n  }\n};\n"
+      },
+      "id": "7302d69f-f0c1-4f3d-9cb8-fdc61904b863",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6416,
+        1840
+      ],
+      "name": "Query bauen (refundCreate)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "id": "3c04b9fb-f00c-466e-a667-57b02ed0f66c",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6608,
+        1840
+      ],
+      "name": "Refund anlegen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.item.json;\nconst src = $('Query bauen (refundCreate)').first().json;\n\n// GraphQL-Fehler auf oberster Ebene (ungueltige Query, fehlender Scope, ...).\n// Shopify antwortet dabei mit HTTP 200, der HTTP-Node schlaegt also nicht fehl.\nconst gqlErrors = resp?.errors || [];\n\nconst payload = resp?.data?.refundCreate;\nconst errs = payload?.userErrors || [];\nconst refund = payload?.refund || null;\n\n// Refund.transactions ist eine Connection\nconst txs = (refund?.transactions?.edges || []).map(e => e.node);\n\n// Ein Refund-Objekt allein heisst nicht, dass Geld geflossen ist ->\n// Status der Refund-Transaktionen auswerten.\nconst problem = txs.filter(t => ['FAILURE', 'ERROR'].includes(t.status));\n\nlet status = 'OK';\nif (gqlErrors.length) status = 'GRAPHQL_FEHLER';\nelse if (errs.length) status = 'USER_ERROR';\nelse if (!refund) status = 'KEIN_REFUND';\nelse if (problem.length) status = 'GATEWAY_FEHLER';\nelse if (txs.some(t => t.status === 'PENDING')) status = 'PENDING';\n\nconst erstattet = status === 'OK' || status === 'PENDING';\n\nconst ergebnis = {\n  status,\n  orderId: src.orderId,\n  orderName: src.orderName,\n  land: src.land,\n  adminUrl: src.adminUrl,\n  currency: src.currency,\n  refundBetrag: src.refundBetrag,\n  gedeckelt: src.gedeckelt,\n  gateway: src.gateway,\n  refundId: refund?.id || null,\n  tatsaechlichErstattet: refund?.totalRefundedSet?.presentmentMoney?.amount || null,\n  transaktionen: txs,\n  userErrors: errs,\n  gqlErrors: gqlErrors.map(e => e.message),\n  grund: src.grund,\n  manuellPruefen: status !== 'OK'\n};\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.ergebnisse) staticData.ergebnisse = {};\nstaticData.ergebnisse[src.orderId] = ergebnis;\n\n// Ist der Refund nicht durchgegangen, das reservierte Budget zurueckgeben,\n// sonst blockiert ein Fehlschlag das Lauf-Limit fuer die naechsten Faelle.\nif (!erstattet) {\n  staticData.refundSumme = Math.max(\n    0,\n    Number(staticData.refundSumme || 0) - Number(src.refundBetrag || 0)\n  );\n}\n\n// Bewusst kein throw: ein abgelehnter Refund soll den Loop nicht stoppen.\nreturn { json: ergebnis };\n"
+      },
+      "id": "ae7ebb50-7621-4805-b8cf-ebd0756ff3fe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6816,
+        1840
+      ],
+      "name": "Refund-Ergebnis prüfen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "aa5b56a5-8d5d-44f5-8c52-e34a675a75cf",
+              "leftValue": "={{ $json.refundId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bd82c90c-24f9-406b-83f0-267c5a54a56a",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7008,
+        1840
+      ],
+      "name": "Refund angelegt?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\nconst config = $('Config').first().json.config;\n\n// orderGid und Token liegen nicht im Ergebnis-Item -> aus den Vorgaenger-Nodes holen\nconst orderGid = $('Query bauen (refundCreate)').first().json.orderGid;\n\nconst body = {\n  query: `mutation tagsAdd($id: ID!, $tags: [String!]!) {\n    tagsAdd(id: $id, tags: $tags) {\n      node { id }\n      userErrors { field message }\n    }\n  }`,\n  variables: {\n    id: orderGid,\n    tags: [config.tag]\n  }\n};\n\nreturn {\n  json: {\n    ...item,\n    orderGid,\n    tag: config.tag,\n    accessToken: $('Token holen 2').first().json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n};\n"
+      },
+      "id": "2a0a2957-5821-4529-9dc5-dffc8d836089",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7216,
+        1728
+      ],
+      "name": "Query bauen (Tag)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "id": "2f6509c4-acea-4158-b6f0-6227b84b8747",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        7408,
+        1728
+      ],
+      "name": "Tag setzen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.item.json;\nconst src = $('Query bauen (Tag)').first().json;\n\nconst gqlErrors = resp?.errors || [];\nconst errs = resp?.data?.tagsAdd?.userErrors || [];\nconst ok = !gqlErrors.length && !errs.length && !!resp?.data?.tagsAdd?.node?.id;\n\nconst tagInfo = {\n  tag: src.tag,\n  tagGesetzt: ok,\n  tagFehler: [...gqlErrors.map(e => e.message), ...errs.map(e => e.message)]\n};\n\n// Ergebnis-Eintrag dieser Bestellung nachtraeglich ergaenzen. Ein fehlendes Tag\n// ist kein Geldproblem, aber es macht den Lauf im Admin unauffindbar.\nconst staticData = $getWorkflowStaticData('global');\nconst eintrag = staticData.ergebnisse?.[src.orderId];\nif (eintrag) {\n  Object.assign(eintrag, tagInfo);\n  if (!ok) eintrag.manuellPruefen = true;\n}\n\n// Bewusst kein throw: ein fehlgeschlagenes Tag soll den Loop nicht stoppen.\nreturn { json: { ...src, gqlBody: undefined, accessToken: undefined, ...tagInfo } };\n"
+      },
+      "id": "f0876f57-688b-4583-8313-fad62500b545",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7616,
+        1728
+      ],
+      "name": "Tag-Ergebnis prüfen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.item.json;\n\n// Status und manuellPruefen kommen bereits fertig aus 'Refund-Betrag ermitteln'.\nconst ergebnis = {\n  status: item.status,\n  orderId: item.orderId,\n  orderName: item.orderName,\n  land: item.land,\n  adminUrl: item.adminUrl,\n  currency: item.currency,\n  outstanding: item.outstanding,\n  refundBetrag: item.status === 'TROCKENLAUF' ? item.refundBetrag : '0.00',\n  maxRefund: item.maxRefund,\n  gateway: item.gateway,\n  refundId: null,\n  grund: item.grund,\n  manuellPruefen: item.manuellPruefen === true\n};\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.ergebnisse) staticData.ergebnisse = {};\nstaticData.ergebnisse[item.orderId] = ergebnis;\n\nreturn { json: ergebnis };\n"
+      },
+      "id": "1ac8c7de-2067-43d3-811e-e2508eba0dd3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6416,
+        2048
+      ],
+      "name": "Ohne Refund protokollieren"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "id": "f0fc3bd7-3d69-4d92-8b28-08ab6b37609a",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        7824,
+        2064
+      ],
+      "name": "Wait (Rate-Limit)",
+      "webhookId": "d28b8c32-e974-4e75-a212-99518fa6b340"
+    },
+    {
+      "parameters": {
+        "content": "## Täglicher Refund-Lauf – offene Salden\nRollierendes Fenster der **letzten 14 Tage**, **produktunabhängig**. Findet alle Bestellungen mit `total_outstanding < 0` und erstattet sie.\n\nSelbstheilend: nach erfolgreicher Erstattung ist der Saldo 0 und die Bestellung fällt aus dem Filter. Ein abgebrochener Lauf wird am Folgetag nachgeholt.\n\n⚠️ Dieser Flow bewegt echtes Geld, täglich und ohne Pflicht-SKU als Sicherheitsgurt. Die Grenzen in `Config` sind der Ersatz dafür – siehe Sticky rechts.",
+        "height": 320,
+        "width": 820,
+        "color": 3
+      },
+      "id": "ddd79833-1379-4acf-b063-81f50798b66e",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2864,
+        1008
+      ],
+      "name": "Sticky Config"
+    },
+    {
+      "parameters": {
+        "content": "## Bestellungs-Fetch (Cursor-Pagination)\nREST `orders.json` mit `created_at_min` (jetzt − 14 Tage) und `order=created_at asc`, Folgeseiten über Link-Header `rel=\"next\"`, 1 s Pause pro Seite, frischer Token vor jeder Folgeseite.\n\n**Filter:** nur `total_outstanding < 0`. `Config.pflichtSku` ist `null`, also produktunabhängig.\n\nTreffer landen in `staticData.kandidaten`, bewusste Ausschlüsse mit Begründung in `staticData.skipped`.",
+        "height": 320,
+        "width": 860,
+        "color": 5
+      },
+      "id": "14759705-8ebe-456b-ac7d-e96666f36001",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3824,
+        1008
+      ],
+      "name": "Sticky Fetch"
+    },
+    {
+      "parameters": {
+        "content": "## Vier Sicherungen\n**1. `mindestBetrag` 0,01** – Centbeträge bleiben liegen.\n\n**2. `maxBetrag` 10,00** – pro Bestellung. Darüber: Report statt Refund.\n\n**3. `maxSummeProLauf` 150,00** – Budget pro Lauf. Es wird *vor* dem Refund reserviert und bei Fehlschlag zurückgegeben, damit ein hängender Refund das Limit weder umgeht noch blockiert.\n\n**4. `maxKandidatenProLauf` 50** – Notbremse. Finden sich auf einmal mehr, ist mit hoher Wahrscheinlichkeit etwas systematisch kaputt. Dann wird im ganzen Lauf **gar nichts** erstattet, auch nicht die ersten paar.\n\nDazu `trockenlauf: true` – protokolliert nur, was der Flow täte. Für den ersten scharfen Lauf einmal einschalten.",
+        "height": 480,
+        "width": 620,
+        "color": 3
+      },
+      "id": "8d97eba9-3a23-4c60-a65e-d6b0ddb8c2ea",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        6496,
+        992
+      ],
+      "name": "Sticky Sicherungen"
+    },
+    {
+      "parameters": {
+        "content": "## Refund-Kette\nDer Saldo wird pro Bestellung **erneut** gelesen, nicht aus dem Fetch übernommen: zwischen Scan und Refund kann jemand manuell erstattet haben. `suggestedRefund` liefert Obergrenze, Parent-Transaktion und Gateway.\n\n`refundCreate` ohne `refundLineItems` – reine Geldrückgabe, keine Retoure, keine Bestandsbuchung.\n\nNach erfolgreichem Refund `tagsAdd` mit `Config.tag`. Bestellungen ohne Refund bleiben untagged.\n\nKein `throw` in der Kette: ein abgelehnter Refund oder ein fehlgeschlagenes Tag stoppt den Loop nicht, beides landet im Report.",
+        "height": 480,
+        "width": 660,
+        "color": 5
+      },
+      "id": "a753f98a-e46d-4cb0-886f-63f88542f12d",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7232,
+        992
+      ],
+      "name": "Sticky Refund"
+    },
+    {
+      "parameters": {
+        "content": "## Report\nEine `ZUSAMMENFASSUNG` mit `modus` (SCHARF / TROCKENLAUF), Fetch-Zahlen, Refund-Bilanz und `budgetVerbraucht` von `budgetGrenze`.\n\nDanach je eine `KANDIDAT`-Zeile mit `refundStatus`, `refundBetrag`, `refundId`, `tagGesetzt` und `grund` – **zu Prüfende zuerst**. Dann die `UEBERSPRUNGEN`-Zeilen.\n\n**Kandidatenfreier Tag:** `Gibt es Kandidaten?` schickt direkt in den Report, die Refund-Kette wird gar nicht betreten. Der Report ist dann genau eine Zeile – die ZUSAMMENFASSUNG mit `kandidaten: 0`. Die Fetch-Zahlen zeigen, dass der Lauf trotzdem gearbeitet hat.\n\nStatuswerte: `OK`, `PENDING`, `TROCKENLAUF`, `KEIN_BEDARF`, `UNTER_MINDESTBETRAG`, `UEBER_MAXBETRAG`, `LIMIT_LAUF`, `NOTBREMSE`, `KEINE_TRANSAKTION`, `NICHT_ERSTATTBAR`, `GATEWAY_FEHLER`, `USER_ERROR`, `GRAPHQL_FEHLER`, `KEIN_REFUND`.",
+        "height": 520,
+        "width": 560,
+        "color": 6
+      },
+      "id": "e6aec222-acd7-4411-a74d-0580287d9a32",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5568,
+        976
+      ],
+      "name": "Sticky Report"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fasst alle Report-Zeilen zu EINER Mail zusammen.\n// Ohne diesen Node wuerde 'Send email' pro Report-Zeile eine Mail schicken.\n\n// true = an ruhigen Tagen gar keine Mail (Node gibt dann 0 Items zurueck)\nconst NUR_BEI_TREFFERN = false;\n\nconst items = $input.all().map(i => i.json);\nconst zus = items.find(i => i.zeile === 'ZUSAMMENFASSUNG') || {};\nconst kandidaten = items.filter(i => i.zeile === 'KANDIDAT');\nconst uebersprungen = items.filter(i => i.zeile === 'UEBERSPRUNGEN');\n\nif (NUR_BEI_TREFFERN && kandidaten.length === 0) return [];\n\nconst esc = (v) => String(v ?? '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst datum = (iso) => {\n  if (!iso) return '';\n  const d = new Date(iso);\n  return isNaN(d) ? String(iso) : d.toLocaleDateString('de-DE');\n};\n\nconst farbe = {\n  OK: '#1a7f37',\n  PENDING: '#b35900',\n  TROCKENLAUF: '#6b7280',\n  KEIN_BEDARF: '#6b7280',\n  UNTER_MINDESTBETRAG: '#6b7280'\n};\n\nconst th = 'style=\"text-align:left;padding:6px 10px;border-bottom:2px solid #ddd;font-size:13px\"';\nconst td = 'style=\"padding:6px 10px;border-bottom:1px solid #eee;font-size:13px\"';\nconst tdR = 'style=\"padding:6px 10px;border-bottom:1px solid #eee;font-size:13px;text-align:right;white-space:nowrap\"';\n\nconst zeilen = kandidaten.map(k => `\n  <tr${k.manuellPruefen ? ' style=\"background:#fff8f0\"' : ''}>\n    <td ${td}><a href=\"${esc(k.adminUrl)}\">${esc(k.orderName)}</a></td>\n    <td ${td}>${esc(datum(k.createdAt))}</td>\n    <td ${td}>${esc(k.land)}</td>\n    <td ${tdR}>${esc(k.offenerBetrag)} ${esc(k.currency)}</td>\n    <td ${tdR}><strong>${esc(k.refundBetrag)}</strong></td>\n    <td ${td}><span style=\"color:${farbe[k.refundStatus] || '#b00020'}\">${esc(k.refundStatus)}</span></td>\n    <td ${td}>${k.tagGesetzt ? '✓' : ''}</td>\n    <td ${td}>${esc(k.grund)}</td>\n  </tr>`).join('');\n\nconst tabelle = kandidaten.length ? `\n<table cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;width:100%;max-width:1000px\">\n  <tr>\n    <th ${th}>Bestellung</th>\n    <th ${th}>Datum</th>\n    <th ${th}>Land</th>\n    <th ${th} style=\"text-align:right\">Offen</th>\n    <th ${th} style=\"text-align:right\">Erstattet</th>\n    <th ${th}>Status</th>\n    <th ${th}>Tag</th>\n    <th ${th}>Hinweis</th>\n  </tr>\n  ${zeilen}\n</table>` : '<p>Keine Bestellung mit offenem Guthaben im Zeitraum.</p>';\n\nconst skipBlock = uebersprungen.length ? `\n<h3 style=\"font-size:14px;margin:24px 0 6px\">Übersprungen (${uebersprungen.length})</h3>\n<ul style=\"font-size:13px;margin:0;padding-left:18px\">\n  ${uebersprungen.map(s => `<li>${esc(s.orderName || s.orderId)}: ${esc(s.grund)}</li>`).join('')}\n</ul>` : '';\n\n// Auffaellige Laufzustaende gehoeren nach ganz oben, nicht in eine Tabellenzeile.\nconst warnungen = [];\nif (zus.notbremse) {\n  warnungen.push('NOTBREMSE: mehr als erlaubt viele Kandidaten – in diesem Lauf wurde '\n    + 'nichts erstattet. Bitte Ursache prüfen.');\n}\nif (zus.modus && zus.modus !== 'SCHARF') warnungen.push(zus.modus);\nif (Number(zus.limitErreicht) > 0) {\n  warnungen.push('Lauf-Budget erschöpft: ' + zus.limitErreicht\n    + ' Bestellung(en) wurden nicht erstattet.');\n}\n\nconst warnBlock = warnungen.length ? `\n<div style=\"border-left:4px solid #b00020;background:#fff4f4;padding:10px 14px;margin:0 0 18px;font-size:13px\">\n  ${warnungen.map(w => `<div>${esc(w)}</div>`).join('')}\n</div>` : '';\n\nconst mailText = `\n<div style=\"font-family:Arial,Helvetica,sans-serif;color:#222\">\n  <h2 style=\"font-size:18px;margin:0 0 4px\">Shopify – offene Salden, letzte ${esc(zus.zeitraumTage)} Tage</h2>\n  <p style=\"font-size:13px;color:#666;margin:0 0 16px\">\n    Zeitraum ${esc(datum(zus.zeitraumVon))} bis ${esc(zus.zeitraumBis === 'jetzt' ? 'heute' : datum(zus.zeitraumBis))}\n    &middot; ${esc(zus.bestellungenGeprueft)} Bestellungen geprüft\n  </p>\n\n  ${warnBlock}\n\n  <table cellspacing=\"0\" cellpadding=\"0\" style=\"border-collapse:collapse;margin:0 0 20px\">\n    <tr><td ${td}>Bestellungen mit offenem Guthaben</td><td ${tdR}><strong>${esc(zus.kandidaten)}</strong></td><td ${tdR}>${esc(zus.summeOffen)} EUR</td></tr>\n    <tr><td ${td}>erstattet</td><td ${tdR}>${esc(zus.erstattetOk)}</td><td ${tdR}><strong>${esc(zus.summeErstattet)} EUR</strong></td></tr>\n    <tr><td ${td}>in Abwicklung (pending)</td><td ${tdR}>${esc(zus.pending)}</td><td ${tdR}>${esc(zus.summePending)} EUR</td></tr>\n    <tr><td ${td}>über Maxbetrag – manuell</td><td ${tdR}>${esc(zus.ueberMaxbetrag)}</td><td ${tdR}></td></tr>\n    <tr><td ${td}>Saldo inzwischen ausgeglichen</td><td ${tdR}>${esc(zus.saldoAusgeglichen)}</td><td ${tdR}></td></tr>\n    <tr><td ${td}>Fehler</td><td ${tdR}>${esc(zus.fehler)}</td><td ${tdR}></td></tr>\n    <tr><td ${td}><strong>manuell prüfen</strong></td><td ${tdR}><strong>${esc(zus.manuellPruefen)}</strong></td><td ${tdR}></td></tr>\n    <tr><td ${td}>Lauf-Budget</td><td ${tdR}>${esc(zus.budgetVerbraucht)}</td><td ${tdR}>von ${esc(zus.budgetGrenze)} EUR</td></tr>\n  </table>\n\n  ${tabelle}\n  ${skipBlock}\n\n  <p style=\"font-size:12px;color:#888;margin-top:24px\">\n    Workflow-ID ${$workflow.id}, Lauf ${esc(zus.lauf)}\n  </p>\n</div>`;\n\nconst titel = `Bücherbüchse | Offene Salden: ${esc(zus.erstattetOk)} erstattet (${esc(zus.summeErstattet)} EUR)`\n  + (Number(zus.manuellPruefen) > 0 ? `, ${esc(zus.manuellPruefen)} zu prüfen` : '');\n\nreturn [{ json: { titel, mailText, anzahlKandidaten: kandidaten.length } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5872,
+        1712
+      ],
+      "id": "2adf2fea-bc4f-4c76-8f9a-2407b7bce993",
+      "name": "Mail-Body bauen"
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "jesse.balsam@buecherbuechse.de;christoph@buecherbuechse.de",
+        "subject": "={{ $json.titel }}",
+        "html": "={{ $json.mailText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        6096,
+        1712
+      ],
+      "id": "8ff48297-f969-4408-a7be-80e4c73ecb61",
+      "name": "Send email",
+      "webhookId": "dea7bab9-fdd7-4c52-83aa-f5cdd0cc7e6f",
+      "retryOnFail": true,
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Täglich 07:00": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Array leeren + Start URL setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Array leeren + Start URL setzen": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Bestellungen": {
+      "main": [
+        [
+          {
+            "node": "NextURL weitergeben + Kandidaten prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextURL weitergeben + Kandidaten prüfen": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Gibt es NextURL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es NextURL?": {
+      "main": [
+        [
+          {
+            "node": "Token holen 1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Kandidaten vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Token + NextURL zusammenführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token + NextURL zusammenführen": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kandidaten vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Gibt es Kandidaten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es Kandidaten?": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Token holen 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 2": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Order-Saldo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (Order-Saldo)": {
+      "main": [
+        [
+          {
+            "node": "Order-Saldo abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Order-Saldo abfragen": {
+      "main": [
+        [
+          {
+            "node": "Refund-Betrag ermitteln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refund-Betrag ermitteln": {
+      "main": [
+        [
+          {
+            "node": "Gibt es einen Refund?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es einen Refund?": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (refundCreate)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ohne Refund protokollieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (refundCreate)": {
+      "main": [
+        [
+          {
+            "node": "Refund anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refund anlegen": {
+      "main": [
+        [
+          {
+            "node": "Refund-Ergebnis prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refund-Ergebnis prüfen": {
+      "main": [
+        [
+          {
+            "node": "Refund angelegt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refund angelegt?": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Tag)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (Tag)": {
+      "main": [
+        [
+          {
+            "node": "Tag setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag setzen": {
+      "main": [
+        [
+          {
+            "node": "Tag-Ergebnis prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag-Ergebnis prüfen": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ohne Refund protokollieren": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail-Body bauen": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report erstellen": {
+      "main": [
+        [
+          {
+            "node": "Mail-Body bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "Je9LeYjIY9Ew2E9r",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-09-22T07:53:59.714Z",
+      "updatedAt": "2026-09-22T07:53:59.714Z"
+    }
+  ],
+  "activeVersion": null
+}

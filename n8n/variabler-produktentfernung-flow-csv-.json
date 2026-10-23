@@ -1,0 +1,1436 @@
+{
+  "id": "GknCu8O0sF2eOEwO",
+  "name": "Variabler-Produktentfernung-Flow-CSV",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-24T08:15:31.972Z",
+  "updatedAt": "2026-09-24T11:17:31.121Z",
+  "isArchived": false,
+  "versionId": "e1b799de-e061-4d3a-ad88-a9faab322123",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ⚠️ Vorbereitet – noch nicht scharf\nOffen, bevor der Flow laufen darf:\n1. `Config.targets`: SKU des Buchs eintragen – der Platzhalter bricht den Lauf bewusst ab\n2. `Config.versandkosten`: Preis einer Sendung mit einem Produkt je Lieferland\n3. `Config.notifyCustomer`: Kunden-Mail an/aus\n4. `Config.restock` und `Config.staffNote`\n5. Empfänger der Report-Mail (aktuell nur Jesse)\n\n**Nicht Teil des Flows:** importierte WooCommerce-Bestellungen (`WC_IMPORT`, eigener Flow folgt), Auszahlung (Refund-Flow), JTL.\n\n**Ablauf:** Trockenlauf (`trockenlauf: true`) → Report prüfen → `trockenlauf: false` mit aktivem Test-Limiter → 1 Bestellung je Fall in Shopify prüfen → Test-Limiter deaktivieren → Vollauf.",
+        "height": 1000,
+        "width": 624,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        176
+      ],
+      "id": "d661aaff-675b-4b98-9366-9e204e771782",
+      "name": "Sticky Eckdaten"
+    },
+    {
+      "parameters": {
+        "content": "## CSV-Front\nEingang: Shopify-Bestellexport (CSV) mit **allen betroffenen Bestellungen** – gebraucht werden `Name` und `Id`. Jede Bestellung taucht genau einmal im Report auf.\n**Kandidaten:** `NUR_BUCH` → Storno · `EINZELVERSAND` → Buch raus + Config-Versandkosten erstatten · `SAMMELVERSAND` → nur Buch raus · `SAMMELVERSAND_EIN_PRODUKT` → Buch raus + (Sammelversand − Config-Versandkosten) erstatten\n**Übersprungen:** `WC_IMPORT` · `BEREITS_STORNIERT` · `AUSNAHME` · `NICHT_BETROFFEN` · `VERSENDET` · `VERSAND_PRUEFEN` · `VERSANDART_UNBEKANNT` · `NICHT_GEFUNDEN`",
+        "height": 440,
+        "width": 1900,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1696,
+        176
+      ],
+      "id": "8d23d443-fd1f-4725-8e25-11be06f0262d",
+      "name": "Sticky CSV-Front"
+    },
+    {
+      "parameters": {
+        "formTitle": "Produktentfernung CSV",
+        "formDescription": "Shopify-Bestellexport (CSV) mit allen betroffenen Bestellungen hochladen – SKU, Versandkosten und Modus im Node 'Config' pflegen",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "CSV-Datei",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        1712,
+        448
+      ],
+      "id": "310f3cdd-d3dc-4239-b228-a6c55e5b5384",
+      "name": "CSV hochladen (Formular)",
+      "webhookId": "e009ea87-4b87-4b46-a6b8-24b8b48f0fd1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === HIER PFLEGEN ===\nconst CONFIG = {\n  // SKU(s) des Buchs\n  targets: [\n    { sku: 'HIER-SKU-EINTRAGEN' },\n  ],\n\n  // Kundenbenachrichtigung an/aus: true = Shopify schickt die Storno-Mail bzw. die Mail zur Bestelländerung\n  notifyCustomer: false,\n\n  // true = es wird NICHTS geändert, der Flow ordnet nur ein und mailt den Report.\n  // Erst auf false stellen, wenn der Trockenlauf-Report passt.\n  trockenlauf: true,\n\n  // Versandkosten für EINE Sendung mit EINEM Produkt, je Lieferland (ISO-Code).\n  // BeSpoke lässt sich nicht abfragen, deshalb hier pflegen. Land fehlt/null = wird nicht bearbeitet.\n  //  - Einzelversand: dieser Betrag wird mit erstattet (einmal je Bestellung)\n  //  - Sammelversand, danach nur noch 1 Produkt: Erstattung = bezahlter Sammelversand − dieser Betrag\n  versandkosten: { DE: null, AT: null, CH: null },\n\n  // Titel der Versandarten, wie sie in der Bestellung stehen\n  versandartEinzel: ['Einzelversand'],\n  versandartSammel: ['Sammelversand'],\n\n  // Importierte Bestellungen (WooCommerce via Matrixify) – dafür kommt ein eigener Flow\n  ignorierteQuellen: ['Matrixify App'],\n\n  // Storno-Grund in Shopify. INVENTORY = nicht lieferbar.\n  // Weitere Werte: CUSTOMER, DECLINED, FRAUD, OTHER, STAFF_ERROR\n  stornoGrund: 'INVENTORY',\n\n  // Bestand beim Stornieren/Entfernen zurückbuchen?\n  restock: false,\n\n  // Einzelne Bestellungen ausschließen: Bestellnummer ('BB-12345') oder orderId\n  ausnahmen: [],\n\n  // Interne Notiz, für Kunden nicht sichtbar. SKU und Versanderstattung werden angehängt (max. 255 Zeichen)\n  staffNote: 'Automatische Bearbeitung: Buch nicht mehr lieferbar. Erstattung über Refund-Flow.',\n\n  // Tag nach erfolgreicher Bearbeitung – macht die Bestellungen für den Refund-Flow filterbar\n  tag: `n8n-api-${$workflow.id}`\n};\n\nconst ungueltig = CONFIG.targets.filter(t => !String(t.sku || '').trim() || String(t.sku).includes('HIER-'));\nif (!CONFIG.targets.length || ungueltig.length) {\n  throw new Error('Config: SKU des Buchs noch nicht eingetragen – Flow ist nur vorbereitet.');\n}\n\n// CSV-Binary unverändert durchreichen, Config für alle Folge-Nodes anhängen\nreturn $input.all().map(i => ({\n  json: { ...i.json, config: CONFIG },\n  binary: i.binary\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1888,
+        448
+      ],
+      "id": "897286b0-69e8-47ba-806b-1f4df11ce907",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "CSV_Datei",
+        "options": {
+          "delimiter": ","
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        448
+      ],
+      "id": "7f275727-ea5c-4b2e-952a-f6debe37411b",
+      "name": "CSV parsen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Erwartet den Shopify-Bestellexport (CSV) mit allen betroffenen Bestellungen.\n// Eine Zeile pro Line-Item; 'Id' steht nur in der ersten Zeile einer Bestellung\n// -> forward-fill innerhalb derselben Bestellnummer ('Name').\nconst items = $input.all().map(i => i.json);\nlet lastName = null;\nlet lastId = null;\nconst namen = new Set();\nconst namenMitId = new Set();\nconst seen = new Set();\nconst orders = [];\nfor (const row of items) {\n  const name = String(row['Name'] || '').trim();\n  const idRaw = String(row['Id'] ?? row['ID'] ?? row['id'] ?? '').trim();\n  if (!name) continue;\n  namen.add(name);\n  if (name !== lastName) { lastName = name; lastId = null; }\n  if (idRaw) lastId = idRaw;\n  if (!lastId) continue;\n  namenMitId.add(name);\n  if (seen.has(lastId)) continue;\n  seen.add(lastId);\n  orders.push({ orderId: Number(lastId), orderName: name });\n}\n\n// Die CSV ist die vollständige Liste – eine Bestellung ohne Id würde sonst stillschweigend fehlen\nconst ohneId = [...namen].filter(n => !namenMitId.has(n));\nif (ohneId.length) {\n  throw new Error(`CSV: ${ohneId.length} Bestellung(en) ohne 'Id', z. B. ${ohneId.slice(0, 10).join(', ')} – bitte den Shopify-Bestellexport verwenden.`);\n}\nif (!orders.length) {\n  throw new Error(\"CSV enthält keine Bestellungen mit den Spalten 'Name' und 'Id' – bitte den Shopify-Bestellexport verwenden.\");\n}\n\nreturn orders.map(o => ({ json: o }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        448
+      ],
+      "id": "c4e95eb1-fa10-4b70-b273-36f70360a24a",
+      "name": "Bestellungen extrahieren (dedupe)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2416,
+        448
+      ],
+      "id": "a19b03bb-bf81-42f7-9720-65489bc9010f",
+      "name": "Token holen (CSV)",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Listen einmalig leeren, Token durchreichen, alle Bestellungen weitergeben.\nconst staticData = $getWorkflowStaticData('global');\nstaticData.toFix = [];\nstaticData.skipped = [];\nstaticData.done = [];\n\nconst token = $json.access_token;\nconst orders = $('Bestellungen extrahieren (dedupe)').all().map(i => i.json);\n\nreturn orders.map(o => ({\n  json: { ...o, accessToken: token }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2592,
+        448
+      ],
+      "id": "d04f01b1-570a-44c1-8c25-9722908d6f3e",
+      "name": "toFix leeren + Token durchreichen"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2784,
+        448
+      ],
+      "id": "1c2338ca-fb2f-41c2-8472-9ccdd335fec9",
+      "name": "Loop je Bestellung (CSV)"
+    },
+    {
+      "parameters": {
+        "url": "=https://vdzvc0-nd.myshopify.com/admin/api/2024-10/orders/{{ $json.orderId }}.json?fields=id,name,created_at,cancelled_at,source_name,financial_status,currency,current_total_price,total_outstanding,shipping_address,shipping_lines,line_items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2976,
+        448
+      ],
+      "id": "20438519-b22d-4e1e-8c6d-05bdce4c9924",
+      "name": "GET einzelne Bestellung",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ordnet jede CSV-Bestellung genau einem Status zu:\n// Kandidat (toFix, aktion STORNO oder ENTFERNEN) oder übersprungen (skipped)\nconst response = $input.first().json;\nconst src = $('Loop je Bestellung (CSV)').first().json;\nconst order = response.body?.order || response.order || null;\nconst config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.toFix)) staticData.toFix = [];\nif (!Array.isArray(staticData.skipped)) staticData.skipped = [];\n\nconst fertig = () => [{ json: { kandidaten: staticData.toFix.length, uebersprungen: staticData.skipped.length } }];\n\nif (!order) {\n  // GET fehlgeschlagen (z. B. falsche Id in der CSV) – der Lauf geht weiter\n  staticData.skipped.push({\n    orderId: src.orderId,\n    orderName: src.orderName,\n    positionen: [],\n    weitere: [],\n    status: 'NICHT_GEFUNDEN',\n    grund: 'Bestellung nicht abrufbar: ' + String(response.error?.message || JSON.stringify(response)).slice(0, 200)\n  });\n  return fertig();\n}\n\nconst runden = x => Math.round(x * 100) / 100;\nconst ZIEL_SKUS = new Set(config.targets.map(t => String(t.sku).trim()));\nconst istBuch = li => ZIEL_SKUS.has(String(li.sku || '').trim());\nconst normTitel = s => String(s || '').trim().toLowerCase();\n\n// current_quantity: entfernte Positionen behalten quantity, current_quantity ist 0\nconst aktiv = (order.line_items || []).filter(li => Number(li.current_quantity) > 0);\nconst buch = aktiv.filter(istBuch);\nconst weitere = aktiv.filter(li => !istBuch(li));\nconst versandLinien = (order.shipping_lines || []).filter(sl => !sl.is_removed);\nconst land = order.shipping_address?.country_code || null;\n\nconst position = li => ({\n  lineItemId: li.id,\n  sku: li.sku,\n  title: li.title,\n  menge: Number(li.current_quantity),\n  versendbar: Number(li.fulfillable_quantity)\n});\n\n// Wert der Buch-Positionen nach Rabatten – zur Kontrolle des hinterlegten Refunds\nconst buchWert = runden(buch.reduce((s, li) =>\n  s + Number(li.price) * Number(li.current_quantity)\n    - (li.discount_allocations || []).reduce((d, a) => d + Number(a.amount || 0), 0), 0));\n\nconst datensatz = {\n  orderId: order.id,\n  orderName: order.name,\n  createdAt: order.created_at,\n  quelle: order.source_name || '',\n  land,\n  financialStatus: order.financial_status,\n  currency: order.currency,\n  bestellwert: order.current_total_price,\n  saldoVorher: order.total_outstanding,\n  versandart: versandLinien.map(sl => sl.title).join(' + '),\n  versandBezahlt: runden(versandLinien.reduce((s, sl) => s + Number(sl.discounted_price ?? sl.price ?? 0), 0)),\n  positionen: buch.map(position),\n  weitere: weitere.map(position)\n};\n\nconst ausnahme = (config.ausnahmen || []).some(a =>\n  String(a) === String(order.id) || String(a) === order.name\n);\n\nconst ueberspringen = (status, grund) => {\n  staticData.skipped.push({ ...datensatz, status, grund });\n  return fertig();\n};\n\nif (order.cancelled_at) return ueberspringen('BEREITS_STORNIERT', 'Storniert am ' + order.cancelled_at);\nif ((config.ignorierteQuellen || []).includes(datensatz.quelle)) {\n  return ueberspringen('WC_IMPORT', `Importierte Bestellung (Quelle: ${datensatz.quelle}) – eigener Flow folgt`);\n}\nif (ausnahme) return ueberspringen('AUSNAHME', 'Bestellung steht in Config.ausnahmen');\nif (!buch.length) return ueberspringen('NICHT_BETROFFEN', 'Buch nicht (mehr) aktiv in der Bestellung – CSV prüfen');\nif (buch.some(li => Number(li.fulfillable_quantity) < Number(li.current_quantity))) {\n  return ueberspringen('VERSENDET', 'Buch bereits (teil-)versendet – manuell prüfen');\n}\n\nconst kandidat = (aktion, fall, versand) => {\n  // STORNO: der bezahlte Betrag wird offen; ENTFERNEN: Buch nach Rabatten + Versanderstattung\n  const erwartet = aktion === 'STORNO'\n    ? runden(Number(order.current_total_price) - Number(order.total_outstanding))\n    : runden(buchWert + (versand?.erstattung || 0));\n  staticData.toFix.push({ ...datensatz, aktion, fall, versand, erwarteteErstattung: erwartet });\n  return fertig();\n};\n\n// Nur das Buch in der Bestellung: vollständig stornieren\nif (!weitere.length) return kandidat('STORNO', 'NUR_BUCH', null);\n\n// Mehrere Produkte: Buch entfernen, Versand nach Versandart\nif (versandLinien.length !== 1) {\n  return ueberspringen('VERSAND_PRUEFEN', `${versandLinien.length} Versandpositionen – manuell prüfen`);\n}\nconst sl = versandLinien[0];\nconst titel = normTitel(sl.title);\nconst bezahlt = Number(sl.discounted_price ?? sl.price);\nif (Number(sl.price) !== bezahlt) {\n  return ueberspringen('VERSAND_PRUEFEN', `Versand rabattiert (${sl.price} → ${bezahlt}) – manuell prüfen`);\n}\nconst kosten = config.versandkosten?.[land];\nconst hatKosten = typeof kosten === 'number' && Number.isFinite(kosten);\nconst ohneKosten = () => ueberspringen('VERSAND_PRUEFEN', `Keine Versandkosten für Land ${land} in Config.versandkosten`);\nconst versand = (erstattung, neuerPreis) => ({\n  shippingLineId: sl.id, titel: sl.title, bezahlt, erstattung: runden(erstattung), neuerPreis: runden(neuerPreis)\n});\n\nif ((config.versandartEinzel || []).map(normTitel).includes(titel)) {\n  if (!hatKosten) return ohneKosten();\n  if (bezahlt < kosten) {\n    return ueberspringen('VERSAND_PRUEFEN', `Bezahlter Einzelversand ${bezahlt} kleiner als Config ${kosten} – manuell prüfen`);\n  }\n  return kandidat('ENTFERNEN', 'EINZELVERSAND', versand(kosten, bezahlt - kosten));\n}\n\nif ((config.versandartSammel || []).map(normTitel).includes(titel)) {\n  // Was nach dem Entfernen noch verschickt werden muss (Stückzahl)\n  const restEinheiten = weitere\n    .filter(li => li.requires_shipping !== false)\n    .reduce((s, li) => s + Number(li.current_quantity), 0);\n\n  if (restEinheiten >= 2) return kandidat('ENTFERNEN', 'SAMMELVERSAND', versand(0, bezahlt));\n  if (restEinheiten === 1) {\n    if (!hatKosten) return ohneKosten();\n    if (bezahlt < kosten) {\n      return ueberspringen('VERSAND_PRUEFEN', `Bezahlter Sammelversand ${bezahlt} kleiner als Config ${kosten} – manuell prüfen`);\n    }\n    return kandidat('ENTFERNEN', 'SAMMELVERSAND_EIN_PRODUKT', versand(bezahlt - kosten, kosten));\n  }\n  return ueberspringen('VERSAND_PRUEFEN', 'Nach dem Entfernen bleibt kein Versandprodukt übrig – manuell prüfen');\n}\n\nreturn ueberspringen('VERSANDART_UNBEKANNT', `Versandart \"${sl.title}\" – vorerst nicht bearbeitet`);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3184,
+        448
+      ],
+      "id": "4a5d32b0-0073-477a-beb0-1976e633239f",
+      "name": "Bestellung prüfen + einordnen"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3376,
+        448
+      ],
+      "id": "73604371-1a4f-48d4-bc5c-94b4b5b63b5f",
+      "name": "Wait (CSV Rate-Limit)",
+      "webhookId": "94030bfb-38ac-4e72-b338-eba425dcaf1f"
+    },
+    {
+      "parameters": {
+        "content": "## Bearbeitung je Bestellung\n**Storno** (`NUR_BUCH`, oben): `orderCancel` mit `refund: false` → 3 s warten (Hintergrund-Job) → Kontrolle `cancelledAt` + Saldo. Nicht umkehrbar.\n**Buch entfernen** (unten): `orderEditBegin` → ein Request mit Buch-Positionen auf 0 und – bei Versanderstattung – alte Versandposition entfernen + neue mit gleichem Titel und neuem Preis anlegen → `orderEditCommit`.\nBeide Wege: Tag `n8n-api-<Workflow-ID>`, Report prüft hinterlegten Refund gegen den erwarteten Betrag. Fehler stoppen den Lauf nicht (`FEHLER` im Report); ohne Commit bleibt die Bestellung unverändert.\n⚠️ `Test-Limiter (1 Bestellung)` ist **aktiv**. Nach Kontrolle in Shopify deaktivieren.",
+        "height": 880,
+        "width": 4000,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1696,
+        672
+      ],
+      "id": "c4794db1-8dd5-418e-aad7-36c13306f41b",
+      "name": "Sticky Bearbeitung"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ein Item je zu bearbeitender Bestellung\nconst config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst collected = staticData.toFix || [];\n\n// Trockenlauf oder keine Kandidaten: Steuer-Item ohne orderGid -> IF leitet direkt zum Report\nif (config.trockenlauf || !collected.length) {\n  return [{ json: { modus: config.trockenlauf ? 'TROCKENLAUF' : 'KEINE_KANDIDATEN', bestellungen: collected.length } }];\n}\n\nreturn collected.map(order => ({\n  json: {\n    orderId: order.orderId,\n    orderName: order.orderName,\n    orderGid: `gid://shopify/Order/${order.orderId}`,\n    aktion: order.aktion,\n    fall: order.fall,\n    versand: order.versand,\n    erwarteteErstattung: order.erwarteteErstattung,\n    saldoVorher: Number(order.saldoVorher),\n    skus: [...new Set(order.positionen.map(p => p.sku))],\n    // CalculatedLineItem-ID = LineItem-ID für bestehende Positionen\n    lineItemGids: order.positionen.map(p => `gid://shopify/CalculatedLineItem/${p.lineItemId}`)\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1776,
+        1088
+      ],
+      "id": "fb1d15c7-77fe-4faa-9558-e39374dcf432",
+      "name": "Bearbeitungs-Items vorbereiten"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "629bff43-d1de-4cb3-9948-5638cc2d9c5f",
+              "leftValue": "={{ $json.orderGid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1968,
+        1088
+      ],
+      "id": "e42a2125-df43-44e4-abec-d9ded44ab30a",
+      "name": "Bestellungen bearbeiten?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// TESTGATE: verarbeitet nur die erste gefundene Bestellung.\n// Für den Vollauf diesen Node deaktivieren oder löschen.\nreturn $input.all().slice(0, 1);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        1088
+      ],
+      "id": "20b6d1f7-d24f-40c4-a6ea-f5831332a98e",
+      "name": "Test-Limiter (1 Bestellung)"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2384,
+        1088
+      ],
+      "id": "ae829ac2-f909-46d2-9dcc-3e8275a9c048",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2576,
+        1088
+      ],
+      "id": "7e4253ec-96a0-434b-8976-4f714b8d8c6a",
+      "name": "Token holen 2",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d3d77e4c-b677-491f-b2be-7c1376cc3858",
+              "leftValue": "={{ $('Loop Over Items').first().json.aktion }}",
+              "rightValue": "STORNO",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2768,
+        1088
+      ],
+      "id": "022beffa-2b79-4da3-bb4e-7f0f8d422b66",
+      "name": "Storno?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Loop Over Items').first().json;\nconst config = $('Config').first().json.config;\n\n// refund: false – die Erstattung übernimmt der Refund-Flow.\n// Autorisierte, noch nicht eingezogene Zahlungen gibt Shopify beim Storno trotzdem frei.\nconst body = {\n  query: `mutation orderCancel($orderId: ID!, $reason: OrderCancelReason!, $restock: Boolean!, $notifyCustomer: Boolean, $staffNote: String) {\n    orderCancel(orderId: $orderId, reason: $reason, refund: false, restock: $restock, notifyCustomer: $notifyCustomer, staffNote: $staffNote) {\n      job { id done }\n      orderCancelUserErrors { field message code }\n    }\n  }`,\n  variables: {\n    orderId: item.orderGid,\n    reason: config.stornoGrund,\n    restock: config.restock,\n    notifyCustomer: config.notifyCustomer,\n    staffNote: `${config.staffNote} SKU: ${item.skus.join(', ')}`.slice(0, 255)\n  }\n};\n\nreturn [{\n  json: {\n    accessToken: $('Token holen 2').first().json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2976,
+        1088
+      ],
+      "id": "285ebeec-29af-4fad-a337-f61e0413a8dc",
+      "name": "Query bauen (orderCancel)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3168,
+        1088
+      ],
+      "id": "6bc29276-0dbd-43f4-841f-aac1b9eb4f3e",
+      "name": "orderCancel"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst src = $('Loop Over Items').first().json;\nconst payload = resp?.data?.orderCancel;\n\n// Bewusst kein throw: ein abgelehnter Storno ändert nichts an der Bestellung,\n// der Lauf geht mit der nächsten weiter. Die Shopify-Meldung steht im Report.\nconst fehler = [\n  ...(resp?.errors || []).map(e => e.message),\n  ...(payload?.orderCancelUserErrors || []).map(e => (e.code ? e.code + ': ' : '') + e.message)\n];\nif (!fehler.length && !payload?.job?.id) {\n  fehler.push('Kein Storno-Job erhalten: ' + JSON.stringify(resp).slice(0, 300));\n}\n\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\nsd.done.push({\n  orderId: src.orderId,\n  orderName: src.orderName,\n  status: fehler.length ? 'FEHLER' : 'STORNIERT',\n  grund: fehler.join(' | ').slice(0, 500),\n  jobId: payload?.job?.id || null,\n  stornoBestaetigt: false,\n  saldoNachher: null,\n  refundHinterlegt: null,\n  finanzstatusNachher: null,\n  tagGesetzt: false,\n  bearbeitetAm: new Date().toISOString()\n});\n\nreturn [{ json: { ...src, stornoAngenommen: !fehler.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        1088
+      ],
+      "id": "beca7cad-8962-4e8e-9faf-3356035640e7",
+      "name": "Storno-Ergebnis prüfen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0b5ac8c6-3074-4514-a825-ff4755472515",
+              "leftValue": "={{ $json.stornoAngenommen }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3552,
+        1088
+      ],
+      "id": "94f186ee-11d0-43a9-91f7-98b36d99ad9e",
+      "name": "Storno angenommen?"
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3744,
+        1088
+      ],
+      "id": "ea7a777d-8329-4772-9200-a8810f1ffecf",
+      "name": "Wait (Storno-Job)",
+      "webhookId": "dbbb6041-05b7-4963-b546-ff1cba5845ee"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen 2').first().json.access_token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: 'query($id: ID!) { order(id: $id) { id cancelledAt displayFinancialStatus totalOutstandingSet { shopMoney { amount currencyCode } } } }', variables: { id: $json.orderGid } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3936,
+        1088
+      ],
+      "id": "7a68bb3b-57e2-4963-8d3c-83ea74b1bdd5",
+      "name": "Storno-Kontrolle abfragen",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst src = $('Storno-Ergebnis prüfen').first().json;\nconst order = resp?.data?.order || null;\n\n// Der Storno läuft bei Shopify als Hintergrund-Job. \"Nicht bestätigt\" heißt\n// nicht gescheitert – dann in Shopify nachsehen.\nconst bestaetigt = !!order?.cancelledAt;\n\nconst sd = $getWorkflowStaticData('global');\nconst eintrag = (sd.done || []).find(d => d.orderId === src.orderId);\nif (eintrag) {\n  eintrag.stornoBestaetigt = bestaetigt;\n  eintrag.finanzstatusNachher = order?.displayFinancialStatus || null;\n  const saldo = order?.totalOutstandingSet?.shopMoney?.amount;\n  eintrag.saldoNachher = (saldo === undefined || saldo === null) ? null : Number(saldo);\n  const vorher = Number(src.saldoVorher);\n  if (eintrag.saldoNachher !== null && Number.isFinite(vorher)) {\n    eintrag.refundHinterlegt = Math.round((vorher - eintrag.saldoNachher) * 100) / 100;\n  }\n  if (!bestaetigt) {\n    eintrag.grund = 'Storno-Job angenommen, nach 3 s noch nicht bestätigt – in Shopify prüfen';\n  } else if (eintrag.refundHinterlegt !== null && Math.abs(eintrag.refundHinterlegt - src.erwarteteErstattung) > 0.01) {\n    eintrag.grund = `Hinterlegt ${eintrag.refundHinterlegt.toFixed(2)}, erwartet ${src.erwarteteErstattung.toFixed(2)} – prüfen`;\n  }\n}\n\nreturn [{ json: { ...src, stornoBestaetigt: bestaetigt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4128,
+        1088
+      ],
+      "id": "184ddda5-d01d-4ce7-91dc-fe313073ddfe",
+      "name": "Storno-Kontrolle auswerten"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('Loop Over Items').first().json;\n\nconst body = {\n  query: `mutation orderEditBegin($id: ID!) {\n    orderEditBegin(id: $id) {\n      calculatedOrder {\n        id\n        originalOrder { totalOutstandingSet { shopMoney { amount currencyCode } } }\n        lineItems(first: 100) { edges { node { id sku quantity } } }\n        shippingLines { id title stagedStatus price { shopMoney { amount currencyCode } } }\n      }\n      userErrors { field message }\n    }\n  }`,\n  variables: { id: item.orderGid }\n};\n\nreturn [{\n  json: {\n    accessToken: $('Token holen 2').first().json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2976,
+        1360
+      ],
+      "id": "433f2070-8474-41c3-baa3-f42dd42b2d9c",
+      "name": "Query bauen (orderEditBegin)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3168,
+        1360
+      ],
+      "id": "766c7191-21bf-4688-914b-7074bcc5e0c3",
+      "name": "orderEditBegin"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst src = $('Loop Over Items').first().json;\nconst config = $('Config').first().json.config;\n\nconst fehler = [];\nconst begin = resp?.data?.orderEditBegin;\nfehler.push(...(resp?.errors || []).map(e => e.message));\nfehler.push(...(begin?.userErrors || []).map(e => e.message));\nconst calc = begin?.calculatedOrder || null;\nif (!fehler.length && !calc?.id) fehler.push('Keine calculatedOrder erhalten');\n\nlet gqlBody = null;\nlet saldoVorher = null;\nif (!fehler.length) {\n  // Buch-Positionen: exakt die gefundenen, noch aktiven\n  const aktive = (calc.lineItems?.edges || []).map(e => e.node)\n    .filter(n => Number(n.quantity) > 0 && src.lineItemGids.includes(n.id));\n  if (aktive.length !== src.lineItemGids.length) {\n    fehler.push(`${aktive.length} von ${src.lineItemGids.length} Buch-Positionen im Edit gefunden`);\n  }\n\n  // Bestehende Versandposition (nicht im Edit hinzugefügt/entfernt) mit demselben Titel\n  let versandLinie = null;\n  if (src.versand?.erstattung > 0) {\n    const kandidaten = (calc.shippingLines || []).filter(s =>\n      !['ADDED', 'REMOVED'].includes(s.stagedStatus) &&\n      String(s.title).trim() === String(src.versand.titel).trim()\n    );\n    if (kandidaten.length !== 1) fehler.push(`${kandidaten.length} passende Versandpositionen im Edit gefunden`);\n    else versandLinie = kandidaten[0];\n  }\n\n  const vorher = calc.originalOrder?.totalOutstandingSet?.shopMoney;\n  saldoVorher = vorher ? Number(vorher.amount) : null;\n\n  if (!fehler.length) {\n    // Eine Anfrage, je Schritt ein Alias. Top-Level-Mutationen laufen nacheinander im selben Edit.\n    // Versand: bestehende Position entfernen, neue mit demselben Titel und dem neuen Preis anlegen.\n    const defs = ['$id: ID!', '$restock: Boolean'];\n    const felder = [];\n    const variables = { id: calc.id, restock: config.restock };\n    aktive.forEach((li, i) => {\n      defs.push(`$li${i}: ID!`);\n      variables['li' + i] = li.id;\n      felder.push(`p${i}: orderEditSetQuantity(id: $id, lineItemId: $li${i}, quantity: 0, restock: $restock) {\n      calculatedLineItem { id quantity }\n      userErrors { field message }\n    }`);\n    });\n    if (versandLinie) {\n      defs.push('$sl: ID!');\n      variables.sl = versandLinie.id;\n      felder.push(`vr: orderEditRemoveShippingLine(id: $id, shippingLineId: $sl) {\n      userErrors { field message }\n    }`);\n      if (src.versand.neuerPreis > 0) {\n        defs.push('$slTitel: String!', '$slPreis: Decimal!', '$slWaehrung: CurrencyCode!');\n        variables.slTitel = versandLinie.title;\n        variables.slPreis = src.versand.neuerPreis.toFixed(2);\n        variables.slWaehrung = versandLinie.price?.shopMoney?.currencyCode || 'EUR';\n        felder.push(`va: orderEditAddShippingLine(id: $id, shippingLine: { title: $slTitel, price: { amount: $slPreis, currencyCode: $slWaehrung } }) {\n      calculatedShippingLine { id title price { shopMoney { amount currencyCode } } }\n      userErrors { field message }\n    }`);\n      }\n    }\n    gqlBody = JSON.stringify({\n      query: `mutation buchEntfernen(${defs.join(', ')}) {\\n    ${felder.join('\\n    ')}\\n  }`,\n      variables\n    });\n  }\n}\n\n// Bewusst kein throw: ohne Commit bleibt die Bestellung unverändert, der Lauf geht weiter.\nif (fehler.length) {\n  const sd = $getWorkflowStaticData('global');\n  if (!Array.isArray(sd.done)) sd.done = [];\n  sd.done.push({\n    orderId: src.orderId, orderName: src.orderName, status: 'FEHLER',\n    grund: ('orderEditBegin: ' + fehler.join(' | ')).slice(0, 500),\n    saldoNachher: null, refundHinterlegt: null, finanzstatusNachher: null,\n    tagGesetzt: false, bearbeitetAm: new Date().toISOString()\n  });\n}\n\nreturn [{\n  json: {\n    ...src,\n    calcOrderId: calc?.id || null,\n    saldoVorher,\n    editVorbereitet: !fehler.length,\n    accessToken: $('Token holen 2').first().json.access_token,\n    gqlBody\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        1360
+      ],
+      "id": "709f615e-158a-4daf-b092-fbbba79ded55",
+      "name": "Edit vorbereiten"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b2602c3f-95a5-44d5-86d7-48a27d57b907",
+              "leftValue": "={{ $json.editVorbereitet }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3552,
+        1360
+      ],
+      "id": "7752a535-c789-4bac-9097-8835910c2f38",
+      "name": "Edit vorbereitet?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3744,
+        1360
+      ],
+      "id": "cac779a9-dad7-4e38-b82f-6bad45c4bec2",
+      "name": "Buch entfernen + Versand anpassen"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst { gqlBody, accessToken, ...src } = $('Edit vorbereiten').first().json;\nconst data = resp?.data || {};\n\n// Alle Aliase auswerten: GraphQL-Fehler, userErrors, Menge 0\nconst fehler = [...(resp?.errors || []).map(e => e.message)];\nfor (const [alias, r] of Object.entries(data)) {\n  for (const e of (r?.userErrors || [])) fehler.push(`${alias}: ${e.message}`);\n  if (alias.startsWith('p') && r?.calculatedLineItem && Number(r.calculatedLineItem.quantity) !== 0) {\n    fehler.push(`${alias}: Menge nicht 0`);\n  }\n}\nif (!fehler.length && !Object.keys(data).length) fehler.push('Leere Antwort: ' + JSON.stringify(resp).slice(0, 300));\n\n// Bewusst kein throw: ohne Commit bleibt die Bestellung unverändert.\nif (fehler.length) {\n  const sd = $getWorkflowStaticData('global');\n  if (!Array.isArray(sd.done)) sd.done = [];\n  sd.done.push({\n    orderId: src.orderId, orderName: src.orderName, status: 'FEHLER',\n    grund: ('Edit (nicht gespeichert): ' + fehler.join(' | ')).slice(0, 500),\n    saldoNachher: null, refundHinterlegt: null, finanzstatusNachher: null,\n    tagGesetzt: false, bearbeitetAm: new Date().toISOString()\n  });\n}\n\nreturn [{ json: { ...src, editFehlerfrei: !fehler.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3936,
+        1360
+      ],
+      "id": "baafb35f-df35-4f0a-bd92-3a9e2c526055",
+      "name": "Edit-Ergebnis prüfen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8d34addd-332f-4f57-80b0-3091fd72e137",
+              "leftValue": "={{ $json.editFehlerfrei }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4128,
+        1360
+      ],
+      "id": "29b75e5a-b0d9-4fe0-b4d4-8283f24e7aff",
+      "name": "Edit fehlerfrei?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst config = $('Config').first().json.config;\n\nconst versandInfo = item.versand?.erstattung > 0 ? ` Versanderstattung: ${item.versand.erstattung.toFixed(2)}` : '';\n\nconst body = {\n  query: `mutation orderEditCommit($id: ID!, $notifyCustomer: Boolean, $staffNote: String) {\n    orderEditCommit(id: $id, notifyCustomer: $notifyCustomer, staffNote: $staffNote) {\n      order {\n        id\n        name\n        displayFinancialStatus\n        totalOutstandingSet { shopMoney { amount currencyCode } }\n      }\n      userErrors { field message }\n    }\n  }`,\n  variables: {\n    id: item.calcOrderId,\n    notifyCustomer: config.notifyCustomer,\n    staffNote: `${config.staffNote} SKU: ${item.skus.join(', ')}.${versandInfo}`.slice(0, 255)\n  }\n};\n\nreturn [{\n  json: {\n    ...item,\n    accessToken: $('Token holen 2').first().json.access_token,\n    gqlBody: JSON.stringify(body)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        1360
+      ],
+      "id": "c72288f0-cbf4-49d3-8228-0c399d816370",
+      "name": "Query bauen (orderEditCommit)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4512,
+        1360
+      ],
+      "id": "3f92b523-e01c-4bb6-b607-8d3945240dea",
+      "name": "orderEditCommit"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst src = $('Edit-Ergebnis prüfen').first().json;\nconst commit = resp?.data?.orderEditCommit;\n\nconst fehler = [\n  ...(resp?.errors || []).map(e => e.message),\n  ...(commit?.userErrors || []).map(e => e.message)\n];\nconst order = commit?.order || null;\nif (!fehler.length && !order) fehler.push('Kein Order-Objekt nach Commit: ' + JSON.stringify(resp).slice(0, 300));\n\n// totalOutstanding: negativ = wir schulden dem Kunden (Shopify: \"Rückerstattung ausstehend\").\n// Differenz vorher/nachher = durch diesen Edit hinterlegter Refund (Buch + Versanderstattung).\nconst nachherRoh = order?.totalOutstandingSet?.shopMoney?.amount;\nconst saldoNachher = (nachherRoh === undefined || nachherRoh === null) ? null : Number(nachherRoh);\nconst refundHinterlegt = (saldoNachher !== null && src.saldoVorher !== null)\n  ? Math.round((src.saldoVorher - saldoNachher) * 100) / 100\n  : null;\n\nlet grund = fehler.join(' | ');\nif (!fehler.length && refundHinterlegt !== null && Math.abs(refundHinterlegt - src.erwarteteErstattung) > 0.01) {\n  grund = `Hinterlegt ${refundHinterlegt.toFixed(2)}, erwartet ${src.erwarteteErstattung.toFixed(2)} – prüfen`;\n}\n\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\nsd.done.push({\n  orderId: src.orderId,\n  orderName: src.orderName,\n  status: fehler.length ? 'FEHLER' : 'ENTFERNT',\n  grund: grund.slice(0, 500),\n  saldoVorher: src.saldoVorher,\n  saldoNachher,\n  refundHinterlegt,\n  finanzstatusNachher: order?.displayFinancialStatus || null,\n  tagGesetzt: false,\n  bearbeitetAm: new Date().toISOString()\n});\n\nreturn [{ json: { ...src, commitOk: !fehler.length, orderGid: order?.id || src.orderGid } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4704,
+        1360
+      ],
+      "id": "4a82be9c-d08d-4280-b225-bbfe62096f62",
+      "name": "Commit-Ergebnis prüfen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b83d9f21-98d6-4d0d-abb4-97ef86a1acd2",
+              "leftValue": "={{ $json.commitOk }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4896,
+        1360
+      ],
+      "id": "8523287a-1264-44d0-8fe5-a164b3891e99",
+      "name": "Commit ok?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen 2').first().json.access_token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation addTags($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { node { id } userErrors { field message } } }`, variables: { id: $json.orderGid, tags: [ $('Config').first().json.config.tag ] } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5088,
+        1088
+      ],
+      "id": "e1c653bb-05a1-4d30-917c-fdbefceb3ecc",
+      "name": "Bestellung taggen (tagsAdd)",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\n// Aus dem Loop, nicht aus einem der beiden Zweige – der jeweils andere enthält Daten der Vorrunde\nconst src = $('Loop Over Items').first().json;\n\n// Bewusst kein throw: die Bearbeitung ist durch, ein fehlender Tag soll den Loop nicht stoppen.\nconst errs = [\n  ...(resp?.error ? [resp.error] : []),\n  ...(resp?.errors || []),\n  ...(resp?.data?.tagsAdd?.userErrors || [])\n];\n\nconst sd = $getWorkflowStaticData('global');\nconst eintrag = (sd.done || []).find(d => d.orderId === src.orderId);\nif (eintrag) {\n  eintrag.tagGesetzt = !errs.length;\n  if (errs.length) eintrag.tagFehler = JSON.stringify(errs).slice(0, 300);\n}\n\nreturn [{ json: { orderId: src.orderId, orderName: src.orderName, tagGesetzt: !errs.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5280,
+        1088
+      ],
+      "id": "1bb212b6-3d3c-46f8-aeed-aab1c376c446",
+      "name": "Tag-Ergebnis prüfen"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5472,
+        1088
+      ],
+      "id": "50973caf-93cb-4399-81e9-1c0866325284",
+      "name": "Wait (Rate-Limit)",
+      "webhookId": "478c2601-c6ee-4492-adc4-a307fb534dfa"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Abschluss-Report: genau eine Zeile je Bestellung aus der CSV\nconst config = $('Config').first().json.config;\nconst sd = $getWorkflowStaticData('global');\nconst gefunden = sd.toFix || [];\nconst erledigt = sd.done || [];\nconst skipped = sd.skipped || [];\n\n// Alle Zeilen mit denselben Spalten, sonst wird die CSV uneinheitlich\nconst LEER = {\n  orderName: '', orderId: '', status: '', fall: '', grund: '', skus: '', menge: '', weiterePositionen: '',\n  land: '', versandart: '', versandBezahlt: '', versandErstattung: '', neuerVersandpreis: '',\n  bestellwert: '', erwarteteErstattung: '', saldoVorher: '', saldoNachher: '', refundHinterlegt: '',\n  waehrung: '', finanzstatus: '', finanzstatusNachher: '', stornoBestaetigt: '', tagGesetzt: '',\n  bearbeitetAm: '', quelle: ''\n};\n\nconst zeile = (order, extra) => ({\n  ...LEER,\n  orderName: order.orderName,\n  orderId: order.orderId,\n  fall: order.fall || '',\n  skus: (order.positionen || []).map(p => p.sku).join(' | '),\n  menge: (order.positionen || []).reduce((s, p) => s + Number(p.menge || 0), 0),\n  weiterePositionen: (order.weitere || []).map(p => `${p.sku || p.title} ×${p.menge}`).join(' | '),\n  land: order.land || '',\n  versandart: order.versandart || '',\n  versandBezahlt: order.versandBezahlt ?? '',\n  versandErstattung: order.versand ? order.versand.erstattung : '',\n  neuerVersandpreis: order.versand ? order.versand.neuerPreis : '',\n  bestellwert: order.bestellwert ?? '',\n  erwarteteErstattung: order.erwarteteErstattung ?? '',\n  saldoVorher: order.saldoVorher ?? '',\n  waehrung: order.currency || '',\n  finanzstatus: order.financialStatus || '',\n  quelle: order.quelle || '',\n  ...extra\n});\n\nconst vorhaben = order => order.aktion === 'STORNO'\n  ? 'würde storniert'\n  : 'würde Buch entfernen' + (order.versand?.erstattung > 0\n    ? `, Versanderstattung ${order.versand.erstattung.toFixed(2)}`\n    : ', keine Versanderstattung');\n\nconst rows = [];\nfor (const order of gefunden) {\n  const d = erledigt.find(e => e.orderId === order.orderId);\n  if (config.trockenlauf) {\n    rows.push(zeile(order, { status: 'TROCKENLAUF', grund: vorhaben(order) }));\n  } else if (!d) {\n    rows.push(zeile(order, { status: 'NICHT_VERARBEITET', grund: 'Test-Limiter aktiv oder Lauf abgebrochen' }));\n  } else {\n    const ok = d.status === 'STORNIERT' || d.status === 'ENTFERNT';\n    rows.push(zeile(order, {\n      status: d.status,\n      grund: d.grund,\n      saldoNachher: d.saldoNachher ?? '',\n      refundHinterlegt: d.refundHinterlegt ?? '',\n      finanzstatusNachher: d.finanzstatusNachher || '',\n      stornoBestaetigt: d.status === 'STORNIERT' ? (d.stornoBestaetigt ? 'ja' : 'nein') : '',\n      tagGesetzt: ok ? (d.tagGesetzt ? 'ja' : ('nein ' + (d.tagFehler || '')).trim()) : '',\n      bearbeitetAm: d.bearbeitetAm\n    }));\n  }\n}\n\nfor (const s of skipped) {\n  rows.push(zeile(s, { status: s.status, grund: s.grund }));\n}\n\nreturn rows.map(r => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        896
+      ],
+      "id": "96586078-ca05-403e-976a-27a7dd94d012",
+      "name": "Report erstellen"
+    },
+    {
+      "parameters": {
+        "options": {
+          "fileName": "=produktentfernung-report-{{ $now.format('yyyy-MM-dd') }}.csv"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2768,
+        896
+      ],
+      "id": "6649b7e7-e84e-4a44-9a65-a8dce9af4767",
+      "name": "Report → CSV"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de",
+        "subject": "=Produktentfernung-Report – {{ $('Config').first().json.config.trockenlauf ? 'TROCKENLAUF' : 'SCHARF' }} – {{ $('Report erstellen').all().filter(i => i.json.status === 'STORNIERT').length }} storniert, {{ $('Report erstellen').all().filter(i => i.json.status === 'ENTFERNT').length }} Buch entfernt, {{ $('Report erstellen').all().filter(i => i.json.status === 'FEHLER').length }} Fehler",
+        "html": "=<h3>Variabler Produktentfernungs-Flow (CSV)</h3><p>Modus: <b>{{ $('Config').first().json.config.trockenlauf ? 'TROCKENLAUF – es wurde nichts geändert' : 'SCHARF' }}</b><br>SKU(s): <b>{{ $('Config').first().json.config.targets.map(t => t.sku).join(', ') }}</b><br>Kundenbenachrichtigung: <b>{{ $('Config').first().json.config.notifyCustomer ? 'an' : 'aus' }}</b><br>Versandkosten (Config): <b>{{ Object.entries($('Config').first().json.config.versandkosten).map(([l, v]) => l + ' ' + (v === null ? '–' : v)).join(', ') }}</b><br>Bestellungen in der CSV: <b>{{ $('Report erstellen').all().length }}</b></p><p><b>Nach Status:</b><br>{{ [...new Set($('Report erstellen').all().map(i => i.json.status).filter(Boolean))].map(s => s + ': ' + $('Report erstellen').all().filter(i => i.json.status === s).length).join('<br>') }}</p><p><b>Nach Fall:</b><br>{{ [...new Set($('Report erstellen').all().map(i => i.json.fall).filter(Boolean))].map(s => s + ': ' + $('Report erstellen').all().filter(i => i.json.fall === s).length).join('<br>') || '–' }}</p><table border=\"1\" cellpadding=\"4\" cellspacing=\"0\"><tr><th>Bestellung</th><th>Status</th><th>Fall</th><th>Weitere Positionen</th><th>Versand</th><th>Versanderstattung</th><th>Refund hinterlegt</th><th>Grund</th></tr>{{ $('Report erstellen').all().map(i => '<tr><td>' + i.json.orderName + '</td><td>' + i.json.status + '</td><td>' + i.json.fall + '</td><td>' + i.json.weiterePositionen + '</td><td>' + i.json.versandart + ' ' + i.json.versandBezahlt + ' ' + i.json.land + '</td><td>' + i.json.versandErstattung + '</td><td>' + i.json.refundHinterlegt + '</td><td>' + i.json.grund + '</td></tr>').join('') }}</table><p>Es wurde nichts ausgezahlt – das übernimmt der Refund-Flow.<br>Details siehe CSV im Anhang.</p>",
+        "options": {
+          "fileAttachments": "data"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2960,
+        896
+      ],
+      "id": "ff7012e0-3f41-452d-948a-9c7f14d61227",
+      "name": "Report-Mail",
+      "webhookId": "b01d0cee-bd33-4ff7-9e18-30cf02756ea4",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Erstattung: nur hinterlegt, nicht ausgezahlt\nStorno mit `refund: false` bzw. Edit-Commit machen den Saldo (`totalOutstanding`) negativ – das ist der hinterlegte Refund. Ausgezahlt wird über den eigenen Refund-Flow; er findet die Bestellungen über den Tag.\nVersanderstattung entsteht, weil die Versandposition im Edit durch eine günstigere ersetzt wird. Report: `erwarteteErstattung` vs. `refundHinterlegt`.",
+        "height": 240,
+        "width": 1600,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2960,
+        1584
+      ],
+      "id": "26ced843-2260-482f-944e-90dd957ae3a2",
+      "name": "Sticky Refund"
+    }
+  ],
+  "connections": {
+    "CSV hochladen (Formular)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "CSV parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV parsen": {
+      "main": [
+        [
+          {
+            "node": "Bestellungen extrahieren (dedupe)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellungen extrahieren (dedupe)": {
+      "main": [
+        [
+          {
+            "node": "Token holen (CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen (CSV)": {
+      "main": [
+        [
+          {
+            "node": "toFix leeren + Token durchreichen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "toFix leeren + Token durchreichen": {
+      "main": [
+        [
+          {
+            "node": "Loop je Bestellung (CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop je Bestellung (CSV)": {
+      "main": [
+        [
+          {
+            "node": "Bearbeitungs-Items vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GET einzelne Bestellung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET einzelne Bestellung": {
+      "main": [
+        [
+          {
+            "node": "Bestellung prüfen + einordnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellung prüfen + einordnen": {
+      "main": [
+        [
+          {
+            "node": "Wait (CSV Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (CSV Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop je Bestellung (CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bearbeitungs-Items vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Bestellungen bearbeiten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellungen bearbeiten?": {
+      "main": [
+        [
+          {
+            "node": "Test-Limiter (1 Bestellung)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test-Limiter (1 Bestellung)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Token holen 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 2": {
+      "main": [
+        [
+          {
+            "node": "Storno?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Storno?": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (orderCancel)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Query bauen (orderEditBegin)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (orderCancel)": {
+      "main": [
+        [
+          {
+            "node": "orderCancel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderCancel": {
+      "main": [
+        [
+          {
+            "node": "Storno-Ergebnis prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Storno-Ergebnis prüfen": {
+      "main": [
+        [
+          {
+            "node": "Storno angenommen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Storno angenommen?": {
+      "main": [
+        [
+          {
+            "node": "Wait (Storno-Job)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Storno-Job)": {
+      "main": [
+        [
+          {
+            "node": "Storno-Kontrolle abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Storno-Kontrolle abfragen": {
+      "main": [
+        [
+          {
+            "node": "Storno-Kontrolle auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Storno-Kontrolle auswerten": {
+      "main": [
+        [
+          {
+            "node": "Bestellung taggen (tagsAdd)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (orderEditBegin)": {
+      "main": [
+        [
+          {
+            "node": "orderEditBegin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderEditBegin": {
+      "main": [
+        [
+          {
+            "node": "Edit vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Edit vorbereitet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit vorbereitet?": {
+      "main": [
+        [
+          {
+            "node": "Buch entfernen + Versand anpassen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buch entfernen + Versand anpassen": {
+      "main": [
+        [
+          {
+            "node": "Edit-Ergebnis prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit-Ergebnis prüfen": {
+      "main": [
+        [
+          {
+            "node": "Edit fehlerfrei?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit fehlerfrei?": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (orderEditCommit)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (orderEditCommit)": {
+      "main": [
+        [
+          {
+            "node": "orderEditCommit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderEditCommit": {
+      "main": [
+        [
+          {
+            "node": "Commit-Ergebnis prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit-Ergebnis prüfen": {
+      "main": [
+        [
+          {
+            "node": "Commit ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit ok?": {
+      "main": [
+        [
+          {
+            "node": "Bestellung taggen (tagsAdd)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellung taggen (tagsAdd)": {
+      "main": [
+        [
+          {
+            "node": "Tag-Ergebnis prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag-Ergebnis prüfen": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report erstellen": {
+      "main": [
+        [
+          {
+            "node": "Report → CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report → CSV": {
+      "main": [
+        [
+          {
+            "node": "Report-Mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "GknCu8O0sF2eOEwO",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-09-24T08:15:31.984Z",
+      "updatedAt": "2026-09-24T08:15:31.984Z"
+    }
+  ],
+  "activeVersion": null
+}

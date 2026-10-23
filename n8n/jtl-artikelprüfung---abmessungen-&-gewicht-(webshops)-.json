@@ -1,0 +1,388 @@
+{
+  "id": "56toJLsYRsLNugN3",
+  "name": "JTL Artikelprüfung - Abmessungen & Gewicht (Webshops)",
+  "active": true,
+  "activeVersionId": "fc46ddb3-9717-4cdd-b751-b1dfdad88c19",
+  "createdAt": "2026-08-12T23:28:09.728Z",
+  "updatedAt": "2026-09-16T21:54:41.744Z",
+  "isArchived": false,
+  "versionId": "fc46ddb3-9717-4cdd-b751-b1dfdad88c19",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- BITTE VOR IMPORT: die kShop-ID für Bücherbüchse eintragen (statt -1)\n;WITH ZielShops AS (\n    SELECT kShop, cName\n    FROM tShop\n    WHERE kShop IN (23, 24, 33) -- 23 = LEAF, 24 = CINNA, 33 = Bücherbüchse (ANPASSEN)\n),\nAktivShops AS (\n    SELECT ash.kArtikel,\n           STRING_AGG(zs.cName, ', ') AS cShops\n    FROM tArtikelShop ash\n    JOIN ZielShops zs ON zs.kShop = ash.kShop\n   -- WHERE --ash.cInet = 'Y'\n     -- AND ISNULL(ash.cDelInet, 'N') <> 'Y'\n    GROUP BY ash.kArtikel\n),\nBeschr AS (\n    SELECT  kArtikel, cName\n    FROM tArtikelBeschreibung\n    WHERE kPlattform = 1\n)\nSELECT\n    a.kArtikel,\n    a.cArtNr,\n    b.cName          AS Artikelname,\n    aks.cShops       AS Webshops,\n    a.fLaenge,\n    a.fBreite,\n    a.fHoehe,\n    a.fArtGewicht\nFROM tArtikel a\nJOIN AktivShops aks ON aks.kArtikel = a.kArtikel\nLEFT JOIN Beschr b  ON b.kArtikel  = a.kArtikel\nWHERE a.cAktiv = 'Y'\n  AND a.nIstVater = 0\nORDER BY a.cArtNr;",
+        "options": {}
+      },
+      "id": "1a526942-9ca6-4f97-9ae8-aea750b1d303",
+      "name": "JTL - Artikel & Shop-Zuordnung",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [
+        -656,
+        48
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst icon = (ok) => ok\n  ? '<span style=\"color:#1a7f37;font-weight:bold;\">\\u2714</span>'\n  : '<span style=\"color:#c00;font-weight:bold;\">\\u2718</span>';\n\nconst rows = items.map(item => {\n  const d = item.json;\n  const checks = {\n    Laenge:  d.fLaenge     > 0,\n    Breite:  d.fBreite     > 0,\n    Hoehe:   d.fHoehe      > 0,\n    Gewicht: d.fArtGewicht > 0,\n  };\n  const hasIssue = Object.values(checks).some(v => !v);\n\n  return {\n    hasIssue,\n    html: `<tr>\n      <td>${d.cArtNr}</td>\n      <td>${d.Artikelname || ''}</td>\n      <td>${d.Webshops || ''}</td>\n      <td style=\"text-align:center;\">${icon(checks.Laenge)} ${d.fLaenge}</td>\n      <td style=\"text-align:center;\">${icon(checks.Breite)} ${d.fBreite} </td>\n      <td style=\"text-align:center;\">${icon(checks.Hoehe)} ${d.fHoehe} </td>\n      <td style=\"text-align:center;\">${icon(checks.Gewicht)} ${d.fArtGewicht}</td>\n    </tr>`\n  };\n});\n\nconst problemRows = rows.filter(r => r.hasIssue);\nconst tableRows = problemRows.map(r => r.html).join('\\n');\n\nconst html = `\n<h2>JTL Artikelprüfung: Abmessungen &amp; Gewicht</h2>\n<p>${problemRows.length} von ${rows.length} geprüften Artikeln (Bücherbüchse, LEAF, CINNA) haben fehlende Werte.</p>\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse;font-family:sans-serif;font-size:13px;\">\n  <thead style=\"background:#f2f2f2;\">\n    <tr>\n      <th>ArtNr</th><th>Artikel</th><th>Webshop(s)</th>\n      <th>Länge</th><th>Breite</th><th>Höhe</th><th>Gewicht</th>\n    </tr>\n  </thead>\n  <tbody>\n    ${tableRows || '<tr><td colspan=\"7\">Keine Auffälligkeiten 🎉</td></tr>'}\n  </tbody>\n</table>`;\n\nreturn [{ json: { html, count: problemRows.length, total: rows.length } }];"
+      },
+      "id": "566890fd-ba73-4b93-8245-f628511e7b63",
+      "name": "Prüflogik & HTML-Report bauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "311d9827-80ea-49f6-a9a7-bc5aad85c1d1",
+      "name": "Nur senden wenn Auffälligkeiten > 0",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "reports@buecherbuechse.de",
+        "toEmail": "christoph@buecherbuechse.de,it@buecherbuechse.de, lisa@buecherbuechse.de",
+        "subject": "=JTL Artikelprüfung: {{ $json.count }} Artikel mit fehlenden Maßen/Gewicht",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "505c67ba-eed2-44a8-899d-45c8ffb295a2",
+      "name": "Mail-Report senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "7d3425a3-ad1f-42af-8e8f-b249b3d8083d",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "id": "9d55bd7a-f535-47ba-86cc-f7343b025af1",
+      "name": "Wöchentlich (Mo, 6:00 Uhr)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -880,
+        48
+      ]
+    }
+  ],
+  "connections": {
+    "JTL - Artikel & Shop-Zuordnung": {
+      "main": [
+        [
+          {
+            "node": "Prüflogik & HTML-Report bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prüflogik & HTML-Report bauen": {
+      "main": [
+        [
+          {
+            "node": "Nur senden wenn Auffälligkeiten > 0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nur senden wenn Auffälligkeiten > 0": {
+      "main": [
+        [
+          {
+            "node": "Mail-Report senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wöchentlich (Mo, 6:00 Uhr)": {
+      "main": [
+        [
+          {
+            "node": "JTL - Artikel & Shop-Zuordnung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Monatlich (Tag 1, 6:00 Uhr)": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "node:Wöchentlich (Mo, 6:00 Uhr)": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "56toJLsYRsLNugN3",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-12T23:28:09.730Z",
+      "updatedAt": "2026-08-12T23:28:09.730Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "fc46ddb3-9717-4cdd-b751-b1dfdad88c19",
+    "workflowId": "56toJLsYRsLNugN3",
+    "nodes": [
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "-- BITTE VOR IMPORT: die kShop-ID für Bücherbüchse eintragen (statt -1)\n;WITH ZielShops AS (\n    SELECT kShop, cName\n    FROM tShop\n    WHERE kShop IN (23, 24, 33) -- 23 = LEAF, 24 = CINNA, 33 = Bücherbüchse (ANPASSEN)\n),\nAktivShops AS (\n    SELECT ash.kArtikel,\n           STRING_AGG(zs.cName, ', ') AS cShops\n    FROM tArtikelShop ash\n    JOIN ZielShops zs ON zs.kShop = ash.kShop\n   -- WHERE --ash.cInet = 'Y'\n     -- AND ISNULL(ash.cDelInet, 'N') <> 'Y'\n    GROUP BY ash.kArtikel\n),\nBeschr AS (\n    SELECT  kArtikel, cName\n    FROM tArtikelBeschreibung\n    WHERE kPlattform = 1\n)\nSELECT\n    a.kArtikel,\n    a.cArtNr,\n    b.cName          AS Artikelname,\n    aks.cShops       AS Webshops,\n    a.fLaenge,\n    a.fBreite,\n    a.fHoehe,\n    a.fArtGewicht\nFROM tArtikel a\nJOIN AktivShops aks ON aks.kArtikel = a.kArtikel\nLEFT JOIN Beschr b  ON b.kArtikel  = a.kArtikel\nWHERE a.cAktiv = 'Y'\n  AND a.nIstVater = 0\nORDER BY a.cArtNr;",
+          "options": {}
+        },
+        "id": "1a526942-9ca6-4f97-9ae8-aea750b1d303",
+        "name": "JTL - Artikel & Shop-Zuordnung",
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1,
+        "position": [
+          -656,
+          48
+        ],
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\n\nconst icon = (ok) => ok\n  ? '<span style=\"color:#1a7f37;font-weight:bold;\">\\u2714</span>'\n  : '<span style=\"color:#c00;font-weight:bold;\">\\u2718</span>';\n\nconst rows = items.map(item => {\n  const d = item.json;\n  const checks = {\n    Laenge:  d.fLaenge     > 0,\n    Breite:  d.fBreite     > 0,\n    Hoehe:   d.fHoehe      > 0,\n    Gewicht: d.fArtGewicht > 0,\n  };\n  const hasIssue = Object.values(checks).some(v => !v);\n\n  return {\n    hasIssue,\n    html: `<tr>\n      <td>${d.cArtNr}</td>\n      <td>${d.Artikelname || ''}</td>\n      <td>${d.Webshops || ''}</td>\n      <td style=\"text-align:center;\">${icon(checks.Laenge)} ${d.fLaenge}</td>\n      <td style=\"text-align:center;\">${icon(checks.Breite)} ${d.fBreite} </td>\n      <td style=\"text-align:center;\">${icon(checks.Hoehe)} ${d.fHoehe} </td>\n      <td style=\"text-align:center;\">${icon(checks.Gewicht)} ${d.fArtGewicht}</td>\n    </tr>`\n  };\n});\n\nconst problemRows = rows.filter(r => r.hasIssue);\nconst tableRows = problemRows.map(r => r.html).join('\\n');\n\nconst html = `\n<h2>JTL Artikelprüfung: Abmessungen &amp; Gewicht</h2>\n<p>${problemRows.length} von ${rows.length} geprüften Artikeln (Bücherbüchse, LEAF, CINNA) haben fehlende Werte.</p>\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse;font-family:sans-serif;font-size:13px;\">\n  <thead style=\"background:#f2f2f2;\">\n    <tr>\n      <th>ArtNr</th><th>Artikel</th><th>Webshop(s)</th>\n      <th>Länge</th><th>Breite</th><th>Höhe</th><th>Gewicht</th>\n    </tr>\n  </thead>\n  <tbody>\n    ${tableRows || '<tr><td colspan=\"7\">Keine Auffälligkeiten 🎉</td></tr>'}\n  </tbody>\n</table>`;\n\nreturn [{ json: { html, count: problemRows.length, total: rows.length } }];"
+        },
+        "id": "566890fd-ba73-4b93-8245-f628511e7b63",
+        "name": "Prüflogik & HTML-Report bauen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -448,
+          48
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 1
+            },
+            "conditions": [
+              {
+                "id": "cond1",
+                "leftValue": "={{ $json.count }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "311d9827-80ea-49f6-a9a7-bc5aad85c1d1",
+        "name": "Nur senden wenn Auffälligkeiten > 0",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          -224,
+          48
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "reports@buecherbuechse.de",
+          "toEmail": "christoph@buecherbuechse.de,it@buecherbuechse.de, lisa@buecherbuechse.de",
+          "subject": "=JTL Artikelprüfung: {{ $json.count }} Artikel mit fehlenden Maßen/Gewicht",
+          "html": "={{ $json.html }}",
+          "options": {}
+        },
+        "id": "505c67ba-eed2-44a8-899d-45c8ffb295a2",
+        "name": "Mail-Report senden",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          0
+        ],
+        "webhookId": "7d3425a3-ad1f-42af-8e8f-b249b3d8083d",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "weeks",
+                "triggerAtDay": [
+                  1
+                ],
+                "triggerAtHour": 6
+              }
+            ]
+          }
+        },
+        "id": "9d55bd7a-f535-47ba-86cc-f7343b025af1",
+        "name": "Wöchentlich (Mo, 6:00 Uhr)",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -880,
+          48
+        ]
+      }
+    ],
+    "connections": {
+      "JTL - Artikel & Shop-Zuordnung": {
+        "main": [
+          [
+            {
+              "node": "Prüflogik & HTML-Report bauen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prüflogik & HTML-Report bauen": {
+        "main": [
+          [
+            {
+              "node": "Nur senden wenn Auffälligkeiten > 0",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Nur senden wenn Auffälligkeiten > 0": {
+        "main": [
+          [
+            {
+              "node": "Mail-Report senden",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wöchentlich (Mo, 6:00 Uhr)": {
+        "main": [
+          [
+            {
+              "node": "JTL - Artikel & Shop-Zuordnung",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version fc46ddb3",
+    "description": "",
+    "autosaved": false,
+    "createdAt": "2026-09-16T21:54:41.747Z",
+    "updatedAt": "2026-09-16T21:54:43.000Z"
+  }
+}

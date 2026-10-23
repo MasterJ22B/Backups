@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-10T09:21:28.020Z",
-  "createdAt": "2026-05-06T11:02:08.301Z",
   "id": "QgmpEP4NqHSTpZVn",
   "name": "BB DE MediaControl",
   "active": true,
+  "activeVersionId": "e8e8c55f-06b2-400d-9267-c9b34ffb097d",
+  "createdAt": "2026-05-06T11:02:08.301Z",
+  "updatedAt": "2026-10-20T03:45:36.471Z",
   "isArchived": false,
+  "versionId": "1ece2ff4-a6d1-4a2b-8834-a357e12a7277",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -28,7 +31,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT\n  Versand.[dVersendet] Versanddatum,\n  Artikel.ISBN EAN,\n  ArtikelTitel.cName Titel,\n  LieferscheinPos.fAnzahl Menge,\n  Artikel.VerkaufspreisBrutto VKPreis,\n  Lieferadresse.cPLZ PLZ\nFROM [eazybusiness].[dbo].[tVersand] Versand\nRIGHT JOIN [eazybusiness].[dbo].[tLieferschein] Lieferschein\n  ON Lieferschein.kLieferschein = Versand.kLieferschein\nRIGHT JOIN [eazybusiness].[dbo].[tLieferscheinPos] LieferscheinPos\n  ON LieferscheinPos.kLieferschein = Lieferschein.kLieferschein\nRIGHT JOIN [eazybusiness].[dbo].[tbestellpos] BestellPosition\n  ON BestellPosition.kBestellPos = LieferscheinPos.kBestellPos\nRIGHT JOIN [eazybusiness].[dbo].[tBestellung] Bestellung\n  ON Bestellung.kBestellung = BestellPosition.tBestellung_kBestellung\nRIGHT JOIN [eazybusiness].Verkauf.tAuftragAdresse Lieferadresse\n  ON Lieferadresse.kAuftrag = Bestellung.kBestellung\nRIGHT JOIN [eazybusiness].[ArtikelVerwaltung].[vArtikelliste] Artikel\n  ON Artikel.kArtikel = BestellPosition.tArtikel_kArtikel\nRIGHT JOIN [eazybusiness].[dbo].[tkategorieartikel] KategorieArtikel\n  ON KategorieArtikel.kArtikel = Artikel.kArtikel\nRIGHT JOIN [eazybusiness].[dbo].[tkategorie] Kategorie\n  ON Kategorie.kKategorie = KategorieArtikel.kKategorie\nOUTER APPLY (\n  SELECT TOP 1\n    ArtikelBeschreibung.cName\n  FROM [eazybusiness].[dbo].[tArtikelBeschreibung] ArtikelBeschreibung\n  WHERE ArtikelBeschreibung.kArtikel = Artikel.kArtikel\n  ORDER BY ArtikelBeschreibung.kSprache\n) ArtikelTitel\nRIGHT JOIN tKunde\n  ON tKunde.kKunde = Bestellung.tKunde_kKunde\nWHERE\n  dVersendet IS NOT NULL\n  AND dVersendet >= '{{ $now.setZone('Europe/Berlin').minus({ days: 1 }).toFormat('yyyy-MM-dd') }} 00:00:00'\n  AND dVersendet <  '{{ $now.setZone('Europe/Berlin').toFormat('yyyy-MM-dd') }} 00:00:00'\n  AND KategorieArtikel.kKategorie IN (3,10,12)\n  AND Artikel.ISBN <> ''\n  AND Lieferadresse.cISO = 'DE'\n  AND Lieferadresse.nTyp = 0\n  AND Artikel.IstStueckliste = 0\n  AND Artikel.VerkaufspreisBrutto > 0\n  AND kVersandArt NOT IN (2614, 108)\n  AND kKundengruppe NOT IN (5)\n  AND kShop NOT IN (23)\n  AND kShop NOT IN (24);\n",
+        "query": "SELECT\n  Versand.[dVersendet] Versanddatum,\n  Artikel.ISBN EAN,\n  ArtikelTitel.cName Titel,\n  LieferscheinPos.fAnzahl Menge,\n  Artikel.VerkaufspreisBrutto VKPreis,\n  Lieferadresse.cPLZ PLZ\nFROM [eazybusiness].[dbo].[tVersand] Versand\nRIGHT JOIN [eazybusiness].[dbo].[tLieferschein] Lieferschein\n  ON Lieferschein.kLieferschein = Versand.kLieferschein\nRIGHT JOIN [eazybusiness].[dbo].[tLieferscheinPos] LieferscheinPos\n  ON LieferscheinPos.kLieferschein = Lieferschein.kLieferschein\nRIGHT JOIN [eazybusiness].[dbo].[tbestellpos] BestellPosition\n  ON BestellPosition.kBestellPos = LieferscheinPos.kBestellPos\nRIGHT JOIN [eazybusiness].[dbo].[tBestellung] Bestellung\n  ON Bestellung.kBestellung = BestellPosition.tBestellung_kBestellung\nRIGHT JOIN [eazybusiness].Verkauf.tAuftragAdresse Lieferadresse\n  ON Lieferadresse.kAuftrag = Bestellung.kBestellung\nRIGHT JOIN [eazybusiness].[ArtikelVerwaltung].[vArtikelliste] Artikel\n  ON Artikel.kArtikel = BestellPosition.tArtikel_kArtikel\nRIGHT JOIN [eazybusiness].[dbo].[tkategorieartikel] KategorieArtikel\n  ON KategorieArtikel.kArtikel = Artikel.kArtikel\nRIGHT JOIN [eazybusiness].[dbo].[tkategorie] Kategorie\n  ON Kategorie.kKategorie = KategorieArtikel.kKategorie\nOUTER APPLY (\n  SELECT TOP 1\n    ArtikelBeschreibung.cName\n  FROM [eazybusiness].[dbo].[tArtikelBeschreibung] ArtikelBeschreibung\n  WHERE ArtikelBeschreibung.kArtikel = Artikel.kArtikel\n  ORDER BY ArtikelBeschreibung.kSprache\n) ArtikelTitel\nRIGHT JOIN tKunde\n  ON tKunde.kKunde = Bestellung.tKunde_kKunde\nWHERE\n  dVersendet IS NOT NULL\n  AND dVersendet >= '2026-10-07 00:00:00'\n  AND dVersendet <  '2026-10-12 00:00:00'\n  --AND dVersendet >= '{{ $now.setZone('Europe/Berlin').minus({ days: 1 }).toFormat('yyyy-MM-dd') }} 00:00:00'\n  --AND dVersendet <  '{{ $now.setZone('Europe/Berlin').toFormat('yyyy-MM-dd') }} 00:00:00'\n  AND KategorieArtikel.kKategorie IN (3,10,12)\n  AND Artikel.ISBN <> ''\n  AND (Artikel.ISBN LIKE '9783692000404'\n  OR Artikel.ISBN LIKE '9783911244718')\n  AND Lieferadresse.cISO = 'DE'\n  AND Lieferadresse.nTyp = 0\n  AND Artikel.IstStueckliste = 0\n  AND Artikel.VerkaufspreisBrutto > 0\n  AND kVersandArt NOT IN (2614, 108)\n  AND kKundengruppe NOT IN (5)\n  AND kShop NOT IN (23)\n  AND kShop NOT IN (24);\n",
         "options": {}
       },
       "type": "n8n-nodes-base.microsoftSql",
@@ -148,7 +151,9 @@
         "toEmail": "={{ $json.sendto }}",
         "subject": "={{ $json.titel }} - Flow FTP Erfolg",
         "html": "={{ $json.mailText }}",
-        "options": {}
+        "options": {
+          "attachments": "=data"
+        }
       },
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
@@ -520,6 +525,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -540,33 +546,28 @@
       ]
     },
     "global": {
-      "titel": "BB | MediaControl DE vom 2026-08-11",
+      "titel": "BB | MediaControl DE vom 2026-10-21",
       "sendto": "jesse.balsam@buecherbuechse.de,christoph@buecherbuechse.de, lisa@buecherbuechse.de,helen.hilpert@buecherbuechse.de",
-      "anzahlUmgewandeltePakete": 8,
-      "anzahlUmgewandelteBuecher": 8
+      "anzahlUmgewandeltePakete": 44,
+      "anzahlUmgewandelteBuecher": 47
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "24409df2-5a9b-432f-90ac-a6778e55cd38",
-  "activeVersionId": "390af977-fe07-42da-a744-14477fb34b8d",
-  "triggerCount": 1,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-05-06T11:02:08.302Z",
-      "createdAt": "2026-05-06T11:02:08.302Z",
       "role": "workflow:owner",
       "workflowId": "QgmpEP4NqHSTpZVn",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-05-06T11:02:08.302Z",
+      "updatedAt": "2026-05-06T11:02:08.302Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-08-10T07:25:20.000Z",
-    "createdAt": "2026-08-10T07:25:04.596Z",
-    "versionId": "390af977-fe07-42da-a744-14477fb34b8d",
+    "versionId": "e8e8c55f-06b2-400d-9267-c9b34ffb097d",
     "workflowId": "QgmpEP4NqHSTpZVn",
     "nodes": [
       {
@@ -711,7 +712,9 @@
           "toEmail": "={{ $json.sendto }}",
           "subject": "={{ $json.titel }} - Flow FTP Erfolg",
           "html": "={{ $json.mailText }}",
-          "options": {}
+          "options": {
+            "attachments": "=data"
+          }
         },
         "type": "n8n-nodes-base.emailSend",
         "typeVersion": 2.1,
@@ -1085,9 +1088,10 @@
     },
     "nodeGroups": [],
     "authors": "Jesse Balsam",
-    "name": "Version 390af977",
+    "name": "Version e8e8c55f",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-09-25T08:33:42.491Z",
+    "updatedAt": "2026-09-25T08:33:48.000Z"
+  }
 }

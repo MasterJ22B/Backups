@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-04-14T09:02:21.478Z",
-  "createdAt": "2026-02-01T16:19:17.004Z",
   "id": "raUNfxbIv64nw9hW5aJF5",
   "name": "LEAF Abo - Query Shopify Customers by Tag and Save Count to MySQL",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-02-01T16:19:17.004Z",
+  "updatedAt": "2026-04-14T09:02:21.478Z",
   "isArchived": false,
+  "versionId": "e3cb2063-8eef-4e51-a5c1-006e4cff8eb6",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -234,27 +237,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": false,
     "binaryMode": "separate"
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "e3cb2063-8eef-4e51-a5c1-006e4cff8eb6",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-02-01T16:19:17.008Z",
-      "createdAt": "2026-02-01T16:19:17.008Z",
       "role": "workflow:owner",
       "workflowId": "raUNfxbIv64nw9hW5aJF5",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-02-01T16:19:17.008Z",
+      "updatedAt": "2026-02-01T16:19:17.008Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

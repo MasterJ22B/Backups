@@ -1,0 +1,452 @@
+{
+  "id": "Rhq3KIH4sg7J3DwN",
+  "name": "Mollie Diagnose Einzelpruefung (read-only)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-08-19T14:06:32.178Z",
+  "updatedAt": "2026-08-19T14:07:49.564Z",
+  "isArchived": false,
+  "versionId": "884c5349-d06f-435e-a620-8fbf488288dd",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -816,
+        384
+      ],
+      "id": "8dc78732-096f-48df-b1ea-bfdc1a479baf",
+      "name": "Manuell starten"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================================\n// DIAGNOSE – Mollie. Rein lesend, keine Schreibzugriffe.\n// Ziel: Zustand der Klarna-Zahlungen zu Altbestellungen feststellen.\n// =====================================================================\nconst CONFIG = {\n  // Wie viele Bestellungen ansehen? Klein anfangen.\n  anzahlBestellungen: 10,\n\n  // Nur Bestellungen, deren Lieferschein in diesem Zeitraum versendet wurde.\n  tageZurueck: 30,\n\n  // Mollie\n  mollieBasisUrl: 'https://api.mollie.com/v2',\n\n  // Nur diese Zahlungsarten ansehen. Leeres Array = alle.\n  // Der erste Lauf sollte leer bleiben, damit wir sehen, was es ueberhaupt gibt.\n  nurZahlungsarten: []\n};\n\nreturn [{ json: { config: CONFIG } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        384
+      ],
+      "id": "5021430d-1381-4b70-b507-e643b1b6e495",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- GEZIELTE PRUEFUNG einzelner Mollie-Orders.\n-- Kein JTL-Zugriff noetig: die IDs stehen fest im SELECT.\n-- Zum Pruefen weiterer Faelle einfach UNION-ALL-Zeilen ergaenzen.\n--\n-- ord_MAmzecZEBjU4KATLjaFSJ = 2051107, Status 'shipping', 36.00 von 60.48 erfasst\n-- ord_bjhHjwMicHo7kLQzvyWSJ = 2054511, Status 'authorized', nichts erfasst\nSELECT 'ord_MAmzecZEBjU4KATLjaFSJ' AS MollieId,\n       '2051107'                   AS cBestellNr,\n       2051107                     AS kBestellung,\n       'Rechnung'                  AS Zahlungsart,\n       CAST(60.48 AS DECIMAL(10,2)) AS BetragJTL,\n       CAST(NULL AS DATETIME)      AS Zahlungsdatum,\n       CAST(NULL AS DATETIME)      AS LetzterVersand\nUNION ALL\nSELECT 'ord_bjhHjwMicHo7kLQzvyWSJ',\n       '2054511', 2054511, 'Rechnung',\n       CAST(110.98 AS DECIMAL(10,2)),\n       CAST(NULL AS DATETIME), CAST(NULL AS DATETIME);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -384,
+        384
+      ],
+      "id": "7df8fb58-407e-49b3-8aa0-01e65af04354",
+      "name": "JTL: Mollie-Referenzen",
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "hit",
+              "leftValue": "={{ $json.MollieId !== undefined && $json.MollieId !== null }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        384
+      ],
+      "id": "b81968e9-4891-49d0-b3be-1b528556d70c",
+      "name": "Treffer vorhanden?"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { hinweis: 'Keine Mollie-Referenzen gefunden. Zeitraum vergroessern oder SQL pruefen.' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        544
+      ],
+      "id": "172845d5-bdb7-474f-b6cc-6421913e55cf",
+      "name": "Kein Treffer – Ende"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        64,
+        240
+      ],
+      "id": "cad80279-a8b3-4068-aefb-3e01c6037cf7",
+      "name": "Loop"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Endpunkt nach Praefix waehlen.\n//   tr_  -> Payments API   /payments/{id}\n//   ord_ -> Orders  API    /orders/{id}\n// Beide werden rein LESEND abgefragt.\nconst config = $('Config').first().json.config;\nconst item   = $input.item.json;\nconst id     = String(item.MollieId ?? '').trim();\n\nlet variante = 'unbekannt';\nlet url      = null;\n\nif (id.startsWith('tr_'))       { variante = 'payment'; url = config.mollieBasisUrl + '/payments/' + id; }\nelse if (id.startsWith('ord_')) { variante = 'order';   url = config.mollieBasisUrl + '/orders/'   + id; }\n\nreturn { json: { ...item, mollieId: id, mollieVariante: variante, mollieUrl: url,\n                 abfragbar: url !== null } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        240
+      ],
+      "id": "38562c3d-d164-43aa-b44a-a9ed7a0d8724",
+      "name": "URL bauen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ok",
+              "leftValue": "={{ $json.abfragbar }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        512,
+        240
+      ],
+      "id": "c83d8881-4a29-4e06-80b1-298b19b1cc63",
+      "name": "Abfragbar?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.mollieUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        720,
+        160
+      ],
+      "id": "8e06c549-7a82-4a43-8f99-a58362e571a8",
+      "name": "Mollie: Zahlung lesen (GET)",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "gdWT3FhCohiCfDh7",
+          "name": "Molli API"
+        }
+      },
+      "notes": "Nutzt das bestehende Bearer-Auth-Credential (auch im LEAF-Abo-Flow im Einsatz)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Antwort auswerten – Mollie Orders API UND Payments API.\n// Node-Modus: \"Run Once for Each Item\".\n//\n// WICHTIG: Mollie antwortet mit Content-Type application/hal+json. n8n parst das\n// nicht automatisch, sondern legt den kompletten Body als STRING in $json.data ab.\n// Deshalb hier erst parsen, sonst sind alle Felder still null.\nconst src = $('URL bauen').item.json;\nconst roh = $input.item.json;\n\n// --- Antwort in ein Objekt bringen, egal in welcher Form sie ankommt ----\nlet resp = roh;\nlet parseFehler = null;\n\nif (typeof roh?.data === 'string') {\n  try { resp = JSON.parse(roh.data); }\n  catch (e) { parseFehler = 'data war String, aber kein JSON: ' + e.message; }\n} else if (typeof roh === 'string') {\n  try { resp = JSON.parse(roh); }\n  catch (e) { parseFehler = 'Antwort war String, aber kein JSON: ' + e.message; }\n} else if (roh?.data && typeof roh.data === 'object') {\n  resp = roh.data;\n}\n\nconst geld = v => (v && v.value !== undefined)\n  ? (v.value + ' ' + (v.currency ?? '')) : null;\nconst zahl = v => (v === null || v === undefined) ? null : Number(v);\n\n// --- Fehlerantwort erkennen -------------------------------------------\n// Mollie liefert bei Fehlern status als ZAHL plus title/detail.\nconst istFehler = parseFehler !== null\n               || typeof resp?.status === 'number'\n               || resp?.detail !== undefined;\n\nconst httpFehler = parseFehler\n  ? parseFehler\n  : (istFehler ? [resp?.status, resp?.title, resp?.detail].filter(Boolean).join(' – ') : null);\n\n// --- Orderlines auswerten (nur Orders API) ----------------------------\nconst lines = Array.isArray(resp?.lines) ? resp.lines : [];\nconst echteLines = lines.filter(l => l?.type !== 'shipping_fee');\n\nconst summe = (arr, f) => arr.reduce((s, x) => s + (Number(f(x)) || 0), 0);\n\nconst versendbarOffen = summe(lines, l => l.shippableQuantity);\nconst mengeGesamt     = summe(echteLines, l => l.quantity);\nconst mengeVersendet  = summe(echteLines, l => l.quantityShipped);\n\n// --- Bewertung --------------------------------------------------------\n// Orders API:   created / paid / authorized / shipping / completed / canceled / expired\n// Payments API: open / authorized / paid / canceled / expired / failed\nconst status = istFehler ? null : (resp?.status ?? null);\n\nlet bewertung;\nif (istFehler)                          bewertung = 'FEHLER – siehe httpFehler';\nelse if (status === 'completed')        bewertung = 'abgeschlossen – nichts zu tun';\nelse if (status === 'paid')             bewertung = 'bereits bezahlt – nichts zu tun';\nelse if (status === 'expired')          bewertung = 'VERFALLEN – nicht mehr einziehbar';\nelse if (status === 'canceled')         bewertung = 'storniert';\nelse if (status === 'failed')           bewertung = 'fehlgeschlagen';\nelse if (status === 'authorized')       bewertung = lines.length === 0\n                                          ? 'OFFEN – Capture moeglich'          // Payments API, keine lines\n                                          : (versendbarOffen > 0\n                                              ? 'OFFEN – Shipment moeglich'\n                                              : 'authorized, aber nichts mehr versendbar');\nelse if (status === 'shipping')         bewertung = versendbarOffen > 0\n                                          ? 'teilweise versendet – Rest offen'\n                                          : 'teilweise versendet, nichts mehr versendbar';\nelse if (status === 'created')          bewertung = 'nie autorisiert – kein Zahlungsversprechen';\nelse if (status === 'open')             bewertung = 'offen, noch nicht autorisiert';\nelse                                    bewertung = 'unklar: ' + (status ?? 'kein status');\n\nreturn { json: {\n  // --- Herkunft ---\n  cBestellNr:       src.cBestellNr,\n  kBestellung:      src.kBestellung,\n  mollieId:         src.mollieId,\n  variante:         src.mollieVariante,\n  zahlungsartJTL:   src.Zahlungsart ?? null,\n  betragJTL:        src.BetragJTL ?? null,\n  letzterVersand:   src.LetzterVersand ?? null,\n\n  // --- Zustand bei Mollie ---\n  httpFehler,\n  status,\n  method:           istFehler ? null : (resp?.method ?? null),\n  mode:             istFehler ? null : (resp?.mode ?? null),\n  betragMollie:     geld(resp?.amount),\n  bereitsErfasst:   geld(resp?.amountCaptured),\n  authorizedAt:     resp?.authorizedAt ?? null,\n  paidAt:           resp?.paidAt ?? null,\n  completedAt:      resp?.completedAt ?? null,\n  expiredAt:        resp?.expiredAt ?? null,\n  captureMode:      resp?.captureMode ?? null,   // nur Payments API\n  captureBefore:    resp?.captureBefore ?? null, // nur Payments API\n\n  // --- Positionen (nur Orders API) ---\n  anzahlLines:      lines.length || null,\n  mengeGesamt:      lines.length ? mengeGesamt    : null,\n  mengeVersendet:   lines.length ? mengeVersendet : null,\n  versendbarOffen:  lines.length ? versendbarOffen : null,\n  lineStatus:       lines.length\n                      ? [...new Set(lines.map(l => l.status))].join(', ')\n                      : null,\n\n  bewertung,\n  rohantwort: resp\n} };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        160
+      ],
+      "id": "86705f32-a1e7-483d-985f-05308323149c",
+      "name": "Antwort auswerten"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Praefix weder tr_ noch ord_ – nicht abfragbar.\nconst s = $input.item.json;\nreturn { json: {\n  cBestellNr: s.cBestellNr, kBestellung: s.kBestellung, mollieId: s.mollieId,\n  variante: s.mollieVariante, zahlungsartJTL: s.Zahlungsart ?? null,\n  betragJTL: s.BetragJTL ?? null, letzterVersand: s.LetzterVersand ?? null,\n  bewertung: 'nicht abfragbar – unbekanntes Praefix' } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        384
+      ],
+      "id": "c9b32bd2-24ab-4121-a9e3-5ba0fca7339c",
+      "name": "Nicht abfragbar"
+    },
+    {
+      "parameters": {
+        "amount": 0.4
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1168,
+        240
+      ],
+      "id": "317ff470-62a9-4209-b038-da31f6a682e0",
+      "name": "Wait",
+      "webhookId": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verdichtung: was ist der Gesamtbefund?\nconst zeilen = $input.all().map(i => i.json).filter(z => z && z.mollieId);\n\nconst zaehl = (feld) => {\n  const m = {};\n  for (const z of zeilen) { const k = z[feld] ?? '(leer)'; m[k] = (m[k] || 0) + 1; }\n  return m;\n};\n\n// Nur diese Zustaende sind fuer Path B ueberhaupt adressierbar.\nconst offen = zeilen.filter(z =>\n  z.bewertung === 'OFFEN – Capture moeglich' ||\n  z.bewertung === 'OFFEN – Shipment moeglich' ||\n  z.bewertung === 'teilweise versendet – Rest offen');\n\nconst summeOffen = offen.reduce((s, z) => s + (Number(z.betragJTL) || 0), 0);\n\nreturn [{ json: {\n  geprueft:          zeilen.length,\n\n  // --- der eigentliche Befund ---\n  adressierbar:      offen.length,\n  summeAdressierbar: Math.round(summeOffen * 100) / 100,\n  proBewertung:      zaehl('bewertung'),\n\n  proStatus:         zaehl('status'),\n  proVariante:       zaehl('variante'),\n  proMethod:         zaehl('method'),\n  proZahlungsartJTL: zaehl('zahlungsartJTL'),\n\n  offeneFaelle: offen.map(z => ({\n    bestellnummer: z.cBestellNr, mollieId: z.mollieId, status: z.status,\n    betrag: z.betragMollie ?? z.betragJTL, versendbarOffen: z.versendbarOffen,\n    captureBefore: z.captureBefore ?? null })).slice(0, 25),\n\n  fehler: zeilen.filter(z => z.httpFehler)\n                .map(z => ({ bestellnummer: z.cBestellNr, mollieId: z.mollieId,\n                             fehler: z.httpFehler })).slice(0, 25),\n\n  tabelle: zeilen.map(z => { const { rohantwort, ...rest } = z; return rest; })\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        240
+      ],
+      "id": "d76428be-548e-46c5-8294-388bba28b6ef",
+      "name": "Zusammenfassung"
+    },
+    {
+      "parameters": {
+        "content": "## Mollie DIAGNOSE – rein lesend\n### Nur GET-Requests. Kein Capture, kein Shipment.\n### Die zu pruefenden Mollie-IDs stehen FEST im SQL-Node,\n### kein JTL-Zugriff noetig. Weitere Faelle per UNION ALL\n### ergaenzen.\n### 'rohantwort' enthaelt die vollstaendige Mollie-Struktur\n### inklusive aller Lines mit sku und shippableQuantity.",
+        "height": 260,
+        "width": 640,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        128
+      ],
+      "id": "56b83952-a16e-47fc-aeb3-000d42e2611d",
+      "name": "SN 1"
+    },
+    {
+      "parameters": {
+        "content": "## Credential zuweisen\n### Nutzt das vorhandene Credential 'Bearer Auth account'\n### (Typ: Bearer Auth), das auch der LEAF-Abo-Flow verwendet.\n### Der Key steht im Credential, nicht im Flow.",
+        "height": 200,
+        "width": 640,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2e8674e6-573c-4b2e-8c82-8b4dbbd4afd2",
+      "name": "SN 2"
+    }
+  ],
+  "connections": {
+    "Manuell starten": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "JTL: Mollie-Referenzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL: Mollie-Referenzen": {
+      "main": [
+        [
+          {
+            "node": "Treffer vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Treffer vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "Loop",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kein Treffer – Ende",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop": {
+      "main": [
+        [
+          {
+            "node": "Zusammenfassung",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "URL bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "URL bauen": {
+      "main": [
+        [
+          {
+            "node": "Abfragbar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abfragbar?": {
+      "main": [
+        [
+          {
+            "node": "Mollie: Zahlung lesen (GET)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nicht abfragbar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie: Zahlung lesen (GET)": {
+      "main": [
+        [
+          {
+            "node": "Antwort auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort auswerten": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nicht abfragbar": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "Rhq3KIH4sg7J3DwN",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-19T14:06:32.190Z",
+      "updatedAt": "2026-08-19T14:06:32.190Z"
+    }
+  ],
+  "activeVersion": null
+}

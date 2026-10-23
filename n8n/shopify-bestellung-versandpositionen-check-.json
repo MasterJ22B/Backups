@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-09T07:35:09.704Z",
-  "createdAt": "2026-06-17T07:27:40.456Z",
   "id": "GtZLkJr6TSUFV2PA",
   "name": "Shopify-Bestellung-Versandpositionen-Check",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-06-17T07:27:40.456Z",
+  "updatedAt": "2026-07-09T07:35:09.704Z",
   "isArchived": false,
+  "versionId": "01620033-3645-45b0-8774-4fda727b9944",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -151,27 +154,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "01620033-3645-45b0-8774-4fda727b9944",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-06-17T07:27:40.461Z",
-      "createdAt": "2026-06-17T07:27:40.461Z",
       "role": "workflow:owner",
       "workflowId": "GtZLkJr6TSUFV2PA",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-17T07:27:40.461Z",
+      "updatedAt": "2026-06-17T07:27:40.461Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

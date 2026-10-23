@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-09T07:34:43.611Z",
-  "createdAt": "2026-07-03T10:00:49.796Z",
   "id": "DwgEwvVv27XV17z2",
   "name": "Shopify-LineItem-merchantEditable-Check",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-07-03T10:00:49.796Z",
+  "updatedAt": "2026-07-09T07:34:43.611Z",
   "isArchived": false,
+  "versionId": "9ca07e07-d6cb-4d30-a9f5-309b2e6567c1",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -172,27 +175,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "9ca07e07-d6cb-4d30-a9f5-309b2e6567c1",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-03T10:00:49.799Z",
-      "createdAt": "2026-07-03T10:00:49.799Z",
       "role": "workflow:owner",
       "workflowId": "DwgEwvVv27XV17z2",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-03T10:00:49.799Z",
+      "updatedAt": "2026-07-03T10:00:49.799Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

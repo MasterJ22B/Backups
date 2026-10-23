@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-05-15T00:02:34.315Z",
-  "createdAt": "2026-03-08T13:05:10.489Z",
   "id": "NOmJZSlbcetosNUN",
   "name": "BOTANICA - Vormerker Bericht für Verlage - Name Neu",
   "active": true,
+  "activeVersionId": "ed0d975d-2cf1-4f5c-b41d-a4d789e458fe",
+  "createdAt": "2026-03-08T13:05:10.489Z",
+  "updatedAt": "2026-09-23T19:48:40.557Z",
   "isArchived": false,
+  "versionId": "ed0d975d-2cf1-4f5c-b41d-a4d789e458fe",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -36,6 +39,7 @@
         "subject": "=BOTANICA | Vormerkerliste zum {{ $now.toFormat('dd.MM.yyyy') }}",
         "html": "=\n{{ $json.table }}",
         "options": {
+          "appendAttribution": false,
           "replyTo": "it@buecherbuechse.de"
         }
       },
@@ -59,23 +63,6 @@
     },
     {
       "parameters": {
-        "operation": "convertToHtmlTable",
-        "options": {
-          "headerAttributes": "style=\"background-color:black;text-color:white;\"",
-          "rowAttributes": "style=\"border-bottom:1pt solid black;\""
-        }
-      },
-      "type": "n8n-nodes-base.html",
-      "typeVersion": 1.2,
-      "position": [
-        416,
-        0
-      ],
-      "id": "ed22d786-7c19-4e2c-97b8-b51229a4413f",
-      "name": "Generiere HTML-Datentabelle"
-    },
-    {
-      "parameters": {
         "operation": "executeQuery",
         "query": "/* ==========================================================\n   PARAMETER: Root-Kategorien (IDs) -> bitte anpassen\n   ========================================================== */\nDECLARE @RootKategorie TABLE (kKategorie INT PRIMARY KEY);\nINSERT INTO @RootKategorie (kKategorie)\nVALUES (188), (190);   -- TODO: eure Kategorie-IDs\n\nDECLARE @Heute date = CAST(GETDATE() AS date);\n\nIF OBJECT_ID('tempdb..#Basis') IS NOT NULL\n    DROP TABLE #Basis;\n\n/* ==========================================================\n   Kategorien inkl. Unterkategorien\n   ========================================================== */\n;WITH KategorieBaum AS\n(\n    SELECT kKategorie\n    FROM dbo.tKategorie\n    WHERE kKategorie IN (SELECT kKategorie FROM @RootKategorie)\n\n    UNION ALL\n\n    SELECT k.kKategorie\n    FROM dbo.tKategorie k\n    JOIN KategorieBaum kb\n        ON k.kOberKategorie = kb.kKategorie\n),\n\n/* ==========================================================\n   Artikel-Mapping: Positionsartikel -> Masterartikel\n   ========================================================== */\nArtikelMap AS\n(\n    SELECT\n        a.kArtikel AS kArtikelPos,\n        CASE\n            WHEN a.kVaterArtikel > 0 THEN a.kVaterArtikel\n            ELSE a.kArtikel\n        END AS kArtikelMaster\n    FROM dbo.tArtikel a\n),\n\n/* ==========================================================\n   Masterartikel, die in den (Unter-)Kategorien liegen\n   ========================================================== */\nArtikelInKategorie AS\n(\n    SELECT DISTINCT\n        am.kArtikelMaster\n    FROM dbo.tKategorieArtikel ka\n    JOIN ArtikelMap am\n        ON am.kArtikelPos = ka.kArtikel\n    JOIN KategorieBaum kb\n        ON kb.kKategorie = ka.kKategorie\n),\n\n/* ==========================================================\n   Eigenes Feld \"Erscheinungstermin\"\n   ========================================================== */\nErscheinung AS\n(\n    SELECT\n        aa.kArtikel AS kArtikelMaster,\n        MAX(\n            \n                TRY_CONVERT(datetime, aas.cWertVarchar, 104) -- dd.mm.yyyy\n            )\n         AS Erscheinungstermin\n    FROM dbo.tArtikelAttribut aa\n    JOIN dbo.tAttribut at\n        ON at.kAttribut = aa.kAttribut\n    JOIN dbo.tAttributSprache ats\n        ON ats.kAttribut = at.kAttribut\n       AND ats.kSprache = 0\n    JOIN dbo.tArtikelAttributSprache aas\n        ON aas.kArtikelAttribut = aa.kArtikelAttribut\n       AND aas.kSprache = 0\n    WHERE ats.cName = 'Erscheinungstermin'\n    GROUP BY aa.kArtikel\n),\n\n/* ==========================================================\n   Relevante Artikel\n   ========================================================== */\nRelevanteArtikel AS\n(\n    SELECT\n        a.kArtikel AS kArtikelMaster,\n        vsa.cArtNr,\n        vsa.cName,\n        a.cISBN\n    FROM dbo.tArtikel a\n    JOIN dbo.vStandardArtikel vsa\n        ON vsa.kArtikel = a.kArtikel\n    JOIN ArtikelInKategorie aik\n        ON aik.kArtikelMaster = a.kArtikel\n    JOIN Erscheinung e\n        ON e.kArtikelMaster = a.kArtikel\n    WHERE\n        a.kVaterArtikel = 0\n        AND CAST(e.Erscheinungstermin AS date) > @Heute\n)\n\n/* ==========================================================\n   Basisdaten vorbereiten:\n   - 1 Datensatz pro Artikel + normalisierte Kundengruppe\n   - Partnerbuchhandlung + Geschäftskunden + Händler = B2B\n   - Endkunden = B2C\n   ========================================================== */\nSELECT\n    ra.cArtNr AS ArtNr,\n    ra.cName AS Artikel,\n    ra.cISBN AS ISBN,\n  FORMAT(e.Erscheinungstermin, 'dd.MM.yyyy') AS Erscheinungstermin,\n    CASE\n        WHEN ISNULL(kg.cName, '') IN ('Partnerbuchhandlung', 'Geschäftskunden', 'Händler')\n            THEN 'B2B'\n        WHEN ISNULL(kg.cName, '') = 'Endkunden'\n            THEN 'B2C'\n        WHEN kg.cName IS NULL OR LTRIM(RTRIM(kg.cName)) = ''\n            THEN '(ohne Kundengruppe)'\n        ELSE kg.cName\n    END AS Kundengruppe,\n    SUM(ap.fAnzahl) AS Menge_Bestellt\nINTO #Basis\nFROM Verkauf.tAuftragPosition ap\nJOIN Verkauf.tAuftrag ao\n    ON ao.kAuftrag = ap.kAuftrag\nJOIN dbo.tArtikel aPos\n    ON aPos.kArtikel = ap.kArtikel\nCROSS APPLY\n(\n    SELECT CASE\n        WHEN aPos.kVaterArtikel > 0 THEN aPos.kVaterArtikel\n        ELSE aPos.kArtikel\n    END AS kArtikelMaster\n) m\nJOIN RelevanteArtikel ra\n    ON ra.kArtikelMaster = m.kArtikelMaster\nJOIN Erscheinung e\n    ON e.kArtikelMaster = ra.kArtikelMaster\nJOIN dbo.tKunde k\n    ON k.kKunde = ao.kKunde\nLEFT JOIN dbo.tKundenGruppe kg\n    ON kg.kKundenGruppe = k.kKundenGruppe\nWHERE\n    ap.kArtikel > 0\n    -- Optional: nur offene Vormerker\n    -- AND EXISTS\n    -- (\n    --     SELECT 1\n    --     FROM Verkauf.tAuftragPositionEckdaten ape\n    --     WHERE ape.kAuftragPosition = ap.kAuftragPosition\n    --       AND COALESCE(ape.fAnzahlOffen, 0) > 0\n    -- )\nGROUP BY\n    ra.cArtNr,\n    ra.cName,\n    ra.cISBN,\n   FORMAT(e.Erscheinungstermin, 'dd.MM.yyyy'),\n    CASE\n        WHEN ISNULL(kg.cName, '') IN ('Partnerbuchhandlung', 'Geschäftskunden', 'Händler')\n            THEN 'B2B'\n        WHEN ISNULL(kg.cName, '') = 'Endkunden'\n            THEN 'B2C'\n        WHEN kg.cName IS NULL OR LTRIM(RTRIM(kg.cName)) = ''\n            THEN '(ohne Kundengruppe)'\n        ELSE kg.cName\n    END;\n\n/* ==========================================================\n   Dynamische Spaltenliste für Kundengruppen erzeugen\n   ========================================================== */\nDECLARE @cols nvarchar(max);\nDECLARE @sql  nvarchar(max);\n\nSELECT @cols =\n    STUFF((\n        SELECT DISTINCT\n            ',' + QUOTENAME(Kundengruppe)\n        FROM #Basis\n        FOR XML PATH(''), TYPE\n    ).value('.', 'nvarchar(max)'), 1, 1, '');\n\nIF @cols IS NULL OR @cols = ''\nBEGIN\n    SELECT\n        ArtNr,\n        Artikel,\n        ISBN,\n        Erscheinungstermin,\n        SUM(Menge_Bestellt) AS Gesamtmenge\n    FROM #Basis\n    GROUP BY\n        ArtNr,\n        Artikel,\n        ISBN,\n        Erscheinungstermin\n    ORDER BY\n        Erscheinungstermin,\n        ArtNr;\nEND\nELSE\nBEGIN\n    SET @sql = N'\n    SELECT\n        p.ArtNr,\n        p.Artikel,\n        p.ISBN,\n        p.Erscheinungstermin,\n        g.Gesamtmenge,\n        ' + @cols + '\n    FROM\n    (\n        SELECT\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin,\n            Kundengruppe,\n            Menge_Bestellt\n        FROM #Basis\n    ) src\n    PIVOT\n    (\n        SUM(Menge_Bestellt)\n        FOR Kundengruppe IN (' + @cols + ')\n    ) p\n    INNER JOIN\n    (\n        SELECT\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin,\n            SUM(Menge_Bestellt) AS Gesamtmenge\n        FROM #Basis\n        GROUP BY\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin\n    ) g\n        ON  g.ArtNr = p.ArtNr\n        AND g.Artikel = p.Artikel\n        AND g.ISBN = p.ISBN\n        AND g.Erscheinungstermin = p.Erscheinungstermin\n    ORDER BY\n        TRY_CONVERT(date, p.Erscheinungstermin, 104),\n        p.ArtNr;';\n\n    EXEC sp_executesql @sql;\nEND",
         "options": {}
@@ -96,6 +83,19 @@
           "name": "Microsoft SQL account"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// Vormerkerliste als lesbare HTML-Mail (inline CSS, Outlook-tauglich)\n// Modus: \"Run Once for All Items\"\n// ============================================================\nconst rows = $input.all().map(i => i.json).filter(r => r && r.ArtNr);\n\n// ---------- Helfer ----------\nconst esc = v => String(v ?? '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;')\n  .replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\n\nconst fmt = v => {\n  const n = Number(v) || 0;\n  return n.toFixed(0).replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');\n};\n\nconst parseDE = s => {\n  const m = /^(\\d{2})\\.(\\d{2})\\.(\\d{4})$/.exec(String(s || ''));\n  return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;\n};\n\nconst heute = new Date(); heute.setHours(0, 0, 0, 0);\nconst tageBis = d => d ? Math.round((d - heute) / 86400000) : null;\n\n// ---------- Dynamische Kundengruppen-Spalten ----------\nconst fixed = ['ArtNr', 'Artikel', 'ISBN', 'Erscheinungstermin', 'Gesamtmenge'];\nconst prio = ['B2B', 'B2C'];\nconst groupCols = [...new Set(rows.flatMap(r => Object.keys(r)))]\n  .filter(k => !fixed.includes(k))\n  .sort((a, b) => {\n    const pa = prio.indexOf(a) === -1 ? 99 : prio.indexOf(a);\n    const pb = prio.indexOf(b) === -1 ? 99 : prio.indexOf(b);\n    return pa - pb || a.localeCompare(b, 'de');\n  });\n\n// ---------- Styles ----------\nconst FONT   = \"font-family:Arial,Helvetica,sans-serif;\";\nconst TH     = `${FONT}font-size:12px;font-weight:bold;color:#ffffff;background-color:#1f2937;padding:10px 12px;border-bottom:2px solid #111827;white-space:nowrap;`;\nconst TD     = `${FONT}font-size:13px;color:#1f2937;padding:9px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top;`;\nconst NUM    = 'text-align:right;white-space:nowrap;';\nconst NOWRAP = 'white-space:nowrap;';\n\n// ---------- Leerer Bericht ----------\nif (rows.length === 0) {\n  return [{ json: { table: `<p style=\"${FONT}font-size:14px;color:#1f2937;\">Aktuell liegen keine Vormerker für kommende booXperts-Titel vor.</p>`, count: 0 } }];\n}\n\n// ---------- Kopfzeile ----------\nconst header = `\n<tr>\n  <th style=\"${TH}text-align:left;\">Titel</th>\n  <th style=\"${TH}text-align:left;\">ISBN</th>\n  <th style=\"${TH}text-align:left;\">Erscheint</th>\n  <th style=\"${TH}${NUM}\">Gesamt</th>\n  ${groupCols.map(g => `<th style=\"${TH}${NUM}\">${esc(g)}</th>`).join('')}\n</tr>`;\n\n// ---------- Datenzeilen ----------\nconst summen = { Gesamtmenge: 0 };\ngroupCols.forEach(g => summen[g] = 0);\n\nconst body = rows.map((r, idx) => {\n  const bg = idx % 2 === 0 ? '#ffffff' : '#f9fafb';\n  const tage = tageBis(parseDE(r.Erscheinungstermin));\n  const bald = tage !== null && tage <= 30;\n\n  summen.Gesamtmenge += Number(r.Gesamtmenge) || 0;\n  groupCols.forEach(g => summen[g] += Number(r[g]) || 0);\n\n  const etBadge = bald\n    ? `<br><span style=\"${FONT}font-size:11px;color:#b45309;font-weight:bold;\">in ${tage} Tag${tage === 1 ? '' : 'en'}</span>`\n    : '';\n\n  return `\n<tr style=\"background-color:${bg};\">\n  <td style=\"${TD}min-width:180px;\">\n    <span style=\"font-weight:bold;\">${esc(r.Artikel)}</span><br>\n    <span style=\"font-size:11px;color:#6b7280;\">${esc(r.ArtNr)}</span>\n  </td>\n  <td style=\"${TD}${NOWRAP}\">${esc(r.ISBN)}</td>\n  <td style=\"${TD}${NOWRAP}\">${esc(r.Erscheinungstermin)}${etBadge}</td>\n  <td style=\"${TD}${NUM}font-weight:bold;\">${fmt(r.Gesamtmenge)}</td>\n  ${groupCols.map(g => `<td style=\"${TD}${NUM}${(Number(r[g]) || 0) === 0 ? 'color:#9ca3af;' : ''}\">${fmt(r[g])}</td>`).join('')}\n</tr>`;\n}).join('');\n\n// ---------- Summenzeile ----------\nconst TF = `${FONT}font-size:13px;font-weight:bold;color:#111827;background-color:#e5e7eb;padding:10px 12px;border-top:2px solid #1f2937;`;\nconst footer = `\n<tr>\n  <td style=\"${TF}\" colspan=\"3\">Summe (${rows.length} Titel)</td>\n  <td style=\"${TF}${NUM}\">${fmt(summen.Gesamtmenge)}</td>\n  ${groupCols.map(g => `<td style=\"${TF}${NUM}\">${fmt(summen[g])}</td>`).join('')}\n</tr>`;\n\n// ---------- Mail zusammensetzen ----------\nconst stand = `${String(heute.getDate()).padStart(2, '0')}.${String(heute.getMonth() + 1).padStart(2, '0')}.${heute.getFullYear()}`;\n\nconst html = `\n<div style=\"${FONT}color:#1f2937;\">\n  <p style=\"font-size:13px;color:#6b7280;margin:0 0 16px 0;\">Stand ${stand} · Bestellmengen für Titel mit Erscheinungsdatum in der Zukunft</p>\n  <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\n         style=\"border-collapse:collapse;width:100%;max-width:1000px;border:1px solid #e5e7eb;\">\n    <thead>${header}</thead>\n    <tbody>${body}</tbody>\n    <tfoot>${footer}</tfoot>\n  </table>\n  <p style=\"font-size:11px;color:#9ca3af;margin:12px 0 0 0;\">\n    Gesamt = alle Aufträge · B2B = Partnerbuchhandlungen, Geschäftskunden, Händler · B2C = Endkunden ·\n    <span style=\"color:#b45309;font-weight:bold;\">orange</span> = Erscheinen in ≤ 30 Tagen\n  </p>\n</div>`;\n\nreturn [{ json: { table: html, count: rows.length } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        -160
+      ],
+      "id": "c3a57f63-352d-47b1-a036-483583b41486",
+      "name": "Generiere HTML-Datentabelle2"
     }
   ],
   "connections": {
@@ -110,7 +110,18 @@
         ]
       ]
     },
-    "Generiere HTML-Datentabelle": {
+    "JTL Vormerker Verlage abrufen": {
+      "main": [
+        [
+          {
+            "node": "Generiere HTML-Datentabelle2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generiere HTML-Datentabelle2": {
       "main": [
         [
           {
@@ -120,19 +131,9 @@
           }
         ]
       ]
-    },
-    "JTL Vormerker Verlage abrufen": {
-      "main": [
-        [
-          {
-            "node": "Generiere HTML-Datentabelle",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "saveDataErrorExecution": "all",
@@ -156,27 +157,29 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "3296dbde-2b25-444b-9d14-0c05051f136c",
-  "activeVersionId": "3296dbde-2b25-444b-9d14-0c05051f136c",
-  "triggerCount": 1,
+  "tags": [
+    {
+      "id": "7yj1m1x4xrHvUucU",
+      "name": "Verlage",
+      "createdAt": "2026-03-08T13:05:09.107Z",
+      "updatedAt": "2026-03-08T13:05:09.107Z"
+    }
+  ],
   "shared": [
     {
-      "updatedAt": "2026-03-08T13:05:10.493Z",
-      "createdAt": "2026-03-08T13:05:10.493Z",
       "role": "workflow:owner",
       "workflowId": "NOmJZSlbcetosNUN",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-03-08T13:05:10.493Z",
+      "updatedAt": "2026-03-08T13:05:10.493Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-05-15T00:02:46.000Z",
-    "createdAt": "2026-05-15T00:02:34.316Z",
-    "versionId": "3296dbde-2b25-444b-9d14-0c05051f136c",
+    "versionId": "ed0d975d-2cf1-4f5c-b41d-a4d789e458fe",
     "workflowId": "NOmJZSlbcetosNUN",
     "nodes": [
       {
@@ -209,6 +212,7 @@
           "subject": "=BOTANICA | Vormerkerliste zum {{ $now.toFormat('dd.MM.yyyy') }}",
           "html": "=\n{{ $json.table }}",
           "options": {
+            "appendAttribution": false,
             "replyTo": "it@buecherbuechse.de"
           }
         },
@@ -232,23 +236,6 @@
       },
       {
         "parameters": {
-          "operation": "convertToHtmlTable",
-          "options": {
-            "headerAttributes": "style=\"background-color:black;text-color:white;\"",
-            "rowAttributes": "style=\"border-bottom:1pt solid black;\""
-          }
-        },
-        "type": "n8n-nodes-base.html",
-        "typeVersion": 1.2,
-        "position": [
-          416,
-          0
-        ],
-        "id": "ed22d786-7c19-4e2c-97b8-b51229a4413f",
-        "name": "Generiere HTML-Datentabelle"
-      },
-      {
-        "parameters": {
           "operation": "executeQuery",
           "query": "/* ==========================================================\n   PARAMETER: Root-Kategorien (IDs) -> bitte anpassen\n   ========================================================== */\nDECLARE @RootKategorie TABLE (kKategorie INT PRIMARY KEY);\nINSERT INTO @RootKategorie (kKategorie)\nVALUES (188), (190);   -- TODO: eure Kategorie-IDs\n\nDECLARE @Heute date = CAST(GETDATE() AS date);\n\nIF OBJECT_ID('tempdb..#Basis') IS NOT NULL\n    DROP TABLE #Basis;\n\n/* ==========================================================\n   Kategorien inkl. Unterkategorien\n   ========================================================== */\n;WITH KategorieBaum AS\n(\n    SELECT kKategorie\n    FROM dbo.tKategorie\n    WHERE kKategorie IN (SELECT kKategorie FROM @RootKategorie)\n\n    UNION ALL\n\n    SELECT k.kKategorie\n    FROM dbo.tKategorie k\n    JOIN KategorieBaum kb\n        ON k.kOberKategorie = kb.kKategorie\n),\n\n/* ==========================================================\n   Artikel-Mapping: Positionsartikel -> Masterartikel\n   ========================================================== */\nArtikelMap AS\n(\n    SELECT\n        a.kArtikel AS kArtikelPos,\n        CASE\n            WHEN a.kVaterArtikel > 0 THEN a.kVaterArtikel\n            ELSE a.kArtikel\n        END AS kArtikelMaster\n    FROM dbo.tArtikel a\n),\n\n/* ==========================================================\n   Masterartikel, die in den (Unter-)Kategorien liegen\n   ========================================================== */\nArtikelInKategorie AS\n(\n    SELECT DISTINCT\n        am.kArtikelMaster\n    FROM dbo.tKategorieArtikel ka\n    JOIN ArtikelMap am\n        ON am.kArtikelPos = ka.kArtikel\n    JOIN KategorieBaum kb\n        ON kb.kKategorie = ka.kKategorie\n),\n\n/* ==========================================================\n   Eigenes Feld \"Erscheinungstermin\"\n   ========================================================== */\nErscheinung AS\n(\n    SELECT\n        aa.kArtikel AS kArtikelMaster,\n        MAX(\n            \n                TRY_CONVERT(datetime, aas.cWertVarchar, 104) -- dd.mm.yyyy\n            )\n         AS Erscheinungstermin\n    FROM dbo.tArtikelAttribut aa\n    JOIN dbo.tAttribut at\n        ON at.kAttribut = aa.kAttribut\n    JOIN dbo.tAttributSprache ats\n        ON ats.kAttribut = at.kAttribut\n       AND ats.kSprache = 0\n    JOIN dbo.tArtikelAttributSprache aas\n        ON aas.kArtikelAttribut = aa.kArtikelAttribut\n       AND aas.kSprache = 0\n    WHERE ats.cName = 'Erscheinungstermin'\n    GROUP BY aa.kArtikel\n),\n\n/* ==========================================================\n   Relevante Artikel\n   ========================================================== */\nRelevanteArtikel AS\n(\n    SELECT\n        a.kArtikel AS kArtikelMaster,\n        vsa.cArtNr,\n        vsa.cName,\n        a.cISBN\n    FROM dbo.tArtikel a\n    JOIN dbo.vStandardArtikel vsa\n        ON vsa.kArtikel = a.kArtikel\n    JOIN ArtikelInKategorie aik\n        ON aik.kArtikelMaster = a.kArtikel\n    JOIN Erscheinung e\n        ON e.kArtikelMaster = a.kArtikel\n    WHERE\n        a.kVaterArtikel = 0\n        AND CAST(e.Erscheinungstermin AS date) > @Heute\n)\n\n/* ==========================================================\n   Basisdaten vorbereiten:\n   - 1 Datensatz pro Artikel + normalisierte Kundengruppe\n   - Partnerbuchhandlung + Geschäftskunden + Händler = B2B\n   - Endkunden = B2C\n   ========================================================== */\nSELECT\n    ra.cArtNr AS ArtNr,\n    ra.cName AS Artikel,\n    ra.cISBN AS ISBN,\n  FORMAT(e.Erscheinungstermin, 'dd.MM.yyyy') AS Erscheinungstermin,\n    CASE\n        WHEN ISNULL(kg.cName, '') IN ('Partnerbuchhandlung', 'Geschäftskunden', 'Händler')\n            THEN 'B2B'\n        WHEN ISNULL(kg.cName, '') = 'Endkunden'\n            THEN 'B2C'\n        WHEN kg.cName IS NULL OR LTRIM(RTRIM(kg.cName)) = ''\n            THEN '(ohne Kundengruppe)'\n        ELSE kg.cName\n    END AS Kundengruppe,\n    SUM(ap.fAnzahl) AS Menge_Bestellt\nINTO #Basis\nFROM Verkauf.tAuftragPosition ap\nJOIN Verkauf.tAuftrag ao\n    ON ao.kAuftrag = ap.kAuftrag\nJOIN dbo.tArtikel aPos\n    ON aPos.kArtikel = ap.kArtikel\nCROSS APPLY\n(\n    SELECT CASE\n        WHEN aPos.kVaterArtikel > 0 THEN aPos.kVaterArtikel\n        ELSE aPos.kArtikel\n    END AS kArtikelMaster\n) m\nJOIN RelevanteArtikel ra\n    ON ra.kArtikelMaster = m.kArtikelMaster\nJOIN Erscheinung e\n    ON e.kArtikelMaster = ra.kArtikelMaster\nJOIN dbo.tKunde k\n    ON k.kKunde = ao.kKunde\nLEFT JOIN dbo.tKundenGruppe kg\n    ON kg.kKundenGruppe = k.kKundenGruppe\nWHERE\n    ap.kArtikel > 0\n    -- Optional: nur offene Vormerker\n    -- AND EXISTS\n    -- (\n    --     SELECT 1\n    --     FROM Verkauf.tAuftragPositionEckdaten ape\n    --     WHERE ape.kAuftragPosition = ap.kAuftragPosition\n    --       AND COALESCE(ape.fAnzahlOffen, 0) > 0\n    -- )\nGROUP BY\n    ra.cArtNr,\n    ra.cName,\n    ra.cISBN,\n   FORMAT(e.Erscheinungstermin, 'dd.MM.yyyy'),\n    CASE\n        WHEN ISNULL(kg.cName, '') IN ('Partnerbuchhandlung', 'Geschäftskunden', 'Händler')\n            THEN 'B2B'\n        WHEN ISNULL(kg.cName, '') = 'Endkunden'\n            THEN 'B2C'\n        WHEN kg.cName IS NULL OR LTRIM(RTRIM(kg.cName)) = ''\n            THEN '(ohne Kundengruppe)'\n        ELSE kg.cName\n    END;\n\n/* ==========================================================\n   Dynamische Spaltenliste für Kundengruppen erzeugen\n   ========================================================== */\nDECLARE @cols nvarchar(max);\nDECLARE @sql  nvarchar(max);\n\nSELECT @cols =\n    STUFF((\n        SELECT DISTINCT\n            ',' + QUOTENAME(Kundengruppe)\n        FROM #Basis\n        FOR XML PATH(''), TYPE\n    ).value('.', 'nvarchar(max)'), 1, 1, '');\n\nIF @cols IS NULL OR @cols = ''\nBEGIN\n    SELECT\n        ArtNr,\n        Artikel,\n        ISBN,\n        Erscheinungstermin,\n        SUM(Menge_Bestellt) AS Gesamtmenge\n    FROM #Basis\n    GROUP BY\n        ArtNr,\n        Artikel,\n        ISBN,\n        Erscheinungstermin\n    ORDER BY\n        Erscheinungstermin,\n        ArtNr;\nEND\nELSE\nBEGIN\n    SET @sql = N'\n    SELECT\n        p.ArtNr,\n        p.Artikel,\n        p.ISBN,\n        p.Erscheinungstermin,\n        g.Gesamtmenge,\n        ' + @cols + '\n    FROM\n    (\n        SELECT\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin,\n            Kundengruppe,\n            Menge_Bestellt\n        FROM #Basis\n    ) src\n    PIVOT\n    (\n        SUM(Menge_Bestellt)\n        FOR Kundengruppe IN (' + @cols + ')\n    ) p\n    INNER JOIN\n    (\n        SELECT\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin,\n            SUM(Menge_Bestellt) AS Gesamtmenge\n        FROM #Basis\n        GROUP BY\n            ArtNr,\n            Artikel,\n            ISBN,\n            Erscheinungstermin\n    ) g\n        ON  g.ArtNr = p.ArtNr\n        AND g.Artikel = p.Artikel\n        AND g.ISBN = p.ISBN\n        AND g.Erscheinungstermin = p.Erscheinungstermin\n    ORDER BY\n        TRY_CONVERT(date, p.Erscheinungstermin, 104),\n        p.ArtNr;';\n\n    EXEC sp_executesql @sql;\nEND",
           "options": {}
@@ -269,6 +256,19 @@
             "name": "Microsoft SQL account"
           }
         }
+      },
+      {
+        "parameters": {
+          "jsCode": "// ============================================================\n// Vormerkerliste als lesbare HTML-Mail (inline CSS, Outlook-tauglich)\n// Modus: \"Run Once for All Items\"\n// ============================================================\nconst rows = $input.all().map(i => i.json).filter(r => r && r.ArtNr);\n\n// ---------- Helfer ----------\nconst esc = v => String(v ?? '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;')\n  .replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\n\nconst fmt = v => {\n  const n = Number(v) || 0;\n  return n.toFixed(0).replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');\n};\n\nconst parseDE = s => {\n  const m = /^(\\d{2})\\.(\\d{2})\\.(\\d{4})$/.exec(String(s || ''));\n  return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;\n};\n\nconst heute = new Date(); heute.setHours(0, 0, 0, 0);\nconst tageBis = d => d ? Math.round((d - heute) / 86400000) : null;\n\n// ---------- Dynamische Kundengruppen-Spalten ----------\nconst fixed = ['ArtNr', 'Artikel', 'ISBN', 'Erscheinungstermin', 'Gesamtmenge'];\nconst prio = ['B2B', 'B2C'];\nconst groupCols = [...new Set(rows.flatMap(r => Object.keys(r)))]\n  .filter(k => !fixed.includes(k))\n  .sort((a, b) => {\n    const pa = prio.indexOf(a) === -1 ? 99 : prio.indexOf(a);\n    const pb = prio.indexOf(b) === -1 ? 99 : prio.indexOf(b);\n    return pa - pb || a.localeCompare(b, 'de');\n  });\n\n// ---------- Styles ----------\nconst FONT   = \"font-family:Arial,Helvetica,sans-serif;\";\nconst TH     = `${FONT}font-size:12px;font-weight:bold;color:#ffffff;background-color:#1f2937;padding:10px 12px;border-bottom:2px solid #111827;white-space:nowrap;`;\nconst TD     = `${FONT}font-size:13px;color:#1f2937;padding:9px 12px;border-bottom:1px solid #e5e7eb;vertical-align:top;`;\nconst NUM    = 'text-align:right;white-space:nowrap;';\nconst NOWRAP = 'white-space:nowrap;';\n\n// ---------- Leerer Bericht ----------\nif (rows.length === 0) {\n  return [{ json: { table: `<p style=\"${FONT}font-size:14px;color:#1f2937;\">Aktuell liegen keine Vormerker für kommende booXperts-Titel vor.</p>`, count: 0 } }];\n}\n\n// ---------- Kopfzeile ----------\nconst header = `\n<tr>\n  <th style=\"${TH}text-align:left;\">Titel</th>\n  <th style=\"${TH}text-align:left;\">ISBN</th>\n  <th style=\"${TH}text-align:left;\">Erscheint</th>\n  <th style=\"${TH}${NUM}\">Gesamt</th>\n  ${groupCols.map(g => `<th style=\"${TH}${NUM}\">${esc(g)}</th>`).join('')}\n</tr>`;\n\n// ---------- Datenzeilen ----------\nconst summen = { Gesamtmenge: 0 };\ngroupCols.forEach(g => summen[g] = 0);\n\nconst body = rows.map((r, idx) => {\n  const bg = idx % 2 === 0 ? '#ffffff' : '#f9fafb';\n  const tage = tageBis(parseDE(r.Erscheinungstermin));\n  const bald = tage !== null && tage <= 30;\n\n  summen.Gesamtmenge += Number(r.Gesamtmenge) || 0;\n  groupCols.forEach(g => summen[g] += Number(r[g]) || 0);\n\n  const etBadge = bald\n    ? `<br><span style=\"${FONT}font-size:11px;color:#b45309;font-weight:bold;\">in ${tage} Tag${tage === 1 ? '' : 'en'}</span>`\n    : '';\n\n  return `\n<tr style=\"background-color:${bg};\">\n  <td style=\"${TD}min-width:180px;\">\n    <span style=\"font-weight:bold;\">${esc(r.Artikel)}</span><br>\n    <span style=\"font-size:11px;color:#6b7280;\">${esc(r.ArtNr)}</span>\n  </td>\n  <td style=\"${TD}${NOWRAP}\">${esc(r.ISBN)}</td>\n  <td style=\"${TD}${NOWRAP}\">${esc(r.Erscheinungstermin)}${etBadge}</td>\n  <td style=\"${TD}${NUM}font-weight:bold;\">${fmt(r.Gesamtmenge)}</td>\n  ${groupCols.map(g => `<td style=\"${TD}${NUM}${(Number(r[g]) || 0) === 0 ? 'color:#9ca3af;' : ''}\">${fmt(r[g])}</td>`).join('')}\n</tr>`;\n}).join('');\n\n// ---------- Summenzeile ----------\nconst TF = `${FONT}font-size:13px;font-weight:bold;color:#111827;background-color:#e5e7eb;padding:10px 12px;border-top:2px solid #1f2937;`;\nconst footer = `\n<tr>\n  <td style=\"${TF}\" colspan=\"3\">Summe (${rows.length} Titel)</td>\n  <td style=\"${TF}${NUM}\">${fmt(summen.Gesamtmenge)}</td>\n  ${groupCols.map(g => `<td style=\"${TF}${NUM}\">${fmt(summen[g])}</td>`).join('')}\n</tr>`;\n\n// ---------- Mail zusammensetzen ----------\nconst stand = `${String(heute.getDate()).padStart(2, '0')}.${String(heute.getMonth() + 1).padStart(2, '0')}.${heute.getFullYear()}`;\n\nconst html = `\n<div style=\"${FONT}color:#1f2937;\">\n  <p style=\"font-size:13px;color:#6b7280;margin:0 0 16px 0;\">Stand ${stand} · Bestellmengen für Titel mit Erscheinungsdatum in der Zukunft</p>\n  <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"\n         style=\"border-collapse:collapse;width:100%;max-width:1000px;border:1px solid #e5e7eb;\">\n    <thead>${header}</thead>\n    <tbody>${body}</tbody>\n    <tfoot>${footer}</tfoot>\n  </table>\n  <p style=\"font-size:11px;color:#9ca3af;margin:12px 0 0 0;\">\n    Gesamt = alle Aufträge · B2B = Partnerbuchhandlungen, Geschäftskunden, Händler · B2C = Endkunden ·\n    <span style=\"color:#b45309;font-weight:bold;\">orange</span> = Erscheinen in ≤ 30 Tagen\n  </p>\n</div>`;\n\nreturn [{ json: { table: html, count: rows.length } }];\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          416,
+          -160
+        ],
+        "id": "c3a57f63-352d-47b1-a036-483583b41486",
+        "name": "Generiere HTML-Datentabelle2"
       }
     ],
     "connections": {
@@ -283,7 +283,18 @@
           ]
         ]
       },
-      "Generiere HTML-Datentabelle": {
+      "JTL Vormerker Verlage abrufen": {
+        "main": [
+          [
+            {
+              "node": "Generiere HTML-Datentabelle2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generiere HTML-Datentabelle2": {
         "main": [
           [
             {
@@ -293,31 +304,14 @@
             }
           ]
         ]
-      },
-      "JTL Vormerker Verlage abrufen": {
-        "main": [
-          [
-            {
-              "node": "Generiere HTML-Datentabelle",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
       }
     },
     "nodeGroups": [],
     "authors": "Christoph Strauss",
-    "name": "Version 3296dbde",
+    "name": "Version ed0d975d",
     "description": "",
-    "autosaved": true
-  },
-  "tags": [
-    {
-      "updatedAt": "2026-03-08T13:05:09.107Z",
-      "createdAt": "2026-03-08T13:05:09.107Z",
-      "id": "7yj1m1x4xrHvUucU",
-      "name": "Verlage"
-    }
-  ]
+    "autosaved": true,
+    "createdAt": "2026-09-23T19:48:40.559Z",
+    "updatedAt": "2026-09-23T19:48:45.000Z"
+  }
 }

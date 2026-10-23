@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-06-23T13:07:07.002Z",
-  "createdAt": "2026-06-23T12:11:19.767Z",
   "id": "f5ENOmtTkvADguGw",
   "name": "BB File Watchdog",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-06-23T12:11:19.767Z",
+  "updatedAt": "2026-06-23T13:07:07.002Z",
   "isArchived": false,
+  "versionId": "4ec65782-e86d-4f48-b5e2-0b3c96531b0c",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -134,29 +137,26 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "4ec65782-e86d-4f48-b5e2-0b3c96531b0c",
-  "activeVersionId": null,
-  "triggerCount": 1,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-06-23T12:11:19.770Z",
-      "createdAt": "2026-06-23T12:11:19.770Z",
       "role": "workflow:owner",
       "workflowId": "f5ENOmtTkvADguGw",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-23T12:11:19.770Z",
+      "updatedAt": "2026-06-23T12:11:19.770Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

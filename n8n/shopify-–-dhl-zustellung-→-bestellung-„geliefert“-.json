@@ -1,0 +1,907 @@
+{
+  "id": "dLCRHeAs1Gbp0irs",
+  "name": "Shopify – DHL Zustellung → Bestellung „geliefert“",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-10-21T09:28:07.779Z",
+  "updatedAt": "2026-10-21T09:37:31.049Z",
+  "isArchived": false,
+  "versionId": "27bb4768-a100-4696-9ac2-d9c288da10f6",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        32,
+        320
+      ],
+      "id": "404672c6-6c8d-4a2f-b7d8-94697e30e385",
+      "name": "Backfill manuell starten"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        544
+      ],
+      "id": "d5a64517-11e6-4a87-9a8d-aa3245ee4210",
+      "name": "Alle 2 Stunden"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "311da7ad-79c1-4992-99a0-b11c88baf3e6",
+              "name": "modus",
+              "value": "backfill",
+              "type": "string"
+            },
+            {
+              "id": "f3cb9e97-80b2-4bab-8457-125d845c8ce0",
+              "name": "shop",
+              "value": "vdzvc0-nd",
+              "type": "string"
+            },
+            {
+              "id": "a257d8c4-f119-4a4e-8cf4-a2e66fb923c6",
+              "name": "apiVersion",
+              "value": "2025-10",
+              "type": "string"
+            },
+            {
+              "id": "f00f8d02-c3de-43b9-95e4-b9e6dcde9e4f",
+              "name": "shopifyQuery",
+              "value": "fulfillment_status:shipped created_at:<2026-10-07 -tag:dhl-manuell-pruefen",
+              "type": "string"
+            },
+            {
+              "id": "512b5911-5344-43b5-94d8-279bd031cde7",
+              "name": "dryRun",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "76e2e80f-c528-4b9a-abcd-490c3797eab3",
+              "name": "maxDhlAbfragen",
+              "value": 240,
+              "type": "number"
+            },
+            {
+              "id": "9a214e35-60fc-4dd3-9ac5-4996563f0ee4",
+              "name": "pruefTag",
+              "value": "dhl-manuell-pruefen",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        256,
+        320
+      ],
+      "id": "9f1b30d3-9eba-4a3c-b4c9-a98a9869c880",
+      "name": "Modus: Backfill"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5d62b01e-3e8d-4568-992c-7856a1c9e82b",
+              "name": "modus",
+              "value": "laufend",
+              "type": "string"
+            },
+            {
+              "id": "e198e912-4a5c-43c2-a4f5-ef42919fc418",
+              "name": "shop",
+              "value": "vdzvc0-nd",
+              "type": "string"
+            },
+            {
+              "id": "495e1529-5add-4535-a385-fa48d27c1777",
+              "name": "apiVersion",
+              "value": "2025-10",
+              "type": "string"
+            },
+            {
+              "id": "8e44ea5e-d2ca-4328-b187-9054a836ff23",
+              "name": "shopifyQuery",
+              "value": "=fulfillment_status:shipped created_at:>={{ $now.minus({days: 30}).toISODate() }} -tag:dhl-manuell-pruefen",
+              "type": "string"
+            },
+            {
+              "id": "90d67d17-079a-43ad-8a09-34f5c836b620",
+              "name": "dryRun",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "0b80db46-8f7d-4de9-a7c7-50e3ebbfb3b9",
+              "name": "maxDhlAbfragen",
+              "value": 240,
+              "type": "number"
+            },
+            {
+              "id": "a511daa2-3d6a-42dc-a479-e7938229d6f2",
+              "name": "pruefTag",
+              "value": "dhl-manuell-pruefen",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        256,
+        544
+      ],
+      "id": "4dfa3e2e-dce9-461a-81cc-198659f3232e",
+      "name": "Modus: Laufend"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        464,
+        416
+      ],
+      "id": "7662725a-c0a6-4fc5-973c-40c8b7d5bf67",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Config').first().json.shop }}.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        416
+      ],
+      "id": "09577cf8-720e-4d89-a8a3-dae7b726e10e",
+      "name": "Token holen",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sammelspeicher für diese Ausführung leeren\nconst s = $getWorkflowStaticData('global');\ns.kandidaten = [];\ns.report = [];\nreturn [{ json: { cursor: null, hasNext: true } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        416
+      ],
+      "id": "5bb2bf2a-02f6-4e0b-890f-80129d06dcff",
+      "name": "Sammler leeren"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Config').first().json.shop }}.myshopify.com/admin/api/{{ $('Config').first().json.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query($q: String!, $cursor: String) {\\n  orders(first: 50, after: $cursor, query: $q, sortKey: CREATED_AT) {\\n    pageInfo { hasNextPage endCursor }\\n    nodes {\\n      id\\n      name\\n      createdAt\\n      fulfillments(first: 10) {\\n        id\\n        status\\n        displayStatus\\n        deliveredAt\\n        trackingInfo(first: 5) { number company }\\n      }\\n    }\\n  }\\n}\", variables: { q: $('Config').first().json.shopifyQuery, cursor: $json.cursor } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1072,
+        416
+      ],
+      "id": "57c269c3-c629-458f-8f37-1cf982cb20d2",
+      "name": "Shopify: Bestellungen holen",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const res = $input.first().json;\nif (res.errors) throw new Error('Shopify GraphQL: ' + JSON.stringify(res.errors));\nconst data = res.data.orders;\nconst s = $getWorkflowStaticData('global');\n\n// Diese Status brauchen kein \"geliefert\" mehr\nconst ignorieren = ['DELIVERED', 'CANCELED', 'FAILURE', 'PICKED_UP', 'LABEL_VOIDED'];\n\nfor (const order of data.nodes) {\n  for (const f of order.fulfillments || []) {\n    if (f.status !== 'SUCCESS') continue;\n    if (f.deliveredAt || ignorieren.includes(f.displayStatus)) continue;\n    const t = (f.trackingInfo || []).find(x => x.number);\n    if (!t) continue; // ohne Sendungsnummer kein Abgleich möglich\n    s.kandidaten.push({\n      orderId: order.id,\n      orderName: order.name,\n      orderDatum: order.createdAt,\n      fulfillmentId: f.id,\n      fulfillmentStatus: f.displayStatus,\n      trackingNummer: String(t.number).replace(/\\s/g, ''),\n      carrier: t.company || '',\n    });\n  }\n}\n\nreturn [{ json: {\n  cursor: data.pageInfo.endCursor,\n  hasNext: data.pageInfo.hasNextPage,\n  bisherGesammelt: s.kandidaten.length,\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        416
+      ],
+      "id": "3888308c-b1c8-4554-835d-59cc35e94aca",
+      "name": "Offene Sendungen sammeln"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e13d8ed4-27c2-44d9-b203-147bd87bfa1e",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        416
+      ],
+      "id": "6cae7011-a5d8-4b22-a4d5-6944d5ebf23f",
+      "name": "Gibt es weitere Seiten?"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1472,
+        240
+      ],
+      "id": "5c0e045c-4691-4d05-9ade-de893b4f204d",
+      "name": "Wait Pagination",
+      "webhookId": "2b9f42c9-aafb-47a7-9a94-186656ce59b7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $getWorkflowStaticData('global');\nconst max = $('Config').first().json.maxDhlAbfragen;\n// älteste zuerst, Limit wegen DHL-Tageskontingent\nconst liste = (s.kandidaten || [])\n  .sort((a, b) => a.orderDatum.localeCompare(b.orderDatum))\n  .slice(0, max);\nreturn liste.map(k => ({ json: k }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        448
+      ],
+      "id": "1e01e49c-bfcd-4214-85e7-b19da860bd67",
+      "name": "Kandidaten ausgeben"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1904,
+        448
+      ],
+      "id": "963d95b7-0da7-4b63-8e51-5d68886549e5",
+      "name": "Einzeln abarbeiten"
+    },
+    {
+      "parameters": {
+        "url": "https://api-eu.dhl.com/track/shipments",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "trackingNumber",
+              "value": "={{ $json.trackingNummer }}"
+            },
+            {
+              "name": "language",
+              "value": "de"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "DHL-API-Key",
+              "value": "HIER_DHL_API_KEY"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2144,
+        544
+      ],
+      "id": "786d78e6-92dc-4dbe-abc7-cf1033f9d92f",
+      "name": "DHL Tracking abfragen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const k = $('Einzeln abarbeiten').item.json;\nconst cfg = $('Config').first().json;\nconst r = $input.first().json;\nconst s = $getWorkflowStaticData('global');\n\nlet dhlStatus = 'fehler', zugestelltAm = null, info = '';\nif (r.statusCode === 200 && r.body?.shipments?.length) {\n  const sh = r.body.shipments[0];\n  dhlStatus = sh.status?.statusCode || 'unknown';     // pre-transit | transit | delivered | failure | unknown\n  info = sh.status?.description || sh.status?.status || '';\n  if (dhlStatus === 'delivered') zugestelltAm = sh.status?.timestamp || null;\n} else if (r.statusCode === 404) {\n  dhlStatus = 'nicht_gefunden';\n} else if (r.statusCode === 429) {\n  throw new Error('DHL Rate-Limit erreicht (429) – Lauf abgebrochen, später erneut starten.');\n} else {\n  info = 'HTTP ' + r.statusCode;\n}\n\nlet aktion = 'nichts';\nif (dhlStatus === 'delivered') {\n  aktion = cfg.dryRun ? 'dryrun' : 'geliefert';\n} else if (cfg.modus === 'backfill' && ['nicht_gefunden', 'failure', 'unknown'].includes(dhlStatus)) {\n  // Altbestand, den DHL nicht als zugestellt meldet -> markieren, damit er nicht jedes Mal erneut abgefragt wird\n  aktion = cfg.dryRun ? 'dryrun' : 'markieren';\n}\n\n// happenedAt: DHL-Zeitpunkt, sonst jetzt\nconst happenedAt = zugestelltAm ? new Date(zugestelltAm).toISOString() : new Date().toISOString();\n\nconst zeile = { ...k, dhlStatus, dhlInfo: info, zugestelltAm, aktion, happenedAt };\ns.report.push(zeile);\nreturn [{ json: zeile }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        544
+      ],
+      "id": "40a2ba47-951b-4ae2-91a5-1b02d4b7bd80",
+      "name": "Aktion bestimmen"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "63898851-a045-4af1-82ac-dd18138344bc",
+                    "leftValue": "={{ $json.aktion }}",
+                    "rightValue": "geliefert",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "geliefert"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a99d20fb-0169-443e-a334-3adcace65420",
+                    "leftValue": "={{ $json.aktion }}",
+                    "rightValue": "markieren",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "markieren"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "nichts"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2592,
+        544
+      ],
+      "id": "77fc15e4-2969-4032-a433-484aa167a5f9",
+      "name": "Was tun?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Config').first().json.shop }}.myshopify.com/admin/api/{{ $('Config').first().json.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation($fe: FulfillmentEventInput!) {\\n  fulfillmentEventCreate(fulfillmentEvent: $fe) {\\n    fulfillmentEvent { id status happenedAt }\\n    userErrors { field message }\\n  }\\n}\", variables: { fe: { fulfillmentId: $json.fulfillmentId, status: 'DELIVERED', happenedAt: $json.happenedAt, message: 'Zustellung lt. DHL (n8n)' } } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2832,
+        416
+      ],
+      "id": "d082cf34-29be-4640-81b4-c3a88dfb632c",
+      "name": "Shopify: als geliefert setzen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Config').first().json.shop }}.myshopify.com/admin/api/{{ $('Config').first().json.apiVersion }}/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation($id: ID!, $tags: [String!]!) {\\n  tagsAdd(id: $id, tags: $tags) { userErrors { field message } }\\n}\", variables: { id: $json.orderId, tags: [$('Config').first().json.pruefTag] } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2832,
+        608
+      ],
+      "id": "17c46e03-f11b-4716-9de7-40fcfd21d5af",
+      "name": "Shopify: Tag zur Prüfung",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3072,
+        544
+      ],
+      "id": "915fca9a-ef1d-424e-b7ee-7a0eaee5a6ed",
+      "name": "Wait DHL-Limit",
+      "webhookId": "10f981c6-2871-482d-b6b2-847fb948bf44"
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $getWorkflowStaticData('global');\nconst rows = s.report || [];\nconst cfg = $('Config').first().json;\nconst esc = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst z = a => rows.filter(r => r.aktion === a).length;\nconst offen = (s.kandidaten || []).length - rows.length;\n\nif (rows.length === 0 && cfg.modus === 'laufend') return []; // laufender Modus: keine leere Mail\n\nconst tr = rows.map(r => `<tr><td>${esc(r.orderName)}</td><td>${esc(r.trackingNummer)}</td>\n<td>${esc(r.dhlStatus)}</td><td>${esc(r.zugestelltAm)}</td><td>${esc(r.aktion)}</td></tr>`).join('');\n\nconst mailText = `\n<p>Modus: <b>${cfg.modus}</b>${cfg.dryRun ? ' (<b>Testlauf – nichts geändert</b>)' : ''}</p>\n<p>Geprüft: ${rows.length} · auf geliefert gesetzt: ${z('geliefert')} · zur Prüfung getaggt: ${z('markieren')}\n · Testlauf-Treffer: ${z('dryrun')} · noch offen (Limit): ${Math.max(offen,0)}</p>\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse;font-family:Arial;font-size:13px\">\n<thead><tr><th>Bestellung</th><th>Sendungsnr.</th><th>DHL-Status</th><th>Zugestellt am</th><th>Aktion</th></tr></thead>\n<tbody>${tr}</tbody></table>\n<p>Mit freundlichen Grüßen<br>n8n-Workflow DHL-Zustellabgleich</p>`;\n\nreturn [{ json: { mailText, betreff: `DHL-Zustellabgleich (${cfg.modus}${cfg.dryRun ? ', Testlauf' : ''}): ${z('geliefert')} geliefert` } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        160
+      ],
+      "id": "0bd40dfc-57f3-48b5-a65a-77f7655cd434",
+      "name": "Bericht bauen"
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "marc.hemmer@buecherbuechse.de",
+        "subject": "={{ $json.betreff }}",
+        "html": "={{ $json.mailText }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2384,
+        160
+      ],
+      "id": "88407a72-7c9d-4235-b78e-485f17cfeed0",
+      "name": "Bericht senden",
+      "webhookId": "0c50825e-73a6-432c-b2ae-54da7f1c6430",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## DHL → Shopify „Zugestellt“\n**Vor dem ersten Lauf:**\n1. Shop vdzvc0-nd, Login über *BB-Shopify-Credential* (wie Refund-Scan). Berechtigungen prüfen: read_all_orders + Fulfillment-Rechte\n2. In *DHL Tracking abfragen* den DHL-API-Key eintragen\n3. **Backfill**: dryRun steht auf *true* → erst Bericht prüfen, dann in *Modus: Backfill* auf false\n4. Vor dem echten Backfill die Kundenbenachrichtigung „Zugestellt“ in Shopify deaktivieren\n5. maxDhlAbfragen = DHL-Tageskontingent; Backfill täglich wiederholen bis 0 offen",
+        "height": 340,
+        "width": 620,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        -144
+      ],
+      "id": "1c97348a-405d-4179-be59-40c25572c0f2",
+      "name": "Info"
+    },
+    {
+      "parameters": {
+        "content": "## Shopify: offene Sendungen sammeln (GraphQL, Pagination)",
+        "height": 440,
+        "width": 1000,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        656,
+        160
+      ],
+      "id": "10d7d16e-c471-439b-a20c-264408bc61a8",
+      "name": "Shopify sammeln"
+    },
+    {
+      "parameters": {
+        "content": "## DHL abfragen → geliefert setzen / taggen (5 s Pause = DHL-Limit)",
+        "height": 360,
+        "width": 1380,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1872,
+        384
+      ],
+      "id": "4a86d6f7-bda5-4851-a847-5337c8899ce2",
+      "name": "DHL Loop"
+    },
+    {
+      "parameters": {
+        "content": "## Bericht",
+        "height": 190,
+        "width": 460,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2096,
+        96
+      ],
+      "id": "d93e21a5-912a-4aa6-b1a8-85ed359d32b2",
+      "name": "Report"
+    }
+  ],
+  "connections": {
+    "Backfill manuell starten": {
+      "main": [
+        [
+          {
+            "node": "Modus: Backfill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alle 2 Stunden": {
+      "main": [
+        [
+          {
+            "node": "Modus: Laufend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modus: Backfill": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modus: Laufend": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Sammler leeren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sammler leeren": {
+      "main": [
+        [
+          {
+            "node": "Shopify: Bestellungen holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify: Bestellungen holen": {
+      "main": [
+        [
+          {
+            "node": "Offene Sendungen sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Offene Sendungen sammeln": {
+      "main": [
+        [
+          {
+            "node": "Gibt es weitere Seiten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es weitere Seiten?": {
+      "main": [
+        [
+          {
+            "node": "Wait Pagination",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kandidaten ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Pagination": {
+      "main": [
+        [
+          {
+            "node": "Shopify: Bestellungen holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kandidaten ausgeben": {
+      "main": [
+        [
+          {
+            "node": "Einzeln abarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einzeln abarbeiten": {
+      "main": [
+        [
+          {
+            "node": "Bericht bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "DHL Tracking abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DHL Tracking abfragen": {
+      "main": [
+        [
+          {
+            "node": "Aktion bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aktion bestimmen": {
+      "main": [
+        [
+          {
+            "node": "Was tun?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was tun?": {
+      "main": [
+        [
+          {
+            "node": "Shopify: als geliefert setzen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Shopify: Tag zur Prüfung",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait DHL-Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify: als geliefert setzen": {
+      "main": [
+        [
+          {
+            "node": "Wait DHL-Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify: Tag zur Prüfung": {
+      "main": [
+        [
+          {
+            "node": "Wait DHL-Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait DHL-Limit": {
+      "main": [
+        [
+          {
+            "node": "Einzeln abarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bericht bauen": {
+      "main": [
+        [
+          {
+            "node": "Bericht senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "dLCRHeAs1Gbp0irs",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-10-21T09:28:07.782Z",
+      "updatedAt": "2026-10-21T09:28:07.782Z"
+    }
+  ],
+  "activeVersion": null
+}

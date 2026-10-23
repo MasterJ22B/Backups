@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-21T08:24:38.231Z",
-  "createdAt": "2026-07-09T10:29:14.945Z",
   "id": "pm42xIduxJB2qz9V",
   "name": "BB-Katalogpreise-AT-CH-aus-DE",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-07-09T10:29:14.945Z",
+  "updatedAt": "2026-08-21T08:23:35.165Z",
   "isArchived": false,
+  "versionId": "b019b820-e24a-496d-b5bc-e525c7eee3f6",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -672,27 +675,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "b019b820-e24a-496d-b5bc-e525c7eee3f6",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-09T10:29:14.947Z",
-      "createdAt": "2026-07-09T10:29:14.947Z",
       "role": "workflow:owner",
       "workflowId": "pm42xIduxJB2qz9V",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-09T10:29:14.947Z",
+      "updatedAt": "2026-07-09T10:29:14.947Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

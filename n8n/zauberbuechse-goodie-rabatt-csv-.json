@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-07T08:47:42.158Z",
-  "createdAt": "2026-08-06T11:18:27.253Z",
   "id": "kCu8iB4p1dN4j7VN",
   "name": "Zauberbuechse-Goodie-Rabatt-CSV",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-08-06T11:18:27.253Z",
+  "updatedAt": "2026-08-07T08:47:42.158Z",
   "isArchived": false,
+  "versionId": "3390e20f-8a2f-43ab-8e78-0c91e6b88154",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -825,27 +828,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "3390e20f-8a2f-43ab-8e78-0c91e6b88154",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-08-06T11:18:27.260Z",
-      "createdAt": "2026-08-06T11:18:27.260Z",
       "role": "workflow:owner",
       "workflowId": "kCu8iB4p1dN4j7VN",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-06T11:18:27.260Z",
+      "updatedAt": "2026-08-06T11:18:27.260Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

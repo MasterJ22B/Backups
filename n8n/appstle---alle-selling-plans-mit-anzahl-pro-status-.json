@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-30T21:02:46.169Z",
-  "createdAt": "2026-07-30T19:44:24.647Z",
   "id": "aCg1KOZiVJ4vHEwY",
   "name": "Appstle - Alle Selling Plans mit Anzahl pro Status",
   "active": true,
+  "activeVersionId": "66e63564-ec49-42df-9b91-630906c57ed2",
+  "createdAt": "2026-07-30T19:44:24.647Z",
+  "updatedAt": "2026-07-30T21:02:46.169Z",
   "isArchived": false,
+  "versionId": "66e63564-ec49-42df-9b91-630906c57ed2",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -880,6 +883,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -898,26 +902,21 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "66e63564-ec49-42df-9b91-630906c57ed2",
-  "activeVersionId": "66e63564-ec49-42df-9b91-630906c57ed2",
-  "triggerCount": 1,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-30T19:45:38.965Z",
-      "createdAt": "2026-07-30T19:45:38.965Z",
       "role": "workflow:owner",
       "workflowId": "aCg1KOZiVJ4vHEwY",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-30T19:45:38.965Z",
+      "updatedAt": "2026-07-30T19:45:38.965Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-07-31T03:43:44.000Z",
-    "createdAt": "2026-07-30T21:02:46.170Z",
     "versionId": "66e63564-ec49-42df-9b91-630906c57ed2",
     "workflowId": "aCg1KOZiVJ4vHEwY",
     "nodes": [
@@ -1799,7 +1798,8 @@
     "authors": "Christoph Strauss",
     "name": "Version 66e63564",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-07-30T21:02:46.170Z",
+    "updatedAt": "2026-07-31T03:43:44.000Z"
+  }
 }

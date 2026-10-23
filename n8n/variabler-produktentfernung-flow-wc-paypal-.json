@@ -1,0 +1,2447 @@
+{
+  "id": "MInh1JBYYcGGtu0b",
+  "name": "Variabler-Produktentfernung-Flow-WC-PayPal",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-10-01T09:39:30.888Z",
+  "updatedAt": "2026-10-22T08:42:45.942Z",
+  "isArchived": false,
+  "versionId": "1cf9ae6c-3999-4ce8-9cfb-6b6fc26a32e7",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ⚠️ Vor dem ersten Lauf\n1. **NUR_EINORDNEN** (Standard): Ameise-Export (CSV mit Kopfzeile, Versand- und Gutscheinzeilen) hochladen und den Report prüfen.\n2. **Data Table** (n8n → Projekt → Data tables) `produktentfernung_auszahlungen` mit den Spalten `vorgang`, `bestellnummer`, `weg`, `transaktions_id`, `waehrung`, `status`, `referenz`, `grund` (String) und `betrag` (Number).\n3. **Credentials:** PayPal „Basic Auth“ (Client-ID/Secret der Live-App mit *Transaction Search*) an `Token holen (PayPal)`. Mollie „Molli API“ (Bearer) an allen Mollie-Nodes – Key des WooCommerce-Website-Profils.\n4. **TROCKENLAUF:** PayPal und Mollie werden nur gelesen → Report und Lauf-Info prüfen (gefunden, Weg, Betrag). Kommt bei den PayPal-Zahlungen über Mollie `NICHT_GEFUNDEN` mit Hinweis auf den API-Key, gehört „Molli API“ nicht zum WooCommerce-Profil.\n5. **SCHARF** mit `testLimit: 1` → je eine echte Erstattung je Zahlungsweg (alle anderen werden nur geprüft), beim Anbieter kontrollieren. Danach `testLimit: 0`.\n6. **Payouts:** erst nach Freischaltung durch PayPal `payoutsAktiv: true`, wieder mit `testLimit: 1` beginnen.\n\n**Debuggen:** `nurBestellungen` (nur einzelne Bestellungen) · Node `Debug-Tabelle` · Spalte „Debug“ in der Report-CSV · Lauf-Info in der Mail · jede Ausführung vollständig unter „Executions“.\n**Eingestellt:** SKU `EX-2026-02-03` (Honesty 3) · PayPal Live, Rechnungspräfix „Bestellung “ · ausgeschlossen: Shopify `BB-…`, `A-…`-Aufträge · Report an Jesse.",
+        "height": 860,
+        "width": 460,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        8816,
+        2400
+      ],
+      "id": "f7283f61-f72c-452f-ac97-ca4e1294fd4a",
+      "name": "Sticky Eckdaten"
+    },
+    {
+      "parameters": {
+        "content": "## Berechnung je Bestellung\n- `NUR_BUCH` (nach dem Entfernen leer) → ganze Zahlung (PayPal oder Mollie)\n- `SAMMELVERSAND` (danach ≥ 2 Stück) → Buchpreis\n- `SAMMELVERSAND_EIN_PRODUKT` (danach 1 Stück) → **Prototyp: nicht bearbeitet**, markiert (Config `sammelversandEinProduktBerechnen`)\n- `EINZELVERSAND_WEITERE_ARTIKEL` (Einzelversand, DHL Kleinpaket, DHL Paket mit weiteren Artikeln) → **Prototyp: nicht bearbeitet**, Vorschlag Buchpreis + Versandkosten ÷ Anzahl Positionen im Report (Config `einzelversandMitWeiterenBerechnen`)\n- `KOSTENLOSE_LIEFERUNG` (auch Membership) → Buchpreis\n- `NUR_BUCHPREIS` (Abholung) → Buchpreis\n- `GUTSCHEIN` (Gutschein oder Rabattcode in der Bestellung, auch nur mit dem Buch) → **Prototyp: nicht bearbeitet** (Config `gutscheinBestellungenBerechnen`)\n\nBuch = Artikelnummer `EX-2026-02-03`, bei Positionen ohne Artikelnummer die Bezeichnung „Honesty 3 EXKLUSIVAUSGABE“. Versandkosten = Zeile ohne Artikelnummer mit der Versandart als Bezeichnung, Gutschein/Rabatt = Zeile ohne Artikelnummer mit Minusbetrag. Prüfung je Bestellung: Positionen + Versand = `Betrag`, sonst `DATEN_PRUEFEN`. Buch mit 0,00 → `POSITIONEN_PRUEFEN`. Bestellung mit Box (Spezialbox, Einzelbox) → `BOX` (**Prototyp: nicht bearbeitet**, Config `boxBegriffe`).\nZahlungsart: PayPal, Karte und leer → erst PayPal, dann Mollie · Mollie → Mollie · sonst (Amazon Payments, Überweisung, Rechnung) → `ZAHLUNGSART_UNBEKANNT`.\n\n**Übersprungen:** `AUSGESCHLOSSEN` (Shopify `BB-…`, `A-…`-Aufträge) · `ZAHLUNGSART_UNBEKANNT` · `BOX` · `GUTSCHEIN` · `SAMMELVERSAND_EIN_PRODUKT` · `EINZELVERSAND_WEITERE_ARTIKEL` · `NICHT_BETROFFEN` · `AUSNAHME` · `DATEN_PRUEFEN` · `POSITIONEN_PRUEFEN` · `VERSAND_PRUEFEN` · `VERSANDART_UNBEKANNT`",
+        "height": 540,
+        "width": 860,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        9344,
+        2400
+      ],
+      "id": "4b64344c-8d06-4850-b66a-51406a2321a7",
+      "name": "Sticky Berechnung"
+    },
+    {
+      "parameters": {
+        "content": "## PayPal (läuft zuerst)\n1. **Suchen** `GET /v1/reporting/transactions` **je Bestellwert**: Bestellungen mit gleichem Betrag teilen sich die Suchen (Zeiträume Vortag bis +14 Tage zusammengefasst, Abschnitte von `suchfensterTage`, Betrag ± `betragToleranz`) – jede Zahlung wird nur einmal geladen. PayPal liefert je Suche höchstens 10.000 Transaktionen; bei `RESULTSET_TOO_LARGE` `suchfensterTage` verkleinern. Zuordnung über die **Transaktions-ID aus dem Export**, sonst Rechnungsnummer = `rechnungsPraefix` + Bestellnummer („Bestellung 1808742“); Gegenprobe Betrag → `NICHT_GEFUNDEN` (weiter an Mollie) · `TRANSAKTION_PRUEFEN` · `BETRAG_PRUEFEN` · `BEREITS_ERSTATTET`\n2. **Über Mollie bezahlt** (Mollie-ID `tr_…` im Feld custom_field – so liefen die WooCommerce-Zahlungen): weiter an die **Mollie-Schleife**, dort Prüfen und Erstatten; über 180 Tage Payout.\n3. **Nur ohne Mollie-ID** (direkte PayPal-Zahlung): **Prüfen** `GET /v2/payments/captures/{id}` (nur `COMPLETED`) · **bis 180 Tage** `POST …/captures/{id}/refund` · **älter** `POST /v1/payments/payouts` an die PayPal-E-Mail des Zahlers (wenn `payoutsAktiv`), sonst `FRIST_ABGELAUFEN`.\n\n**Doppelschutz:** jede Erstattung und jeder Payout steht im Protokoll (Data Table) – RESERVIERT vor dem Aufruf, danach das Ergebnis. Bearbeitet wird nur ohne Eintrag oder nach ABGELEHNT. Dazu PayPal-Request-Id und Capture-Status.",
+        "height": 420,
+        "width": 1000,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        10272,
+        2416
+      ],
+      "id": "aac7e59c-6600-4afc-a06c-60b80ff8fa8e",
+      "name": "Sticky PayPal"
+    },
+    {
+      "parameters": {
+        "formTitle": "Produktentfernung WooCommerce / PayPal",
+        "formDescription": "JTL-Export (CSV, eine Zeile je Position) mit allen betroffenen WooCommerce-Bestellungen hochladen – SKU, Spalten und Modus im Node 'Config' pflegen",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "CSV-Datei",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        9104,
+        4016
+      ],
+      "id": "d31e389b-bfeb-41dc-b6eb-b18f6fbd2543",
+      "name": "JTL-Export hochladen (Formular)",
+      "webhookId": "34b2750b-8213-425b-8511-2111e806ffab"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === HIER PFLEGEN ===\nconst CONFIG = {\n  // Das Buch: Artikelnummer im JTL-Export. Positionen OHNE Artikelnummer erkennt der Flow an der Bezeichnung\n  // (exakt, Groß-/Kleinschreibung egal).\n  // EX-2025-12-08 (ebenfalls \"Honesty 3 EXKLUSIVAUSGABE\") gehört nicht dazu und ist bewusst NICHT eingetragen.\n  targets: [\n    { sku: 'EX-2026-02-03', bezeichnung: 'Honesty 3 EXKLUSIVAUSGABE' },\n  ],\n\n  // Bestellungen, die dieser Flow nicht bearbeitet: regulärer Ausdruck auf die Bestellnummer -> AUSGESCHLOSSEN\n  ausschliessen: [\n    { muster: '^BB-', grund: 'Shopify-Bestellung – läuft über den Shopify-Flow' },\n    { muster: '^A-', grund: 'A-Auftrag – wird nicht bearbeitet' },\n  ],\n\n  // NUR_EINORDNEN = nur die CSV auswerten und Beträge berechnen, PayPal und Mollie werden nicht aufgerufen\n  // TROCKENLAUF   = zusätzlich PayPal und Mollie lesen (Zahlung suchen und prüfen), es wird nichts erstattet oder ausgezahlt\n  // SCHARF        = erstatten bzw. auszahlen\n  modus: 'SCHARF',\n\n  // === Debugging ===\n  // Nur diese Bestellnummern bearbeiten, z. B. ['1808742', '1809038']. Leer = alle aus dem Export.\n  nurBestellungen: ['1808782'],\n  // Im Modus SCHARF nur so viele Erstattungen/Payouts je Zahlungsweg (PayPal, Mollie) ausführen. Alle übrigen\n  // Bestellungen werden trotzdem geprüft und stehen als NICHT_VERARBEITET mit dem geplanten Betrag im Report. 0 = alle.\n  testLimit: 1,\n\n  // === Zahlungsweg (Spalte zahlungsart) ===\n  // Ein Teil des Werts genügt, Groß-/Kleinschreibung egal. Transaktions-IDs mit tr_ oder ord_ gelten immer als Mollie.\n  // PayPal-Liste, leere Zahlungsart und Export ohne Spalte zahlungsart: erst PayPal-Suche, was PayPal nicht findet, sucht Mollie.\n  // \"Karte\" steht in der PayPal-Liste, damit die Kartenzahlungen bei beiden gesucht werden.\n  // Passt keine Liste (z. B. Amazon Payments, Überweisung, Rechnung) -> ZAHLUNGSART_UNBEKANNT (manuell).\n  zahlungsartenMollie: ['mollie'],\n  zahlungsartenPayPal: ['paypal', 'karte'],\n\n  // === PayPal ===\n  // Sandbox: https://api-m.sandbox.paypal.com · Live: https://api-m.paypal.com\n  // Die echten WooCommerce-Zahlungen gibt es nur im Live-System.\n  paypalBaseUrl: 'https://api-m.paypal.com',\n\n  // Rechnungsnummer bei PayPal = Präfix + Bestellnummer, z. B. \"Bestellung 1808742\" – das Leerzeichen gehört dazu.\n  // Ermittelt am 20.10.2026 mit dem Workflow \"PayPal-Rechnungspraefixe-ermitteln\" (34 von 34 Treffern).\n  // Die WooCommerce-PayPal-Zahlungen liefen über Mollie: im PayPal-Feld custom_field steht die Mollie-ID (tr_…).\n  rechnungsPraefix: 'Bestellung ',\n\n  // Gesucht wird je Bestellung vom Vortag bis so viele Tage nach dem Bestelldatum\n  suchPufferTage: 14,\n  // PayPal liefert je Suche höchstens 10.000 Transaktionen, erlaubt höchstens 31 Tage je Suche und kennt keinen Filter\n  // nach Rechnungsnummer. Darum sucht der Flow je Bestellwert: Bestellungen mit gleichem Betrag teilen sich die Suchen,\n  // jede Zahlung wird nur einmal geladen. Weicht die PayPal-Zahlung vom Bestellwert ab, findet PayPal sie nicht – die\n  // Bestellung geht an die Mollie-Suche (dort BETRAG_PRUEFEN bzw. NICHT_GEFUNDEN).\n  // Gesucht wird Bestellwert ± betragToleranz (Euro) …\n  betragToleranz: 0.01,\n  // … in Abschnitten von höchstens so vielen Tagen. Kommt RESULTSET_TOO_LARGE, hier kleiner stellen (z. B. 7).\n  suchfensterTage: 15,\n\n  // PayPal erstattet nur innerhalb von 180 Tagen nach der Zahlung. Ältere Zahlungen -> Payout (wenn aktiv)\n  erstattungsfristTage: 180,\n  // Begründung in der Erstattung, erscheint beim Kunden (max. 255 Zeichen) – PayPal und Mollie\n  notizAnKunde: 'Erstattung: Der Artikel ist leider nicht mehr lieferbar.',\n\n  // Payouts API: erst auf true stellen, wenn PayPal Payouts für das Konto freigeschaltet hat\n  // und die Protokoll-Tabelle angelegt ist. false = Zahlungen über 180 Tage landen als FRIST_ABGELAUFEN im Report.\n  // Gilt auch für PayPal-Zahlungen über Mollie: Empfänger ist die PayPal-E-Mail laut Mollie bzw. PayPal-Suche.\n  payoutsAktiv: true,\n  payoutBetreff: 'Erstattung zu Ihrer Bestellung',\n  payoutNachricht: 'Ein Artikel Ihrer Bestellung ist leider nicht mehr lieferbar. Den Betrag erstatten wir Ihnen hiermit.',\n\n  // === Mollie ===\n  // Credential \"Molli API\" (Bearer) an allen Mollie-Nodes. Der API-Key muss zum Website-Profil des WooCommerce-Shops gehören.\n  // Ohne Mollie-ID im Export lädt der Flow die Mollie-Zahlungen und -Orders ab dem ältesten Bestelldatum und ordnet\n  // über die Bestellnummer (Beschreibung, Metadaten, orderNumber) zu – Gegenprobe Betrag und Datum.\n  mollieBaseUrl: 'https://api.mollie.com',\n  // Mollie-Suche für Bestellungen ohne Mollie-ID (z. B. \"Karte\", von PayPal nicht gefunden). Sie lädt ALLE Mollie-Zahlungen\n  // bis zur ältesten gesuchten Bestellung – bei uns ein Jahr, weit über 100.000 Zahlungen (Laufzeit, Speicher).\n  // false = diese Bestellungen werden nicht gesucht -> NICHT_GEFUNDEN mit Hinweis (manuell). Bestellungen mit Mollie-ID\n  // aus PayPal oder dem Export sind davon nicht betroffen, sie werden einzeln bei Mollie abgefragt.\n  mollieSucheAktiv: false,\n  // Bekannte Fristen je Mollie-Zahlart in Tagen ab Zahlung (Mollie-Hilfe): älter -> FRIST_ABGELAUFEN, manuell erstatten.\n  // Ausnahme PayPal über Mollie: älter -> Payout bei PayPal (nur mit payoutsAktiv, sonst FRIST_ABGELAUFEN).\n  // Für andere Zahlarten entscheidet Mollie: Bietet Mollie keinen erstattbaren Betrag mehr an -> MANUELL_ERSTATTEN.\n  mollieFristTage: { creditcard: 365, paypal: 180 },\n\n  // === Versand ===\n  // Jeder Artikel einzeln verschickt (DHL Kleinpaket: 3,99 je Artikel): Buchpreis + Versandkosten ÷ Positionen\n  versandartEinzel: ['Einzelversand', 'DHL Kleinpaket', 'DHL Paket'],\n  versandartSammel: ['Sammelversand'],\n  // Kostenloser Versand: nur der Buchpreis wird erstattet\n  versandartKostenlos: ['Kostenlose Lieferung', 'Kostenlose Lieferung (Membership)'],\n  // Kein Versand (Abholung): nur der Buchpreis wird erstattet\n  versandartNurBuchpreis: ['Abholung'],\n  // Weitere Versandarten einer Regel zuordnen, indem du sie in eine der Listen oben einträgst.\n  // Nicht zugeordnet -> VERSANDART_UNBEKANNT (keine Erstattung).\n\n  // === Prototyp: diese Fälle bearbeitet der Flow vorerst nicht, sie stehen markiert im Report ===\n  // false = Sammelversand mit danach nur noch 1 Artikel -> SAMMELVERSAND_EIN_PRODUKT (manuell)\n  sammelversandEinProduktBerechnen: false,\n  // false = Einzelversand mit weiteren Artikeln -> EINZELVERSAND_WEITERE_ARTIKEL (manuell, Betrag als Vorschlag im Report)\n  einzelversandMitWeiterenBerechnen: false,\n  // false = Bestellung mit Gutschein oder Rabattcode (Position ohne Artikelnummer mit Minusbetrag) -> GUTSCHEIN (manuell),\n  // auch wenn nur das Buch bestellt war\n  gutscheinBestellungenBerechnen: false,\n  // Bestellungen mit einer Box: eine Position enthält einen dieser Begriffe (Groß-/Kleinschreibung egal) -> BOX (manuell)\n  boxBegriffe: ['box'],\n\n  // Kosten EINER Einzelsendung je Lieferland, für Sammelversand mit danach nur noch 1 Produkt\n  // (nur mit sammelversandEinProduktBerechnen: true): Erstattung = Buchpreis + bezahlter Sammelversand − dieser Betrag.\n  // Schlüssel = Wert der Spalte Versandland (Kürzel). Weitere Lieferländer genauso ergänzen, z. B. NL: 9.99.\n  // Fehlt der Wert -> VERSAND_PRUEFEN.\n  versandkostenEinzel: { DE: null, AT: null, CH: null },\n\n  // === JTL-Export (CSV, Ameise) ===\n  // Eine Zeile je Position, Bestelldaten in jeder Zeile. Fehlt eine Spalte, nennt der Fehler alle vorhandenen.\n  // Der Versand steht als eigene Zeile drin: ohne Artikelnummer, Bezeichnung = Versandart, Brutto-VK = Versandkosten.\n  // Gutscheine und Rabattcodes ebenso, mit Minusbetrag. Erste Zeile = Kopfzeile mit den Spaltennamen unten.\n  csvTrennzeichen: ';',\n  // Währung, falls der Export keine Währungsspalte hat\n  waehrung: 'EUR',\n  spalten: {\n    bestellnummer: 'Auftragsnummer',               // bei WooCommerce-Aufträgen = WooCommerce-Bestellnummer = PayPal-Rechnungsnummer ohne Präfix\n    datum: 'Auftragsdatum',\n    versandart: 'Versandart',\n    land: 'Versandland',\n    waehrung: 'Währung',\n    bestellwert: 'Betrag',                         // Gesamtbetrag der Bestellung: Summenprüfung und Gegenprobe zum gezahlten Betrag\n    versandkosten: '',                             // leer = aus der Versandzeile (siehe oben)\n    artikelnummer: 'Artikelnummer',\n    bezeichnung: 'Bezeichnung (Position)',\n    menge: 'Menge',\n    positionBrutto: 'Brutto-VK',\n    positionstyp: '',                              // nur nötig, wenn der Export eine Spalte für den Positionstyp hat\n    // Optional – leer = Spalte nicht vorhanden. Ohne Zahlungsart: erst PayPal, was PayPal nicht findet, sucht Mollie.\n    zahlungsart: 'Zahlungsart',                    // Zahlungsweg je Bestellung (siehe zahlungsartenMollie / zahlungsartenPayPal)\n    transaktionsId: ''                             // z. B. 'Transaktions-ID': wird genutzt, wenn gefüllt; sonst Suche über die Bestellnummer\n  },\n  // true = Brutto-VK ist der Einzelpreis (wird mit der Menge multipliziert), false = Gesamtpreis der Position.\n  // Stimmt die Einstellung nicht, meldet die Summenprüfung (Positionen + Versand = Betrag) die Bestellung als DATEN_PRUEFEN.\n  bruttoVkJeStueck: true,\n  // Werte der Spalte positionstyp, die eine Versandposition kennzeichnen (nur mit spalten.positionstyp)\n  positionstypVersand: ['Versand'],\n\n  // Einzelne Bestellungen ausschließen: Bestellnummer\n  ausnahmen: []\n};\n\nconst fehler = [];\nif (!CONFIG.targets.length || CONFIG.targets.some(t => !String(t.sku || '').trim())) fehler.push('SKU des Buchs fehlt');\nif (!['NUR_EINORDNEN', 'TROCKENLAUF', 'SCHARF'].includes(CONFIG.modus)) fehler.push(`modus \"${CONFIG.modus}\" unbekannt`);\n// Ohne Transaktions-ID im Export ordnet der Flow PayPal-Zahlungen über die Rechnungsnummer zu – dafür braucht er das Präfix\nif (CONFIG.modus !== 'NUR_EINORDNEN' && !CONFIG.spalten.transaktionsId && CONFIG.rechnungsPraefix.includes('TODO')) {\n  fehler.push('rechnungsPraefix eintragen oder spalten.transaktionsId angeben');\n}\nif (fehler.length) throw new Error('Config: ' + fehler.join(' · '));\n\n// CSV-Binary unverändert durchreichen, Config für alle Folge-Nodes anhängen\nreturn $input.all().map(i => ({\n  json: { ...i.json, config: CONFIG },\n  binary: i.binary\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9328,
+        4016
+      ],
+      "id": "5f24edf4-23e0-474d-99d6-71c226c10e20",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "CSV_Datei",
+        "options": {
+          "delimiter": "={{ $json.config.csvTrennzeichen }}"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        9536,
+        4016
+      ],
+      "id": "4e436f95-616d-4af0-85c9-9640953cc7f2",
+      "name": "CSV parsen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fasst den JTL-Export (eine Zeile je Position) zu Bestellungen zusammen und berechnet je Bestellung den Erstattungsbetrag.\n// Ergebnis: Kandidat (toFix) oder übersprungen (skipped). Ohne API-Aufrufe.\nconst config = $('Config').first().json.config;\nconst S = config.spalten;\n// Bereinigen: unsichtbares BOM-Zeichen vor dem ersten Spaltennamen, Apostroph vor Werten ('19,90 – im älteren Export\n// auch dahinter: '19,90') und NULL für leere Felder aus dem Ameise-Export\nconst sauber = v => {\n  let s = String(v ?? '').trim();\n  if (s.startsWith(\"'\")) s = s.slice(1).replace(/'$/, '');\n  return s === 'NULL' ? '' : s;\n};\nconst rows = $input.all().map(i => Object.fromEntries(\n  Object.entries(i.json).map(([k, v]) => [k.replace(/^﻿/, '').trim(), sauber(v)])\n));\nif (!rows.length) throw new Error('JTL-Export ist leer');\n\n// Beim ersten Lauf mit dem echten Export zeigt dieser Fehler die vorhandenen Spalten\nconst vorhanden = Object.keys(rows[0]);\nconst fehlend = Object.values(S).filter(Boolean).filter(s => !vorhanden.includes(s));\nif (fehlend.length) {\n  throw new Error(`JTL-Export: Spalte(n) fehlen: ${fehlend.join(', ')} – vorhanden: ${vorhanden.join(', ')}. Bitte Config.spalten anpassen.`);\n}\n\nconst runden = x => Math.round(x * 100) / 100;\nconst text = (row, spalte) => spalte ? String(row[spalte] ?? '').trim() : '';\nconst norm = s => String(s || '').trim().toLowerCase();\nconst inListe = (wert, liste) => (liste || []).map(norm).includes(norm(wert));\n// Zahlen: \"1.234,56\", \"12,99\" oder \"12.99\" – nicht lesbar = NaN\nconst zahl = v => {\n  const s = String(v ?? '').trim().replace(/[\\s€]/g, '');\n  if (!s) return 0;\n  return Number(s.includes(',') ? s.replace(/\\./g, '').replace(',', '.') : s);\n};\n// Datum: \"02.08.2026 19:57:47\", \"02.08.2026\" oder ISO\nconst datum = v => {\n  const s = String(v ?? '').trim();\n  const m = s.match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})/);\n  const d = m ? new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]))) : new Date(s);\n  return s && !isNaN(d) ? d : null;\n};\n\n// Zeilen derselben Bestellnummer zusammenfassen (müssen nicht untereinander stehen)\nconst bestellungen = new Map();\nfor (const row of rows) {\n  const nr = text(row, S.bestellnummer);\n  if (!nr) continue;\n  if (!bestellungen.has(nr)) bestellungen.set(nr, []);\n  bestellungen.get(nr).push(row);\n}\nif (!bestellungen.size) throw new Error(`JTL-Export: keine Zeile mit Bestellnummer (Spalte \"${S.bestellnummer}\")`);\n\n// Zum Testen und Debuggen: nur die Bestellnummern aus Config.nurBestellungen bearbeiten\nconst nur = (config.nurBestellungen || []).map(String);\nif (nur.length) {\n  for (const nr of [...bestellungen.keys()]) if (!nur.includes(nr)) bestellungen.delete(nr);\n  if (!bestellungen.size) throw new Error(`Config.nurBestellungen: keine dieser Bestellnummern im Export (${nur.join(', ')})`);\n}\n\nconst ZIEL_SKUS = new Set(config.targets.map(t => String(t.sku).trim()));\n// Buch in Positionen ohne Artikelnummer: über die Bezeichnung, gezählt unter der Artikelnummer aus targets\nconst ZIEL_NACH_NAME = new Map(config.targets.filter(t => t.bezeichnung).map(t => [norm(t.bezeichnung), String(t.sku).trim()]));\nconst staticData = $getWorkflowStaticData('global');\nstaticData.toFix = [];\nstaticData.skipped = [];\nstaticData.done = [];\n// Zähler für die Lauf-Info in der Report-Mail und Zwischenstände der PayPal-/Mollie-Suche\nstaticData.lauf = {};\nstaticData.paypalNichtGefunden = [];\nstaticData.paypalMollie = [];\nstaticData.mollieDirekt = [];\nstaticData.mollieSuche = [];\n\n// Brutto der Position: Brutto-VK je Stück × Menge (bruttoVkJeStueck) oder schon der Gesamtpreis\nconst position = r => {\n  const menge = zahl(r[S.menge]);\n  const preis = zahl(r[S.positionBrutto]);\n  const sku = text(r, S.artikelnummer);\n  const title = text(r, S.bezeichnung);\n  return {\n    sku: sku || ZIEL_NACH_NAME.get(norm(title)) || '',\n    title,\n    ohneArtikelnummer: !sku,\n    menge,\n    brutto: runden(preis * (config.bruttoVkJeStueck && menge > 0 ? menge : 1))\n  };\n};\n// Artikel: mit Artikelnummer, oder ohne Artikelnummer mit Bezeichnung und Preis > 0 (z. B. in den A-…-Aufträgen)\nconst istArtikel = p => p.menge > 0 && Boolean(p.sku || (p.title && p.brutto > 0));\nconst alleVersandarten = [\n  ...config.versandartEinzel, ...config.versandartSammel, ...config.versandartKostenlos, ...(config.versandartNurBuchpreis || [])\n];\n\nfor (const [nr, zeilen] of bestellungen) {\n  const erster = spalte => zeilen.map(r => text(r, spalte)).find(Boolean) || '';\n  const versandartKopf = erster(S.versandart);\n  // Versandzeile: über die Spalte positionstyp, sonst Zeile ohne Artikelnummer mit einer Versandart als Bezeichnung\n  const istVersandZeile = r => S.positionstyp\n    ? inListe(text(r, S.positionstyp), config.positionstypVersand)\n    : !text(r, S.artikelnummer) && inListe(text(r, S.bezeichnung), [...alleVersandarten, versandartKopf]);\n  const versandZeilen = zeilen.filter(istVersandZeile);\n  const pos = zeilen.filter(r => !istVersandZeile(r)).map(position);\n  const artikel = pos.filter(istArtikel);\n  // Positionen ohne Artikelnummer, die keine Artikel sind, mit Betrag – z. B. Gutscheine (negativ)\n  const sonstige = pos.filter(p => !p.sku && !istArtikel(p) && p.brutto !== 0);\n  const buch = artikel.filter(p => ZIEL_SKUS.has(p.sku));\n  const weitere = artikel.filter(p => !ZIEL_SKUS.has(p.sku));\n  const versandkosten = S.versandkosten\n    ? zahl(erster(S.versandkosten))\n    : runden(versandZeilen.map(position).reduce((s, p) => s + p.brutto, 0));\n  const summePositionen = runden(pos.reduce((s, p) => s + p.brutto, 0) + versandkosten);\n  const bestellwertSpalte = S.bestellwert ? erster(S.bestellwert) : '';\n  const bestellwert = bestellwertSpalte ? zahl(bestellwertSpalte) : summePositionen;\n  const bestellt = datum(erster(S.datum));\n  const land = erster(S.land);\n  const versandart = versandartKopf || versandZeilen.map(r => text(r, S.bezeichnung)).find(Boolean) || '';\n\n  // Zahlungsweg: Mollie an der Transaktions-ID (tr_/ord_) oder an der Zahlungsart, sonst PayPal laut Zahlungsart.\n  // PAYPAL heißt: erst PayPal-Suche, was PayPal nicht findet, sucht danach Mollie. Das gilt auch ohne Spalte zahlungsart\n  // und bei leerer Zahlungsart. Passt nichts -> '' (ZAHLUNGSART_UNBEKANNT).\n  const zahlungsart = erster(S.zahlungsart);\n  const transaktionsIdExport = erster(S.transaktionsId);\n  const enthaelt = (wert, liste) => (liste || []).some(z => norm(wert).includes(norm(z)));\n  const zahlungsweg = /^(tr|ord)_/.test(transaktionsIdExport) || enthaelt(zahlungsart, config.zahlungsartenMollie) ? 'MOLLIE'\n    : !S.zahlungsart || !zahlungsart || enthaelt(zahlungsart, config.zahlungsartenPayPal) ? 'PAYPAL'\n    : '';\n\n  const datensatz = {\n    zahlungsart,\n    zahlungsweg,\n    transaktionsIdExport,\n    bestellnummer: nr,\n    bestelldatum: bestellt ? bestellt.toISOString().slice(0, 10) : '',\n    land,\n    waehrung: erster(S.waehrung) || config.waehrung,\n    bestellwert,\n    versandart,\n    versandkosten,\n    buchWert: runden(buch.reduce((s, p) => s + p.brutto, 0)),\n    skus: [...new Set(buch.map(p => p.sku))],\n    positionen: buch,\n    weitere,\n    sonstige,\n    // Für den Report: alle Positionen und Versandzeilen der Bestellung\n    positionenAlle: pos.map(({ title, sku, menge, brutto }) => ({ title, sku, menge, brutto })),\n    versandZeilen: versandZeilen.map(position).map(({ title, brutto }) => ({ title, brutto }))\n  };\n\n  const ergebnis = (() => {\n    // Bestellungen anderer Flows, z. B. Shopify\n    const ausschluss = (config.ausschliessen || []).find(a => new RegExp(a.muster).test(nr));\n    if (ausschluss) return { status: 'AUSGESCHLOSSEN', grund: ausschluss.grund };\n\n    if ([...pos.flatMap(p => [p.menge, p.brutto]), versandkosten, bestellwert].some(Number.isNaN)) {\n      return { status: 'DATEN_PRUEFEN', grund: 'Menge oder Betrag im Export nicht lesbar' };\n    }\n    if (!bestellt) return { status: 'DATEN_PRUEFEN', grund: 'Bestelldatum fehlt oder ist nicht lesbar – nötig für die PayPal-Suche' };\n    if ((config.ausnahmen || []).map(String).includes(nr)) {\n      return { status: 'AUSNAHME', grund: 'Bestellung steht in Config.ausnahmen' };\n    }\n    if (!buch.length) return { status: 'NICHT_BETROFFEN', grund: 'Buch nicht in der Bestellung – Export prüfen' };\n\n    // Prototyp: Bestellungen mit einer Box (z. B. Spezialbox, Einzelbox) bearbeitet der Flow vorerst nicht\n    const box = pos.find(p => (config.boxBegriffe || []).some(b => norm(p.title).includes(norm(b))));\n    if (box) return { status: 'BOX', grund: `Box in der Bestellung (${box.title}) – vorerst manuell bearbeiten` };\n\n    // Summenprüfung: Positionen + Versand müssen den Gesamtbetrag ergeben,\n    // sonst fehlen Zeilen oder Brutto-VK ist anders zu lesen (Config.bruttoVkJeStueck)\n    if (bestellwertSpalte && Math.abs(summePositionen - bestellwert) > 0.01) {\n      return {\n        status: 'DATEN_PRUEFEN',\n        grund: `Positionen + Versand = ${summePositionen.toFixed(2)}, Betrag laut Export ${bestellwert.toFixed(2)} – fehlende Zeilen oder bruttoVkJeStueck prüfen`\n      };\n    }\n\n    // Buch ohne eigenen Preis, z. B. als Bestandteil einer Box: Erstattungsbetrag nicht ableitbar\n    if (buch.some(p => !(p.brutto > 0))) {\n      return { status: 'POSITIONEN_PRUEFEN', grund: 'Buch ohne eigenen Preis (z. B. Teil einer Box) – manuell prüfen' };\n    }\n\n    // Prototyp: Bestellungen mit Gutschein oder Rabattcode bearbeitet der Flow vorerst nicht – auch nicht, wenn nur das\n    // Buch bestellt war (bei einem Geschenkgutschein käme sonst nur der bar bezahlte Teil zurück)\n    const gutscheine = sonstige.filter(p => p.brutto < 0);\n    if (gutscheine.length && !config.gutscheinBestellungenBerechnen) {\n      return {\n        status: 'GUTSCHEIN',\n        grund: `Gutschein/Rabattcode in der Bestellung (${gutscheine.map(p => `${p.title || '?'} ${p.brutto.toFixed(2)}`).join(', ')}) – vorerst manuell bearbeiten`\n      };\n    }\n\n    // Bestellung nach dem Entfernen leer: alles erstatten\n    if (!weitere.length) return { aktion: 'ALLES', fall: 'NUR_BUCH', versandErstattung: null };\n\n    // Weitere Produkte: Buchpreis + ggf. Versandanteil\n    if (sonstige.length) {\n      return {\n        status: 'POSITIONEN_PRUEFEN',\n        grund: `Weitere Positionen (${sonstige.map(p => p.title || p.brutto).join(', ')}) – Buchwert nicht eindeutig, manuell prüfen`\n      };\n    }\n\n    if (inListe(versandart, config.versandartKostenlos)) {\n      return { aktion: 'TEIL', fall: 'KOSTENLOSE_LIEFERUNG', versandErstattung: 0 };\n    }\n\n    if (inListe(versandart, config.versandartNurBuchpreis)) {\n      return { aktion: 'TEIL', fall: 'NUR_BUCHPREIS', versandErstattung: 0 };\n    }\n\n    if (inListe(versandart, config.versandartEinzel)) {\n      // Jede Position wurde einzeln verschickt und hat eigene Versandkosten gekostet:\n      // Kosten je Sendung = Versandkosten der Bestellung / Anzahl Artikelpositionen, erstattet werden die Sendungen des Buchs\n      const sendungen = artikel.length;\n      const jeSendung = runden(versandkosten / sendungen);\n      // Prototyp: Einzelversand mit weiteren Artikeln (nur das Buch wäre NUR_BUCH) vorerst manuell – Betrag als Vorschlag\n      if (!config.einzelversandMitWeiterenBerechnen) {\n        const teilbar = versandkosten === 0 || (versandkosten > 0 && Math.abs(jeSendung * sendungen - versandkosten) <= 0.005);\n        const anteil = versandkosten === 0 ? 0 : runden(jeSendung * buch.length);\n        return {\n          status: 'EINZELVERSAND_WEITERE_ARTIKEL',\n          grund: 'Einzelversand mit weiteren Artikeln – vorerst manuell bearbeiten. ' + (teilbar\n            ? `Vorschlag: Buch ${datensatz.buchWert.toFixed(2)} + Versandanteil ${anteil.toFixed(2)} (${versandkosten.toFixed(2)} ÷ ${sendungen} Positionen) = ${runden(datensatz.buchWert + anteil).toFixed(2)}`\n            : `Versand ${versandkosten.toFixed(2)} lässt sich nicht gleichmäßig auf ${sendungen} Positionen aufteilen`),\n          versandErstattung: teilbar ? anteil : '',\n          erstattungsbetrag: teilbar ? runden(datensatz.buchWert + anteil) : ''\n        };\n      }\n      // Kein Versand bezahlt: es gibt keinen Versand zu erstatten, nur das Buch\n      if (versandkosten === 0) return { aktion: 'TEIL', fall: 'EINZELVERSAND', versandErstattung: 0 };\n      if (!(versandkosten > 0)) return { status: 'VERSAND_PRUEFEN', grund: `Versandkosten ${versandkosten.toFixed(2)} im Export – manuell prüfen` };\n      if (Math.abs(jeSendung * sendungen - versandkosten) > 0.005) {\n        return {\n          status: 'VERSAND_PRUEFEN',\n          grund: `Einzelversand ${versandkosten.toFixed(2)} lässt sich nicht gleichmäßig auf ${sendungen} Positionen aufteilen – manuell prüfen`\n        };\n      }\n      return { aktion: 'TEIL', fall: 'EINZELVERSAND', versandErstattung: runden(jeSendung * buch.length) };\n    }\n\n    if (inListe(versandart, config.versandartSammel)) {\n      // Was nach dem Entfernen noch verschickt werden muss (Stückzahl)\n      const restEinheiten = weitere.reduce((s, p) => s + p.menge, 0);\n      if (restEinheiten >= 2) return { aktion: 'TEIL', fall: 'SAMMELVERSAND', versandErstattung: 0 };\n      // Prototyp: danach nur noch 1 Artikel bearbeitet der Flow vorerst nicht (Config.sammelversandEinProduktBerechnen)\n      if (!config.sammelversandEinProduktBerechnen) {\n        return { status: 'SAMMELVERSAND_EIN_PRODUKT', grund: 'Sammelversand, danach nur noch 1 Artikel – im Prototyp ausgeschlossen, manuell bearbeiten' };\n      }\n      // Kein Versand bezahlt: es gibt keinen Versand zu erstatten, nur das Buch\n      if (versandkosten === 0) return { aktion: 'TEIL', fall: 'SAMMELVERSAND_EIN_PRODUKT', versandErstattung: 0 };\n      const einzel = config.versandkostenEinzel?.[land];\n      if (typeof einzel !== 'number' || !Number.isFinite(einzel)) {\n        return { status: 'VERSAND_PRUEFEN', grund: `Keine Einzelversandkosten für Land \"${land}\" in Config.versandkostenEinzel` };\n      }\n      if (versandkosten < einzel) {\n        return { status: 'VERSAND_PRUEFEN', grund: `Sammelversand ${versandkosten.toFixed(2)} kleiner als Einzelversand ${einzel.toFixed(2)} – manuell prüfen` };\n      }\n      return { aktion: 'TEIL', fall: 'SAMMELVERSAND_EIN_PRODUKT', versandErstattung: runden(versandkosten - einzel) };\n    }\n\n    return { status: 'VERSANDART_UNBEKANNT', grund: `Versandart \"${versandart}\" – vorerst nicht bearbeitet` };\n  })();\n\n  if (ergebnis.aktion) {\n    const kandidat = {\n      ...datensatz,\n      ...ergebnis,\n      // ALLES: erstattet wird die ganze Zahlung – bis zur Abfrage beim Anbieter gilt der Bestellwert laut Export\n      erstattungsbetrag: ergebnis.aktion === 'ALLES'\n        ? datensatz.bestellwert\n        : runden(datensatz.buchWert + ergebnis.versandErstattung)\n    };\n    if (zahlungsweg) staticData.toFix.push(kandidat);\n    // Weder PayPal noch Mollie: Betrag steht im Report, erstattet wird von Hand\n    else staticData.skipped.push({ ...kandidat, status: 'ZAHLUNGSART_UNBEKANNT', grund: `Zahlungsart \"${zahlungsart || 'leer'}\" – weder PayPal noch Mollie, manuell erstatten` });\n  } else {\n    staticData.skipped.push({ ...datensatz, ...ergebnis });\n  }\n}\n\nreturn [{\n  json: {\n    paypal: config.modus !== 'NUR_EINORDNEN' && staticData.toFix.some(o => o.zahlungsweg === 'PAYPAL'),\n    mollie: config.modus !== 'NUR_EINORDNEN' && staticData.toFix.some(o => o.zahlungsweg === 'MOLLIE'),\n    bestellungen: bestellungen.size,\n    kandidaten: staticData.toFix.length,\n    uebersprungen: staticData.skipped.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9776,
+        4016
+      ],
+      "id": "d369952d-be96-4015-b940-519380a7f174",
+      "name": "Bestellungen bilden + berechnen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "368b9134-4a55-48c3-a9d8-720218a36a4e",
+              "leftValue": "={{ $json.paypal }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        10016,
+        4016
+      ],
+      "id": "adf61907-aabb-49b0-8859-53116060585d",
+      "name": "PayPal abfragen?"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "produktentfernung_auszahlungen"
+        },
+        "returnAll": true,
+        "orderBy": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        10496,
+        3696
+      ],
+      "id": "2a24a7e2-cd3d-463a-93be-d2667b416466",
+      "name": "Protokoll laden",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.paypalBaseUrl }}/v1/oauth2/token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        10720,
+        3696
+      ],
+      "id": "2a18b4fb-11f9-475e-b449-d02d25d2fe98",
+      "name": "Token holen (PayPal)",
+      "executeOnce": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "2T34oKZQwuogEF1W",
+          "name": "PayPal"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Token prüfen und die PayPal-Transaktionssuchen bilden. PayPal liefert je Suche höchstens 10.000 Transaktionen\n// (RESULTSET_TOO_LARGE), erlaubt höchstens 31 Tage je Suche und kennt keinen Filter nach Rechnungsnummer.\n// Darum teilen sich Bestellungen mit gleichem Bestellwert die Suchen: je Betrag werden die Zeiträume der Bestellungen\n// (Vortag bis +suchPufferTage) zusammengefasst und in Stücke von höchstens suchfensterTage geteilt. Gefiltert wird auf\n// Bruttobetrag = Bestellwert ± betragToleranz (Filter transaction_amount, in Cent). So lädt PayPal jede Zahlung nur einmal.\nconst antwort = $('Token holen (PayPal)').first().json;\nif (!antwort.access_token) {\n  throw new Error('PayPal: kein Access-Token – Credential an \"Token holen (PayPal)\" prüfen. Antwort: ' + JSON.stringify(antwort).slice(0, 300));\n}\n\nconst config = $('Config').first().json.config;\nconst sd = $getWorkflowStaticData('global');\nsd.lauf = sd.lauf || {};\nconst TAG = 86400000;\nconst jetzt = Date.now();\nconst iso = t => new Date(t).toISOString().replace(/\\.\\d{3}Z$/, 'Z');\nconst cent = x => Math.round(x * 100);\nconst toleranzCent = cent(Number(config.betragToleranz) || 0);\nconst fensterTage = Math.min(Math.max(Number(config.suchfensterTage) || 15, 1), 31);\n\n// Nur Bestellungen mit Zahlungsweg PayPal (Mollie läuft danach in eigener Schleife), gruppiert nach Bestellwert in Cent\nconst proBetrag = new Map();\nfor (const o of (sd.toFix || []).filter(o => o.zahlungsweg === 'PAYPAL')) {\n  const c = cent(o.bestellwert);\n  const d = new Date(o.bestelldatum).getTime();\n  if (!proBetrag.has(c)) proBetrag.set(c, []);\n  proBetrag.get(c).push({ nr: o.bestellnummer, von: d - TAG, bis: Math.min(d + (config.suchPufferTage + 1) * TAG, jetzt) });\n}\n\nconst suchen = [];\nfor (const [c, liste] of proBetrag) {\n  // Überlappende Zeiträume desselben Betrags zusammenfassen\n  liste.sort((a, b) => a.von - b.von);\n  const zusammen = [];\n  for (const z of liste) {\n    const letztes = zusammen[zusammen.length - 1];\n    if (letztes && z.von <= letztes.bis) {\n      letztes.bis = Math.max(letztes.bis, z.bis);\n      letztes.nrs.push(z.nr);\n    } else {\n      zusammen.push({ von: z.von, bis: z.bis, nrs: [z.nr] });\n    }\n  }\n  // In Stücke von höchstens fensterTage teilen\n  for (const z of zusammen) {\n    for (let a = z.von; a < z.bis; a += fensterTage * TAG) {\n      suchen.push({\n        start: iso(a),\n        ende: iso(Math.min(a + fensterTage * TAG, z.bis) - 1000),\n        betrag: `[${Math.max(0, c - toleranzCent)} TO ${c + toleranzCent}]`,\n        // Nur zur Nachverfolgung: Bestellungen, deren Zeitraum in diesem Abschnitt liegt\n        bestellungen: z.nrs.join(', ')\n      });\n    }\n  }\n}\n\n// Für die Lauf-Info in der Report-Mail\nsd.lauf.paypalSuchen = suchen.length;\nsd.lauf.paypalBestellungen = [...proBetrag.values()].reduce((s, l) => s + l.length, 0);\nsd.lauf.paypalBetraege = proBetrag.size;\n\nreturn suchen.map(s => ({ json: s }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10944,
+        3696
+      ],
+      "id": "1e1d0619-59d4-455c-ad99-b5c9824ad497",
+      "name": "Token prüfen + Suchfenster bauen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.config.paypalBaseUrl }}/v1/reporting/transactions",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "start_date",
+              "value": "={{ $json.start }}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{ $json.ende }}"
+            },
+            {
+              "name": "transaction_amount",
+              "value": "={{ $json.betrag }}"
+            },
+            {
+              "name": "fields",
+              "value": "transaction_info,payer_info"
+            },
+            {
+              "name": "page_size",
+              "value": "500"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Token holen (PayPal)').first().json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.total_pages || $response.body.page >= $response.body.total_pages }}",
+              "limitPagesFetched": true,
+              "requestInterval": 500
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        11168,
+        3696
+      ],
+      "id": "308fb225-7dbc-4017-abd2-16da2d55a493",
+      "name": "Transaktionen suchen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ordnet die gefundenen PayPal-Zahlungen den PayPal-Bestellungen zu: zuerst über die Transaktions-ID aus dem Export,\n// sonst über die Rechnungsnummer (Präfix + Bestellnummer). Nicht gefunden -> weiter an die Mollie-Suche.\n// Zahlung über Mollie (Mollie-ID tr_… im PayPal-Feld custom_field) -> weiter an die Mollie-Schleife: Prüfen und Erstatten\n// über Mollie, über 180 Tage Payout. Nur Zahlungen ohne Mollie-ID laufen durch die PayPal-Schleife (Capture, Refund, Payout).\n// Nicht eindeutig zuordenbar -> Eintrag für den Report, keine Bearbeitung.\nconst config = $('Config').first().json.config;\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\nsd.lauf = sd.lauf || {};\n// Was PayPal nicht findet, sucht danach die Mollie-Schleife\nsd.paypalNichtGefunden = [];\n// Bei PayPal gefunden, aber über Mollie bezahlt: geht mit der Mollie-ID an die Mollie-Schleife\nsd.paypalMollie = [];\n\nconst vermerk = (o, status, grund, extra = {}) => sd.done.push({\n  bestellnummer: o.bestellnummer, status, grund: String(grund).slice(0, 500), ...extra, bearbeitetAm: new Date().toISOString()\n});\n\n// Nur eingehende Zahlungen (positiver Betrag) – Erstattungen haben negative Beträge. Je Transaktions-ID nur ein Eintrag.\nconst zahlungen = new Map();\nlet seiten = 0;\nfor (const seite of $input.all()) {\n  seiten++;\n  for (const t of seite.json.transaction_details || []) {\n    const ti = t.transaction_info || {};\n    if (!ti.transaction_id || !(Number(ti.transaction_amount?.value) > 0)) continue;\n    zahlungen.set(ti.transaction_id, {\n      transaktionsId: ti.transaction_id,\n      rechnung: String(ti.invoice_id || '').trim(),\n      status: ti.transaction_status,\n      datum: ti.transaction_initiation_date,\n      betrag: Number(ti.transaction_amount.value),\n      waehrung: ti.transaction_amount.currency_code,\n      email: t.payer_info?.email_address || '',\n      // Zahlungen über Mollie: Mollie-ID (tr_…) in custom_field\n      custom: String(ti.custom_field || '').trim()\n    });\n  }\n}\nconst perRechnung = new Map();\nfor (const z of zahlungen.values()) {\n  if (!z.rechnung) continue;\n  if (!perRechnung.has(z.rechnung)) perRechnung.set(z.rechnung, []);\n  perRechnung.get(z.rechnung).push(z);\n}\nconst mitPraefix = !String(config.rechnungsPraefix).includes('TODO');\n\n// Für die Lauf-Info in der Report-Mail\nsd.lauf.paypalSeiten = seiten;\nsd.lauf.paypalZahlungen = zahlungen.size;\nsd.lauf.paypalZuordnung = {};\nsd.lauf.paypalMitMollieId = 0;\n\nconst items = [];\nfor (const o of (sd.toFix || []).filter(o => o.zahlungsweg === 'PAYPAL')) {\n  const rechnungsnummer = config.rechnungsPraefix + o.bestellnummer;\n  let treffer = [];\n  let zuordnung = '';\n  if (o.transaktionsIdExport && zahlungen.has(o.transaktionsIdExport)) {\n    treffer = [zahlungen.get(o.transaktionsIdExport)];\n    zuordnung = 'Transaktions-ID';\n  } else if (mitPraefix && perRechnung.has(rechnungsnummer)) {\n    treffer = perRechnung.get(rechnungsnummer);\n    zuordnung = 'Rechnungsnummer';\n  }\n  sd.lauf.paypalZuordnung[zuordnung || 'keine'] = (sd.lauf.paypalZuordnung[zuordnung || 'keine'] || 0) + 1;\n  const debug = `PayPal-Suche: ${zahlungen.size} Zahlungen · Zuordnung: ${zuordnung || 'keine'}`;\n\n  if (!treffer.length) {\n    const gesucht = [\n      o.transaktionsIdExport ? `Transaktions-ID \"${o.transaktionsIdExport}\"` : '',\n      mitPraefix ? `Rechnungsnummer \"${rechnungsnummer}\"` : ''\n    ].filter(Boolean).join(' oder ') || 'nichts – weder Transaktions-ID im Export noch Präfix in der Config';\n    sd.paypalNichtGefunden.push({ bestellnummer: o.bestellnummer, gesucht: `${gesucht}, Vortag bis +${config.suchPufferTage} Tage` });\n    continue;\n  }\n  if (treffer.length > 1) {\n    vermerk(o, 'TRANSAKTION_PRUEFEN', `${treffer.length} PayPal-Zahlungen mit Rechnungsnummer \"${rechnungsnummer}\": ${treffer.map(t => t.transaktionsId).join(', ')}`, { debug });\n    continue;\n  }\n\n  const z = treffer[0];\n  const info = { transaktionsId: z.transaktionsId, zahlungsdatum: z.datum, zahlungsBetrag: z.betrag, zuordnung, debug };\n  // Status laut Transaktionssuche: S = abgeschlossen, P = ausstehend, V = rückgängig gemacht und erstattet, D = abgelehnt\n  if (z.status === 'V') {\n    vermerk(o, 'BEREITS_ERSTATTET', 'PayPal: Zahlung wurde rückgängig gemacht und erstattet (Status V)', info);\n    continue;\n  }\n  if (z.status !== 'S') {\n    vermerk(o, 'ZAHLUNG_PRUEFEN', `PayPal-Status ${z.status}`, info);\n    continue;\n  }\n  if (z.waehrung !== o.waehrung) {\n    vermerk(o, 'ZAHLUNG_PRUEFEN', `Währung bei PayPal ${z.waehrung}, im Export ${o.waehrung}`, info);\n    continue;\n  }\n  // Gegenprobe: PayPal-Betrag = Bestellwert laut Export, sonst falsche Zuordnung oder Teilzahlung (z. B. Gutschein)\n  if (Math.abs(z.betrag - o.bestellwert) > 0.01) {\n    vermerk(o, 'BETRAG_PRUEFEN', `PayPal-Zahlung ${z.betrag.toFixed(2)}, Bestellwert laut Export ${o.bestellwert.toFixed(2)}`, info);\n    continue;\n  }\n\n  // Über Mollie bezahlt: Prüfen und Erstatten über Mollie (Mollie kennt die Zahlung und erstattet bis 180 Tage),\n  // die PayPal-Daten gehen mit – die E-Mail des Zahlers für einen Payout über 180 Tage\n  const mollieId = (z.custom.match(/^(tr|ord)_\\w+$/) || [])[0];\n  if (mollieId) {\n    sd.lauf.paypalMitMollieId++;\n    sd.paypalMollie.push({\n      bestellnummer: o.bestellnummer,\n      mollieId,\n      paypalTransaktionsId: z.transaktionsId,\n      paypalDatum: z.datum,\n      paypalEmail: z.email,\n      debug: `${debug} · PayPal ${z.transaktionsId} über Mollie (${mollieId})`\n    });\n    continue;\n  }\n\n  items.push({\n    json: {\n      bestellnummer: o.bestellnummer,\n      aktion: o.aktion,\n      fall: o.fall,\n      skus: o.skus,\n      waehrung: o.waehrung,\n      erstattungsbetrag: o.erstattungsbetrag,\n      captureId: z.transaktionsId,\n      zahlungsdatum: z.datum,\n      zahlungsBetrag: z.betrag,\n      email: z.email,\n      zuordnung,\n      debug\n    }\n  });\n}\n\n// Keine Zahlung zugeordnet: Steuer-Item ohne captureId -> IF leitet direkt weiter zu Mollie\nreturn items.length ? items : [{ json: { zugeordnet: 0 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11376,
+        3696
+      ],
+      "id": "b7e27a09-b96f-4c29-ae8d-15a110f73446",
+      "name": "Zahlungen zuordnen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8eaeebae-d4c3-4f39-944e-fdd4bc7895f2",
+              "leftValue": "={{ $json.captureId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        11600,
+        3696
+      ],
+      "id": "1007b5d8-4ab1-488e-b256-4d9459bd67e1",
+      "name": "Zahlungen zugeordnet?"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        12096,
+        3680
+      ],
+      "id": "8aeb9adf-5fba-40fb-8bc6-a259f0d9a51f",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.config.paypalBaseUrl }}/v2/payments/captures/{{ encodeURIComponent($json.captureId) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Token holen (PayPal)').first().json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        12400,
+        3744
+      ],
+      "id": "73f46670-8f45-4379-afe0-afb763af3693",
+      "name": "GET Zahlung (Capture)",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prüft die Zahlung bei PayPal und wählt den Weg:\n// ERSTATTUNG (Zahlung bis 180 Tage alt), PAYOUT (älter, wenn aktiv) oder KEINER (Report-Eintrag, keine Aktion).\nconst resp = $input.first().json;\nconst src = $('Loop Over Items').first().json;\nconst config = $('Config').first().json.config;\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\n\nconst runden = x => Math.round(x * 100) / 100;\nconst cap = resp.body || {};\nconst fehlerText = r => [\n  r.body?.name,\n  r.body?.message,\n  ...(r.body?.details || []).map(d => [d.issue, d.description].filter(Boolean).join(': ')),\n  r.body?.debug_id ? 'debug_id ' + r.body.debug_id : '',\n  r.error?.message\n].filter(Boolean).join(' | ').slice(0, 400);\n\nconst info = {\n  transaktionsId: src.captureId,\n  zahlungsdatum: cap.create_time || src.zahlungsdatum,\n  zahlungsBetrag: src.zahlungsBetrag,\n  captureStatus: cap.status || '',\n  zuordnung: src.zuordnung,\n  debug: `${src.debug} · GET capture ${resp.statusCode ? 'HTTP ' + resp.statusCode : 'keine Antwort'}${cap.status ? ' ' + cap.status : ''}`\n};\nconst vermerk = (status, grund, extra = {}) => sd.done.push({\n  bestellnummer: src.bestellnummer, status, grund: String(grund).slice(0, 500), ...info, ...extra, bearbeitetAm: new Date().toISOString()\n});\nconst weiter = (weg, extra = {}) => [{ json: { ...src, ...info, weg, ...extra } }];\n\nif (resp.statusCode === 404) {\n  vermerk('CAPTURE_NICHT_GEFUNDEN', 'PayPal findet die Zahlung nicht über die Payments API: ' + fehlerText(resp));\n  return weiter('KEINER');\n}\nif (resp.statusCode !== 200) {\n  vermerk('FEHLER', `Zahlung abrufen: ${resp.statusCode ? 'HTTP ' + resp.statusCode : 'keine Antwort'} ${fehlerText(resp)}`);\n  return weiter('KEINER');\n}\n\n// Capture-Status laut PayPal: COMPLETED, DECLINED, PARTIALLY_REFUNDED, PENDING, REFUNDED, FAILED\nif (cap.status === 'REFUNDED') {\n  vermerk('BEREITS_ERSTATTET', 'Zahlung ist bei PayPal bereits vollständig erstattet');\n  return weiter('KEINER');\n}\nif (cap.status === 'PARTIALLY_REFUNDED') {\n  vermerk('BEREITS_TEILERSTATTET', 'Zahlung ist bei PayPal bereits teilweise erstattet – manuell prüfen');\n  return weiter('KEINER');\n}\nif (cap.status !== 'COMPLETED') {\n  vermerk('ZAHLUNG_PRUEFEN', `Zahlungsstatus ${cap.status}${cap.status_details?.reason ? ' (' + cap.status_details.reason + ')' : ''}`);\n  return weiter('KEINER');\n}\n\nconst gezahlt = Number(cap.amount?.value);\nconst waehrung = cap.amount?.currency_code;\n// ALLES: die ganze PayPal-Zahlung, sonst der berechnete Betrag\nconst betrag = src.aktion === 'ALLES' ? gezahlt : runden(src.erstattungsbetrag);\nif (!(betrag > 0) || betrag > gezahlt) {\n  vermerk('ZAHLUNG_PRUEFEN', `Erstattung ${Number(betrag).toFixed(2)} passt nicht zur PayPal-Zahlung ${gezahlt.toFixed(2)}`);\n  return weiter('KEINER');\n}\n\nconst alterTage = Math.floor((Date.now() - new Date(info.zahlungsdatum)) / 86400000);\nif (Number.isNaN(alterTage)) {\n  vermerk('ZAHLUNG_PRUEFEN', 'Zahlungsdatum fehlt');\n  return weiter('KEINER');\n}\nconst innerhalbFrist = alterTage <= config.erstattungsfristTage;\n\nif (!innerhalbFrist && !config.payoutsAktiv) {\n  vermerk('FRIST_ABGELAUFEN', `Zahlung ${alterTage} Tage alt – PayPal erstattet nur innerhalb von ${config.erstattungsfristTage} Tagen. Payouts nicht aktiv: ${betrag.toFixed(2)} ${waehrung} manuell erstatten`, { betrag });\n  return weiter('KEINER');\n}\nif (!innerhalbFrist && !src.email) {\n  vermerk('ZAHLUNG_PRUEFEN', 'Payout nicht möglich: keine PayPal-E-Mail des Zahlers', { betrag });\n  return weiter('KEINER');\n}\n\nconst weg = innerhalbFrist ? 'ERSTATTUNG' : 'PAYOUT';\n// Eindeutig je Bestellung und Buch – schützt vor doppelter Erstattung/Auszahlung bei Wiederholung\nconst vorgang = `produktentfernung-wc-${src.bestellnummer}-${src.skus.join('+')}`;\n\n// Jede Erstattung und jeder Payout steht im Protokoll (Data Table). Bearbeitet wird nur, wenn der Vorgang\n// dort noch nicht steht oder der letzte Versuch ABGELEHNT war (kein Geld geflossen).\n// Alle anderen Status (RESERVIERT, UNKLAR, DUPLIKAT, PENDING, COMPLETED …) sperren.\nconst protokoll = $('Protokoll laden').all().map(i => i.json);\nconst lesefehler = protokoll.find(r => r.error);\nif (lesefehler) {\n  vermerk('ZAHLUNG_PRUEFEN', 'Protokoll nicht lesbar – keine Erstattung ohne Doppelschutz: ' + JSON.stringify(lesefehler.error).slice(0, 200), { betrag, weg });\n  return weiter('KEINER');\n}\nconst eintrag = protokoll.find(r => r.vorgang === vorgang);\nif (eintrag && eintrag.status !== 'ABGELEHNT') {\n  const offen = ['RESERVIERT', 'UNKLAR'].includes(eintrag.status) ? ' – Ergebnis beim Zahlungsanbieter prüfen' : '';\n  vermerk(eintrag.weg === 'PAYOUT' ? 'BEREITS_AUSGEZAHLT' : 'BEREITS_ERSTATTET',\n    `Laut Protokoll: ${eintrag.weg || ''} ${eintrag.status} seit ${String(eintrag.createdAt).slice(0, 10)}${eintrag.referenz ? ', Referenz ' + eintrag.referenz : ''}${offen}`,\n    { betrag, weg: eintrag.weg || weg, referenz: eintrag.referenz || '' });\n  return weiter('KEINER');\n}\n\nif (config.modus !== 'SCHARF') {\n  vermerk('TROCKENLAUF', weg === 'ERSTATTUNG'\n    ? `würde ${betrag.toFixed(2)} ${waehrung} erstatten (Zahlung ${alterTage} Tage alt)`\n    : `würde ${betrag.toFixed(2)} ${waehrung} per Payout an ${src.email} senden (Zahlung ${alterTage} Tage alt)`,\n  { betrag, weg });\n  return weiter('KEINER');\n}\n\n// Test-Limit: im Modus SCHARF nur die ersten Config.testLimit Erstattungen/Payouts über PayPal, der Rest wird nur geprüft\nconst limit = Number(config.testLimit) || 0;\nsd.lauf = sd.lauf || {};\nif (limit > 0 && (sd.lauf.testPayPal || 0) >= limit) {\n  vermerk('NICHT_VERARBEITET', `Test-Limit (${limit}) erreicht – würde ${betrag.toFixed(2)} ${waehrung} ${weg === 'ERSTATTUNG' ? 'erstatten' : 'per Payout senden'} (Zahlung ${alterTage} Tage alt)`, { betrag, weg });\n  return weiter('KEINER');\n}\nsd.lauf.testPayPal = (sd.lauf.testPayPal || 0) + 1;\n\n// Für \"Protokoll: reservieren\" und die Erstattung bzw. den Payout\nconst protokollFelder = { vorgang, betrag, waehrung, transaktionsId: src.captureId };\n\nif (weg === 'ERSTATTUNG') {\n  const body = {\n    note_to_payer: String(config.notizAnKunde).slice(0, 255),\n    custom_id: String(src.bestellnummer).slice(0, 127)\n  };\n  // Ohne amount erstattet PayPal \"captured amount - previous refunds\", also die ganze Zahlung\n  if (src.aktion !== 'ALLES') body.amount = { value: betrag.toFixed(2), currency_code: waehrung };\n  return weiter('ERSTATTUNG', { ...protokollFelder, refundBody: JSON.stringify(body) });\n}\n\n// Payout: neue Zahlung an die PayPal-E-Mail des Zahlers.\n// sender_batch_id und PayPal-Request-Id schützen 30 Tage vor Doppelzahlung, danach das Protokoll.\nconst body = {\n  sender_batch_header: {\n    sender_batch_id: vorgang,\n    recipient_type: 'EMAIL',\n    email_subject: config.payoutBetreff,\n    email_message: config.payoutNachricht\n  },\n  items: [{\n    recipient_type: 'EMAIL',\n    amount: { value: betrag.toFixed(2), currency: waehrung },\n    receiver: src.email,\n    note: `${config.notizAnKunde} Bestellung ${src.bestellnummer}`,\n    sender_item_id: String(src.bestellnummer).slice(0, 63)\n  }]\n};\nreturn weiter('PAYOUT', { ...protokollFelder, payoutBody: JSON.stringify(body) });"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        12624,
+        3744
+      ],
+      "id": "60661b1b-a70b-43c9-b03c-e5001a405ddd",
+      "name": "Zahlung prüfen + Weg wählen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "11e1a494-28ba-4c5d-b924-581320de53f9",
+              "leftValue": "={{ $('Zahlung prüfen + Weg wählen').first().json.weg }}",
+              "rightValue": "ERSTATTUNG",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        13280,
+        3744
+      ],
+      "id": "074813a4-f1fd-4d44-b959-d1b1ba4d8af7",
+      "name": "Erstatten?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.paypalBaseUrl }}/v2/payments/captures/{{ encodeURIComponent($('Zahlung prüfen + Weg wählen').first().json.captureId) }}/refund",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Token holen (PayPal)').first().json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "PayPal-Request-Id",
+              "value": "={{ $('Zahlung prüfen + Weg wählen').first().json.vorgang }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Zahlung prüfen + Weg wählen').first().json.refundBody }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        13504,
+        3648
+      ],
+      "id": "b2a81a3b-cea7-402f-958e-1482f46dc489",
+      "name": "Erstattung (Refund)",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wertet die PayPal-Erstattung aus und bereitet den Protokoll-Eintrag vor.\n// Bewusst kein throw: der Loop geht weiter, der Report zeigt den Fehler.\nconst resp = $input.first().json;\nconst src = $('Zahlung prüfen + Weg wählen').first().json;\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\n\nconst r = resp.body || {};\nconst fehlerText = x => [\n  x.body?.name,\n  x.body?.message,\n  ...(x.body?.details || []).map(d => [d.issue, d.description].filter(Boolean).join(': ')),\n  x.body?.debug_id ? 'debug_id ' + x.body.debug_id : '',\n  x.error?.message\n].filter(Boolean).join(' | ').slice(0, 400);\nconst antwort = resp.statusCode ? 'HTTP ' + resp.statusCode : 'keine Antwort';\n\n// 201 = Erstattung angelegt, 200 = Antwort auf eine schon gestellte Anfrage mit derselben PayPal-Request-Id\n// Refund-Status laut PayPal: CANCELLED, FAILED, PENDING, COMPLETED\nlet status;\nlet protokollStatus;\nlet grund = '';\nif ([200, 201].includes(resp.statusCode) && r.id) {\n  status = { COMPLETED: 'ERSTATTET', PENDING: 'ERSTATTUNG_AUSSTEHEND' }[r.status] || 'FEHLER';\n  // FAILED/CANCELLED: kein Geld geflossen -> neuer Versuch erlaubt\n  protokollStatus = status === 'FEHLER' ? 'ABGELEHNT' : r.status;\n  if (status !== 'ERSTATTET') {\n    grund = `PayPal-Status ${r.status}${r.status_details?.reason ? ' (' + r.status_details.reason + ')' : ''}`;\n  }\n  if (resp.statusCode === 200) {\n    grund = [grund, 'Erstattung bestand bereits (gleiche PayPal-Request-Id)'].filter(Boolean).join(' · ');\n  }\n} else if (resp.statusCode >= 400 && resp.statusCode < 500) {\n  // Abgelehnt, kein Geld geflossen\n  status = 'FEHLER';\n  protokollStatus = 'ABGELEHNT';\n  grund = `Erstattung: ${antwort} ${fehlerText(resp)}`;\n} else {\n  // 5xx oder keine Antwort: offen, ob PayPal erstattet hat -> UNKLAR sperrt weitere Versuche\n  status = 'FEHLER';\n  protokollStatus = 'UNKLAR';\n  grund = `Erstattung: ${antwort} ${fehlerText(resp)} – Ergebnis unklar, in PayPal prüfen`;\n}\n\nconst erstattet = r.amount?.value !== undefined ? Number(r.amount.value) : null;\nif (status !== 'FEHLER' && erstattet !== null && Math.abs(erstattet - src.betrag) > 0.01) {\n  grund = [grund, `Erstattet ${erstattet.toFixed(2)}, erwartet ${src.betrag.toFixed(2)} – prüfen`].filter(Boolean).join(' · ');\n}\n\nsd.done.push({\n  bestellnummer: src.bestellnummer,\n  status,\n  grund: grund.slice(0, 500),\n  weg: 'ERSTATTUNG',\n  transaktionsId: src.transaktionsId,\n  zahlungsdatum: src.zahlungsdatum,\n  zahlungsBetrag: src.zahlungsBetrag,\n  captureStatus: src.captureStatus,\n  zuordnung: src.zuordnung,\n  betrag: erstattet ?? src.betrag,\n  referenz: r.id || '',\n  anbieterStatus: r.status || '',\n  debug: `${src.debug} · Refund ${antwort}${r.status ? ' ' + r.status : ''}${r.debug_id || resp.body?.debug_id ? ' · debug_id ' + (r.debug_id || resp.body.debug_id) : ''}`,\n  bearbeitetAm: new Date().toISOString()\n});\n\n// Für \"Protokoll: Ergebnis\" (Data Table)\nreturn [{\n  json: {\n    vorgang: src.vorgang,\n    bestellnummer: src.bestellnummer,\n    weg: 'ERSTATTUNG',\n    transaktionsId: src.transaktionsId,\n    betrag: erstattet ?? src.betrag,\n    waehrung: src.waehrung,\n    protokollStatus,\n    referenz: r.id || '',\n    protokollGrund: (grund || status).slice(0, 250)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13728,
+        3648
+      ],
+      "id": "3f4d3f9f-14bc-40ee-bbd5-50cb1a432856",
+      "name": "Erstattung prüfen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1123d333-32c6-48fb-9a31-2b09db1e3fc6",
+              "leftValue": "={{ ['ERSTATTUNG', 'PAYOUT'].includes($json.weg) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        12848,
+        3744
+      ],
+      "id": "34bb3cc8-b98f-43b0-a09e-eccf64ce8298",
+      "name": "Geld bewegen?"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "produktentfernung_auszahlungen"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "vorgang",
+              "keyValue": "={{ $json.vorgang }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "vorgang": "={{ $json.vorgang }}",
+            "bestellnummer": "={{ $json.bestellnummer }}",
+            "weg": "={{ $json.weg }}",
+            "transaktions_id": "={{ $json.transaktionsId }}",
+            "betrag": "={{ $json.betrag }}",
+            "waehrung": "={{ $json.waehrung }}",
+            "status": "RESERVIERT",
+            "referenz": "",
+            "grund": "={{ $json.weg === 'PAYOUT' ? 'Payout wird gesendet' : 'Erstattung wird gesendet' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "vorgang",
+              "displayName": "vorgang",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bestellnummer",
+              "displayName": "bestellnummer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "weg",
+              "displayName": "weg",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "transaktions_id",
+              "displayName": "transaktions_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "betrag",
+              "displayName": "betrag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "waehrung",
+              "displayName": "waehrung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "referenz",
+              "displayName": "referenz",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "grund",
+              "displayName": "grund",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        13072,
+        3744
+      ],
+      "id": "63af6c27-8c5f-41e5-9f3f-a9432b72fc1d",
+      "name": "Protokoll: reservieren"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.paypalBaseUrl }}/v1/payments/payouts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Token holen (PayPal)').first().json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "PayPal-Request-Id",
+              "value": "={{ $('Zahlung prüfen + Weg wählen').first().json.vorgang }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Zahlung prüfen + Weg wählen').first().json.payoutBody }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        13504,
+        3904
+      ],
+      "id": "55f8f959-5c8d-4150-abcf-bb292747a867",
+      "name": "Auszahlung (Payout)",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wertet den Payout aus und bereitet den Protokoll-Eintrag vor.\n// PayPal bearbeitet Payouts asynchron: PENDING heißt angenommen, nicht ausgezahlt.\nconst resp = $input.first().json;\nconst src = $('Zahlung prüfen + Weg wählen').first().json;\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\n\nconst body = resp.body || {};\nconst kopf = body.batch_header || {};\nconst fehlerText = x => [\n  x.body?.name,\n  x.body?.message,\n  ...(x.body?.details || []).map(d => [d.field, d.issue, d.description].filter(Boolean).join(': ')),\n  x.body?.debug_id ? 'debug_id ' + x.body.debug_id : '',\n  x.error?.message\n].filter(Boolean).join(' | ').slice(0, 400);\n\nconst antwort = resp.statusCode ? 'HTTP ' + resp.statusCode : 'keine Antwort';\n\n// Batch-Status laut PayPal: DENIED, PENDING, PROCESSING, SUCCESS, CANCELED\nconst angelegt = resp.statusCode === 201 && Boolean(kopf.payout_batch_id);\nconst ok = angelegt && kopf.batch_status !== 'DENIED';\n// sender_batch_id in den letzten 30 Tagen schon verwendet: PayPal lehnt ab und verlinkt den ursprünglichen Payout\nconst duplikat = !angelegt && (\n  (body.links || []).some(l => /\\/v1\\/payments\\/payouts\\//.test(String(l.href))) ||\n  /duplicate/i.test(`${body.name} ${body.message}`)\n);\n// 4xx bzw. DENIED = abgelehnt, kein Geld geflossen -> neuer Versuch erlaubt.\n// 5xx oder keine Antwort: offen, ob PayPal ausgezahlt hat -> UNKLAR sperrt weitere Versuche.\nconst abgelehnt = !ok && !duplikat && ((angelegt && kopf.batch_status === 'DENIED') || (resp.statusCode >= 400 && resp.statusCode < 500));\n\nlet status;\nlet protokollStatus;\nlet grund;\nif (ok) {\n  status = 'AUSZAHLUNG_ANGESTOSSEN';\n  protokollStatus = kopf.batch_status || 'PENDING';\n  grund = `Payout-Status ${kopf.batch_status} – Abschluss in PayPal prüfen`;\n} else if (duplikat) {\n  status = 'BEREITS_AUSGEZAHLT';\n  protokollStatus = 'DUPLIKAT';\n  grund = 'PayPal: Payout mit derselben sender_batch_id existiert bereits – ' + fehlerText(resp);\n} else if (abgelehnt) {\n  status = 'FEHLER';\n  protokollStatus = 'ABGELEHNT';\n  grund = angelegt ? `Payout von PayPal abgelehnt (Status DENIED, ${kopf.payout_batch_id})` : `Payout: ${antwort} ${fehlerText(resp)}`;\n} else {\n  status = 'FEHLER';\n  protokollStatus = 'UNKLAR';\n  grund = `Payout: ${antwort} ${fehlerText(resp)} – Ergebnis unklar, in PayPal prüfen`;\n}\n\nsd.done.push({\n  bestellnummer: src.bestellnummer,\n  status,\n  grund: grund.slice(0, 500),\n  weg: 'PAYOUT',\n  transaktionsId: src.transaktionsId,\n  zahlungsdatum: src.zahlungsdatum,\n  zahlungsBetrag: src.zahlungsBetrag,\n  captureStatus: src.captureStatus,\n  zuordnung: src.zuordnung,\n  betrag: src.betrag,\n  empfaenger: src.email,\n  referenz: kopf.payout_batch_id || '',\n  anbieterStatus: kopf.batch_status || '',\n  debug: `${src.debug} · Payout ${antwort}${kopf.batch_status ? ' ' + kopf.batch_status : ''}${body.debug_id ? ' · debug_id ' + body.debug_id : ''}`,\n  bearbeitetAm: new Date().toISOString()\n});\n\n// Für \"Protokoll: Ergebnis\" (Data Table)\nreturn [{\n  json: {\n    vorgang: src.vorgang,\n    bestellnummer: src.bestellnummer,\n    weg: 'PAYOUT',\n    transaktionsId: src.transaktionsId,\n    betrag: src.betrag,\n    waehrung: src.waehrung,\n    protokollStatus,\n    referenz: kopf.payout_batch_id || '',\n    protokollGrund: grund.slice(0, 250)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13728,
+        3904
+      ],
+      "id": "35967d29-d040-4c57-a722-36780273a438",
+      "name": "Auszahlung prüfen"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "produktentfernung_auszahlungen"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "vorgang",
+              "keyValue": "={{ $json.vorgang }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "vorgang": "={{ $json.vorgang }}",
+            "bestellnummer": "={{ $json.bestellnummer }}",
+            "weg": "={{ $json.weg }}",
+            "transaktions_id": "={{ $json.transaktionsId }}",
+            "betrag": "={{ $json.betrag }}",
+            "waehrung": "={{ $json.waehrung }}",
+            "status": "={{ $json.protokollStatus }}",
+            "referenz": "={{ $json.referenz }}",
+            "grund": "={{ $json.protokollGrund }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "vorgang",
+              "displayName": "vorgang",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bestellnummer",
+              "displayName": "bestellnummer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "weg",
+              "displayName": "weg",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "transaktions_id",
+              "displayName": "transaktions_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "betrag",
+              "displayName": "betrag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "waehrung",
+              "displayName": "waehrung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "referenz",
+              "displayName": "referenz",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "grund",
+              "displayName": "grund",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        13952,
+        3744
+      ],
+      "id": "591524e7-9b37-42b4-8f3b-480a723ba1c0",
+      "name": "Protokoll: Ergebnis",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        14176,
+        3744
+      ],
+      "id": "98678b5c-191a-4fb9-bbc6-9bddc1ae5b3c",
+      "name": "Wait (Rate-Limit)",
+      "webhookId": "906ed063-f5ac-4dee-a3f7-a7c78a8b2134"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "produktentfernung_auszahlungen"
+        },
+        "returnAll": true,
+        "orderBy": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        14608,
+        4176
+      ],
+      "id": "aea2b2f7-2e2a-4eaf-afb1-ce4dc871b421",
+      "name": "Protokoll für Report laden",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Abschluss-Report: genau eine Zeile je Bestellung aus dem Export, bearbeitete zuerst\nconst config = $('Config').first().json.config;\nconst sd = $getWorkflowStaticData('global');\nconst gefunden = sd.toFix || [];\nconst erledigt = sd.done || [];\nconst skipped = sd.skipped || [];\n\n// Alle Zeilen mit denselben Spalten, sonst wird die CSV uneinheitlich\nconst LEER = {\n  positionen: '', versandpositionen: '', zahlungsart: '', zahlungsweg: '', transaktionsIdExport: '', zuordnung: '', debug: '',\n  bestellnummer: '', status: '', fall: '', weg: '', grund: '', bestelldatum: '', skus: '', menge: '',\n  weiterePositionen: '', sonstigePositionen: '', land: '', versandart: '', versandkosten: '', versandErstattung: '',\n  buchWert: '', bestellwert: '', erstattungsbetrag: '', transaktionsId: '', zahlungsdatum: '', zahlungsBetrag: '',\n  captureStatus: '', betrag: '', empfaenger: '', referenz: '', anbieterStatus: '', waehrung: '', bearbeitetAm: ''\n};\n\n// Beträge im Text deutsch formatiert, z. B. 19,90\nconst eur = x => Number(x).toFixed(2).replace('.', ',');\nconst posText = p => `${p.title}${p.sku ? ' [' + p.sku + ']' : ''}: `\n  + (p.menge > 1 ? `${p.menge} × ${eur(p.brutto / p.menge)} = ${eur(p.brutto)}` : eur(p.brutto));\n\nconst zeile = (o, extra) => ({\n  ...LEER,\n  bestellnummer: o.bestellnummer,\n  fall: o.fall || '',\n  bestelldatum: o.bestelldatum || '',\n  skus: (o.positionen || []).map(p => p.sku + (p.ohneArtikelnummer ? ' (per Bezeichnung)' : '')).join(' | '),\n  positionen: (o.positionenAlle || []).map(posText).join(' | '),\n  versandpositionen: (o.versandZeilen || []).map(p => `${p.title}: ${eur(p.brutto)}`).join(' | '),\n  menge: (o.positionen || []).reduce((s, p) => s + Number(p.menge || 0), 0),\n  weiterePositionen: (o.weitere || []).map(p => `${p.sku || p.title} ×${p.menge}`).join(' | '),\n  sonstigePositionen: (o.sonstige || []).map(p => `${p.title || '?'} ${p.brutto}`).join(' | '),\n  land: o.land || '',\n  versandart: o.versandart || '',\n  versandkosten: o.versandkosten ?? '',\n  versandErstattung: o.versandErstattung ?? '',\n  buchWert: o.buchWert ?? '',\n  bestellwert: o.bestellwert ?? '',\n  erstattungsbetrag: o.erstattungsbetrag ?? '',\n  waehrung: o.waehrung || '',\n  zahlungsart: o.zahlungsart || '',\n  zahlungsweg: o.zahlungsweg || '',\n  transaktionsIdExport: o.transaktionsIdExport || '',\n  ...extra\n});\n\nconst anbieter = o => ({ PAYPAL: 'PayPal', MOLLIE: 'Mollie' }[o.zahlungsweg] || 'Zahlungsanbieter');\nconst vorhaben = o => o.aktion === 'ALLES'\n  ? `ganze ${anbieter(o)}-Zahlung (laut Export ${o.bestellwert.toFixed(2)}) – ${anbieter(o)} nicht abgefragt`\n  : `${o.erstattungsbetrag.toFixed(2)} (Buch ${o.buchWert.toFixed(2)}`\n    + (o.versandErstattung > 0 ? ` + Versand ${o.versandErstattung.toFixed(2)})` : ', ohne Versand)')\n    + ` – ${anbieter(o)} nicht abgefragt`;\n\nconst rows = [];\nfor (const o of gefunden) {\n  const d = erledigt.find(e => e.bestellnummer === o.bestellnummer);\n  if (config.modus === 'NUR_EINORDNEN') {\n    rows.push(zeile(o, { status: 'EINGEORDNET', grund: vorhaben(o) }));\n  } else if (!d) {\n    rows.push(zeile(o, { status: 'NICHT_VERARBEITET', grund: `Lauf abgebrochen – Bestellung in der ${anbieter(o)}-Schleife nicht erreicht` }));\n  } else {\n    const { bestellnummer, ...ergebnis } = d;\n    rows.push(zeile(o, ergebnis));\n  }\n}\n\nfor (const s of skipped) {\n  rows.push(zeile(s, { status: s.status, grund: s.grund }));\n}\n\nreturn rows.map(r => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        14832,
+        4176
+      ],
+      "id": "a3c1143b-c1bc-40ed-b179-4ee308a3df7e",
+      "name": "Report erstellen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Report-CSV: Spalten in der Reihenfolge der Auswertung, mit deutschen Überschriften.\n// Die Report-Mail liest weiter direkt aus \"Report erstellen\".\nconst WEG = { ERSTATTUNG: 'PayPal-Erstattung', PAYOUT: 'PayPal-Payout', MOLLIE: 'Mollie-Erstattung' };\n// Nur bei diesen Status wurde tatsächlich Geld angewiesen (sonst steht in betrag nur der geplante Betrag)\nconst ANGEWIESEN = ['ERSTATTET', 'ERSTATTUNG_AUSSTEHEND', 'AUSZAHLUNG_ANGESTOSSEN'];\n// Bei diesen Status muss jemand von Hand erstatten\nconst MANUELL = ['FRIST_ABGELAUFEN', 'MANUELL_ERSTATTEN', 'ZAHLUNGSART_UNBEKANNT', 'EINZELVERSAND_WEITERE_ARTIKEL', 'GUTSCHEIN'];\n\nreturn $input.all().map(({ json: r }) => ({\n  json: {\n    'Bestellnummer': r.bestellnummer,\n    'Status': r.status,\n    'Fall': r.fall,\n    'Positionen': r.positionen,\n    'Gesamtpreis': r.bestellwert,\n    'Positionspreis Buch': r.buchWert,\n    'Versandpositionen': r.versandpositionen,\n    'Erstattungswert': r.erstattungsbetrag,\n    'Erstattet': ANGEWIESEN.includes(r.status) ? r.betrag : '',\n    'Erstattungsweg': MANUELL.includes(r.status) ? 'manuell' : (WEG[r.weg] || r.weg || ''),\n    'Datum der Erstattung': ANGEWIESEN.includes(r.status) ? String(r.bearbeitetAm).slice(0, 16).replace('T', ' ') : '',\n    'Transaktionsnummer': r.transaktionsId || r.transaktionsIdExport,\n    'Erstattungs-/Payout-ID': r.referenz,\n    'Grund': r.grund,\n    'Zahlungsart (Export)': r.zahlungsart,\n    'Zahlungsweg': { PAYPAL: 'PayPal', MOLLIE: 'Mollie' }[r.zahlungsweg] || '',\n    'Bestelldatum': r.bestelldatum,\n    'Versandart': r.versandart,\n    'Versandkosten': r.versandkosten,\n    'Versanderstattung': r.versandErstattung,\n    'Land': r.land,\n    'Währung': r.waehrung,\n    'Gezahlt (Anbieter)': r.zahlungsBetrag,\n    'Zahlungsdatum': String(r.zahlungsdatum || '').slice(0, 10),\n    'Zahlungsstatus (Anbieter)': r.captureStatus,\n    'Erstattungsstatus (Anbieter)': r.anbieterStatus,\n    'Empfänger (Payout)': r.empfaenger,\n    'Debug': r.debug\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        15056,
+        4176
+      ],
+      "id": "3331696f-3f80-4508-bc70-de45be8ae273",
+      "name": "Report-Spalten"
+    },
+    {
+      "parameters": {
+        "options": {
+          "fileName": "=produktentfernung-wc-paypal-report-{{ $now.format('yyyy-MM-dd') }}.csv"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        15280,
+        4176
+      ],
+      "id": "eba5d366-c54d-4247-ab14-974c87c3a401",
+      "name": "Report → CSV"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Übersicht des Erstattungs-Protokolls (Data Table) und Lauf-Info für die Report-Mail – Monitoring und Debugging bei jedem Lauf.\n// Die Report-CSV (Binary) wird unverändert durchgereicht.\nconst config = $('Config').first().json.config;\nconst sd = $getWorkflowStaticData('global');\nconst lauf = sd.lauf || {};\nconst eintraege = $('Protokoll für Report laden').all().map(i => i.json);\nconst lesefehler = eintraege.find(r => r.error);\nconst rows = eintraege.filter(r => r.vorgang);\nconst esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst WEG = { ERSTATTUNG: 'PayPal-Erstattung', PAYOUT: 'PayPal-Payout', MOLLIE: 'Mollie-Erstattung' };\n\n// Lauf-Info: was der Flow bei den Anbietern abgefragt und wie er zugeordnet hat\nconst info = [];\nif (config.modus === 'NUR_EINORDNEN') {\n  info.push('PayPal und Mollie nicht abgefragt (NUR_EINORDNEN)');\n} else {\n  info.push(lauf.paypalZahlungen === undefined\n    ? 'PayPal: nicht abgefragt'\n    : `PayPal-Suche: ${lauf.paypalBestellungen ?? '?'} Bestellung(en) mit ${lauf.paypalBetraege ?? '?'} verschiedenen Beträgen, `\n      + `${lauf.paypalSuchen ?? '?'} Suche(n), ${lauf.paypalSeiten} Seite(n), ${lauf.paypalZahlungen} eingehende Zahlungen · Zuordnung: `\n      + (Object.entries(lauf.paypalZuordnung || {}).map(([k, n]) => `${esc(k)} ${n}`).join(', ') || '–')\n      + ` · davon über Mollie bezahlt (weiter an Mollie): ${lauf.paypalMitMollieId ?? 0}`);\n  info.push(`Mollie: ${lauf.mollieBestellungen ?? 0} Bestellung(en), davon ${lauf.mollieAusPayPal ?? 0} mit Mollie-ID aus PayPal, ${lauf.mollieVonPayPal ?? 0} von PayPal nicht gefunden · ${(lauf.mollieDirekt ?? 0) - (lauf.mollieAusPayPal ?? 0)} mit ID aus dem Export`\n    + (lauf.mollieSuche ? ` · Suche: ${lauf.mollieZahlungenGeladen ?? 0} Zahlungen und ${lauf.mollieOrdersGeladen ?? 0} Orders geladen` : '')\n    + (lauf.mollieNichtGesucht ? ` · <b>Suche abgeschaltet:</b> ${lauf.mollieNichtGesucht} Bestellung(en) ohne Mollie-ID nicht gesucht` : '')\n    + ` · Zuordnung: ${Object.entries(lauf.mollieZuordnung || {}).map(([k, n]) => `${esc(k)} ${n}`).join(', ') || '–'}`\n    + (lauf.mollieLadefehler ? ` · <b>Ladefehler:</b> ${esc(lauf.mollieLadefehler)}` : ''));\n}\nif ((config.nurBestellungen || []).length) info.push(`Nur Bestellungen: ${esc(config.nurBestellungen.join(', '))}`);\nif (config.modus === 'SCHARF' && Number(config.testLimit) > 0) info.push(`Test-Limit: ${config.testLimit} je Zahlungsweg`);\nlet html = `<p><b>Lauf-Info:</b> ${info.join(' · ')}</p>`;\n\nif (lesefehler) {\n  html += `<p><b>Erstattungs-Protokoll nicht lesbar:</b> ${esc(JSON.stringify(lesefehler.error).slice(0, 300))}</p>`;\n} else if (!rows.length) {\n  html += '<p>Erstattungs-Protokoll: noch keine Einträge.</p>';\n} else {\n  const nachStatus = {};\n  for (const r of rows) nachStatus[r.status] = (nachStatus[r.status] || 0) + 1;\n  // ABGELEHNT = kein Geld geflossen\n  const summe = rows.filter(r => r.status !== 'ABGELEHNT').reduce((s, r) => s + Number(r.betrag || 0), 0);\n  const offen = rows.filter(r => ['RESERVIERT', 'UNKLAR'].includes(r.status));\n  html += '<h4>Erstattungs-Protokoll (alle Läufe)</h4>'\n    + `<p>${rows.length} Einträge · ${Object.entries(nachStatus).map(([s, n]) => `${esc(s)}: ${n}`).join(' · ')} · Summe ohne ABGELEHNT: ${summe.toFixed(2)}</p>`\n    + (offen.length ? `<p><b>Achtung:</b> ${offen.length} Einträge mit Status RESERVIERT/UNKLAR – Ergebnis beim Zahlungsanbieter prüfen.</p>` : '')\n    + '<table border=\"1\" cellpadding=\"4\" cellspacing=\"0\"><tr><th>Angelegt</th><th>Bestellung</th><th>Weg</th><th>Betrag</th><th>Status</th><th>Referenz</th><th>Grund</th></tr>'\n    + rows.map(r => '<tr>'\n      + `<td>${esc(String(r.createdAt).slice(0, 16).replace('T', ' '))}</td>`\n      + `<td>${esc(r.bestellnummer)}</td>`\n      + `<td>${esc(WEG[r.weg] || r.weg)}</td>`\n      + `<td>${Number(r.betrag || 0).toFixed(2)} ${esc(r.waehrung)}</td>`\n      + `<td>${esc(r.status)}</td>`\n      + `<td>${esc(r.referenz)}</td>`\n      + `<td>${esc(r.grund)}</td>`\n      + '</tr>').join('')\n    + '</table><p>Status = Stand bei der Erstattung bzw. beim Payout, den Abschluss zeigt der Zahlungsanbieter. Die Tabelle liegt in n8n unter „Data tables“.</p>';\n}\n\nreturn [{ json: { protokollHtml: html }, binary: $input.first().binary }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        15504,
+        4176
+      ],
+      "id": "99db64c0-95fa-4fa5-8567-9fb036694d05",
+      "name": "Protokoll-Übersicht"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de",
+        "subject": "=Produktentfernung WC/PayPal – {{ $('Config').first().json.config.modus }} – {{ $('Config').first().json.config.modus === 'SCHARF' ? $('Report erstellen').all().filter(i => i.json.status === 'ERSTATTET').length + ' erstattet, ' + $('Report erstellen').all().filter(i => i.json.status === 'AUSZAHLUNG_ANGESTOSSEN').length + ' Payouts, ' + $('Report erstellen').all().filter(i => i.json.status === 'FRIST_ABGELAUFEN').length + ' Frist abgelaufen, ' + $('Report erstellen').all().filter(i => i.json.status === 'FEHLER').length + ' Fehler' : $('Report erstellen').all().filter(i => i.json.fall).length + ' betroffen, ' + $('Report erstellen').all().filter(i => !i.json.fall).length + ' übersprungen' }}",
+        "html": "=<h3>Produktentfernung WooCommerce / PayPal</h3><p>Modus: <b>{{ { NUR_EINORDNEN: 'NUR EINORDNEN – PayPal wurde nicht abgefragt', TROCKENLAUF: 'TROCKENLAUF – PayPal nur gelesen, nichts erstattet', SCHARF: 'SCHARF' }[$('Config').first().json.config.modus] }}</b><br>SKU(s): <b>{{ $('Config').first().json.config.targets.map(t => t.sku).join(', ') }}</b><br>PayPal: <b>{{ $('Config').first().json.config.paypalBaseUrl }}</b> · Payouts: <b>{{ $('Config').first().json.config.payoutsAktiv ? 'aktiv' : 'aus' }}</b><br>Bestellungen im Export: <b>{{ $('Report erstellen').all().length }}</b></p><p><b>Nach Status:</b><br>{{ [...new Set($('Report erstellen').all().map(i => i.json.status).filter(Boolean))].map(s => s + ': ' + $('Report erstellen').all().filter(i => i.json.status === s).length).join('<br>') }}</p><h4>Bearbeitete Bestellungen</h4><table border=\"1\" cellpadding=\"4\" cellspacing=\"0\"><tr><th>Bestellung</th><th>Status</th><th>Fall</th><th>Weg</th><th>Berechnet</th><th>Angewiesen</th><th>PayPal-Zahlung</th><th>Referenz</th><th>Grund</th></tr>{{ $('Report erstellen').all().filter(i => i.json.fall).map(i => '<tr><td>' + i.json.bestellnummer + '</td><td>' + i.json.status + '</td><td>' + i.json.fall + '</td><td>' + i.json.weg + '</td><td>' + i.json.erstattungsbetrag + '</td><td>' + i.json.betrag + '</td><td>' + i.json.zahlungsBetrag + ' ' + String(i.json.zahlungsdatum).slice(0, 10) + '</td><td>' + i.json.referenz + '</td><td>' + i.json.grund + '</td></tr>').join('') || '<tr><td colspan=\"9\">keine</td></tr>' }}</table><p>Übersprungene Bestellungen: siehe Status oben und CSV im Anhang.</p>{{ $json.protokollHtml }}",
+        "options": {
+          "fileAttachments": "data"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        15712,
+        4176
+      ],
+      "id": "d4d2308c-dc9b-489e-8328-39c856d42c89",
+      "name": "Report-Mail",
+      "webhookId": "d0d19e9e-2ea8-4887-8c2f-089e1795fa97",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "produktentfernung_auszahlungen"
+        },
+        "returnAll": true,
+        "orderBy": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        10464,
+        4352
+      ],
+      "id": "942412c7-aabb-46bd-b30d-4bda8e8bb89e",
+      "name": "Protokoll laden (Mollie)",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mollie-Teil vorbereiten (läuft nach PayPal): Bestellungen mit Zahlungsweg Mollie, alle, die PayPal nicht gefunden hat,\n// und PayPal-Zahlungen über Mollie (Mollie-ID aus dem PayPal-Feld custom_field).\n// Mit Mollie-ID (Export oder PayPal) direkt, sonst über die Mollie-Suche (Zahlungen und Orders laden, Bestellnummer zuordnen).\nconst config = $('Config').first().json.config;\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\nsd.lauf = sd.lauf || {};\nsd.mollieDirekt = [];\nsd.mollieSuche = [];\n\nif (config.modus === 'NUR_EINORDNEN') return [{ json: { suche: 0 } }];\n\n// Von PayPal nicht gefunden: was dort gesucht wurde, steht später im Grund, falls Mollie auch nichts findet\nconst nichtBeiPayPal = new Map((sd.paypalNichtGefunden || []).map(x => [x.bestellnummer, x.gesucht]));\n// Bei PayPal gefunden, über Mollie bezahlt\nconst ausPayPal = new Map((sd.paypalMollie || []).map(x => [x.bestellnummer, x]));\nconst kandidaten = (sd.toFix || []).filter(o => o.zahlungsweg === 'MOLLIE' || nichtBeiPayPal.has(o.bestellnummer) || ausPayPal.has(o.bestellnummer));\n\nfor (const o of kandidaten) {\n  const id = String(o.transaktionsIdExport || '').trim();\n  const eintrag = {\n    bestellnummer: o.bestellnummer,\n    aktion: o.aktion,\n    fall: o.fall,\n    skus: o.skus,\n    waehrung: o.waehrung,\n    bestellwert: o.bestellwert,\n    bestelldatum: o.bestelldatum,\n    erstattungsbetrag: o.erstattungsbetrag,\n    paypalGesucht: nichtBeiPayPal.get(o.bestellnummer) || ''\n  };\n  const pp = ausPayPal.get(o.bestellnummer);\n  if (/^(tr|ord)_\\w+$/.test(id)) sd.mollieDirekt.push({ ...eintrag, mollieId: id, zuordnung: 'Transaktions-ID' });\n  else if (pp) {\n    sd.mollieDirekt.push({\n      ...eintrag,\n      mollieId: pp.mollieId,\n      zuordnung: 'PayPal-Rechnungsnummer → Mollie-ID',\n      paypalTransaktionsId: pp.paypalTransaktionsId,\n      paypalEmail: pp.paypalEmail,\n      debug: pp.debug\n    });\n  }\n  else sd.mollieSuche.push(eintrag);\n}\n\n// Mollie-Suche abgeschaltet: Bestellungen ohne Mollie-ID werden nicht gesucht, sondern für die manuelle Bearbeitung markiert\nconst nichtGesucht = config.mollieSucheAktiv === false ? sd.mollieSuche.splice(0) : [];\nfor (const o of nichtGesucht) {\n  sd.done.push({\n    bestellnummer: o.bestellnummer,\n    status: 'NICHT_GEFUNDEN',\n    grund: (o.paypalGesucht ? `Bei PayPal nicht gefunden (${o.paypalGesucht}). ` : 'Keine Mollie-ID. ')\n      + 'Mollie-Suche abgeschaltet (Config mollieSucheAktiv) – manuell bearbeiten, z. B. im Mollie-Dashboard über die Bestellnummer suchen',\n    zuordnung: 'nicht gesucht',\n    bearbeitetAm: new Date().toISOString()\n  });\n}\n\n// Suchzeitraum: ab dem Vortag der ältesten gesuchten Bestellung (Mollie liefert die neuesten Zahlungen zuerst)\nconst TAG = 86400000;\nconst ab = sd.mollieSuche.length\n  ? new Date(Math.min(...sd.mollieSuche.map(o => new Date(o.bestelldatum).getTime())) - TAG).toISOString()\n  : '';\n\nsd.lauf.mollieBestellungen = kandidaten.length;\nsd.lauf.mollieVonPayPal = kandidaten.filter(o => nichtBeiPayPal.has(o.bestellnummer)).length;\nsd.lauf.mollieAusPayPal = kandidaten.filter(o => ausPayPal.has(o.bestellnummer)).length;\nsd.lauf.mollieDirekt = sd.mollieDirekt.length;\nsd.lauf.mollieSuche = sd.mollieSuche.length;\nsd.lauf.mollieNichtGesucht = nichtGesucht.length;\n\n// Steuer-Item: suche > 0 -> Mollie-Zahlungen und -Orders laden, sonst direkt zur Zuordnung\nreturn [{ json: { suche: sd.mollieSuche.length, ab } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10688,
+        4352
+      ],
+      "id": "1f42566c-7e36-45da-8821-720dae90fd1d",
+      "name": "Mollie vorbereiten"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "46bc345b-0e65-4d54-882e-bd65e84686ea",
+              "leftValue": "={{ $json.mollieUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        11776,
+        4352
+      ],
+      "id": "97e238c5-1de8-4fee-b3d7-b3bca21c47e2",
+      "name": "Mollie abfragen?"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        12144,
+        4432
+      ],
+      "id": "fe1dfa81-407e-436b-afb6-8599aaa3a1ce",
+      "name": "Loop Mollie"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.mollieUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        12368,
+        4624
+      ],
+      "id": "5cabf0ee-6347-4778-b1d2-c42447dcb920",
+      "name": "GET Mollie-Zahlung",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "gdWT3FhCohiCfDh7",
+          "name": "Molli API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prüft die Zahlung bei Mollie und wählt den Weg: MOLLIE (Erstattung über die API), PAYOUT (PayPal über Mollie, älter als\n// die Mollie-Frist: Payout bei PayPal an die PayPal-E-Mail des Zahlers) oder KEINER (Report-Eintrag, keine Aktion).\n// Erstattbar ist eine Zahlung nur, solange Mollie amountRemaining (erstattbarer Restbetrag) liefert und die Frist der Zahlart läuft.\nconst resp = $input.first().json;\nconst src = $('Loop Mollie').first().json;\nconst config = $('Config').first().json.config;\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\n\nconst runden = x => Math.round(x * 100) / 100;\n// Mollie antwortet mit Content-Type application/hal+json – je nach n8n-Einstellung kommt der Body als Text an\nconst alsObjekt = b => {\n  if (b && typeof b === 'object') return b;\n  if (typeof b !== 'string' || !b.trim()) return {};\n  try { return JSON.parse(b); } catch (e) { return { parseFehler: 'Antwort nicht lesbar: ' + b.slice(0, 150) }; }\n};\nconst body = alsObjekt(resp.body);\nconst fehlerText = r => {\n  const b = alsObjekt(r.body);\n  return [b.title, b.detail, b.field ? 'Feld ' + b.field : '', b.parseFehler, r.error?.message].filter(Boolean).join(' | ').slice(0, 400);\n};\nconst antwort = resp.statusCode ? 'HTTP ' + resp.statusCode : 'keine Antwort';\n\n// Mollie-Order (ord_): die bezahlte Zahlung aus _embedded.payments, sonst die Zahlung selbst\nconst zahlungen = body.resource === 'order' ? (body._embedded?.payments || []) : [body];\nconst zahlung = zahlungen.find(p => p.status === 'paid') || zahlungen[0] || {};\n\nconst info = {\n  transaktionsId: zahlung.id || src.mollieId,\n  zahlungsdatum: zahlung.paidAt || zahlung.createdAt || '',\n  zahlungsBetrag: zahlung.amount ? Number(zahlung.amount.value) : '',\n  captureStatus: zahlung.status || '',\n  zuordnung: src.zuordnung || 'Transaktions-ID',\n  debug: `${src.debug ? src.debug + ' · ' : ''}Mollie GET ${src.mollieId} ${antwort}${zahlung.status ? ' ' + zahlung.status : ''}${zahlung.method ? ' · Zahlart ' + zahlung.method : ''}`\n    + (zahlung.amountRemaining ? ` · erstattbar ${zahlung.amountRemaining.value}` : '')\n};\nconst vermerk = (status, grund, extra = {}) => sd.done.push({\n  bestellnummer: src.bestellnummer, status, grund: String(grund).slice(0, 500), ...info, ...extra, bearbeitetAm: new Date().toISOString()\n});\nconst weiter = (weg, extra = {}) => [{ json: { ...src, ...info, weg, ...extra } }];\n\nif (resp.statusCode === 404) {\n  vermerk('NICHT_GEFUNDEN', `Mollie kennt die Transaktions-ID ${src.mollieId} nicht: ${fehlerText(resp)}`\n    + (src.paypalTransaktionsId ? ` – Mollie-ID aus der PayPal-Zahlung ${src.paypalTransaktionsId}; gehört der API-Key zum Website-Profil des WooCommerce-Shops?` : ''));\n  return weiter('KEINER');\n}\nif (resp.statusCode !== 200 || body.parseFehler) {\n  vermerk('FEHLER', `Mollie abrufen: ${antwort} ${fehlerText(resp)}`);\n  return weiter('KEINER');\n}\nif (!zahlung.id) {\n  vermerk('ZAHLUNG_PRUEFEN', `Mollie-Order ${src.mollieId} ohne Zahlung`);\n  return weiter('KEINER');\n}\n\n// Zahlungsstatus laut Mollie: open, pending, authorized, paid, canceled, expired, failed\nif (zahlung.status !== 'paid') {\n  vermerk('ZAHLUNG_PRUEFEN', `Mollie-Status ${zahlung.status}`);\n  return weiter('KEINER');\n}\nconst gezahlt = Number(zahlung.amount?.value);\nconst waehrung = zahlung.amount?.currency;\nif (waehrung !== src.waehrung) {\n  vermerk('ZAHLUNG_PRUEFEN', `Währung bei Mollie ${waehrung}, im Export ${src.waehrung}`);\n  return weiter('KEINER');\n}\n// Gegenprobe wie bei PayPal: Mollie-Betrag = Bestellwert laut Export\nif (Math.abs(gezahlt - src.bestellwert) > 0.01) {\n  vermerk('BETRAG_PRUEFEN', `Mollie-Zahlung ${gezahlt.toFixed(2)}, Bestellwert laut Export ${Number(src.bestellwert).toFixed(2)}`);\n  return weiter('KEINER');\n}\nconst schonErstattet = Number(zahlung.amountRefunded?.value || 0);\nif (schonErstattet > 0) {\n  vermerk(schonErstattet >= gezahlt - 0.005 ? 'BEREITS_ERSTATTET' : 'BEREITS_TEILERSTATTET',\n    `Mollie: bereits ${schonErstattet.toFixed(2)} ${waehrung} erstattet${schonErstattet >= gezahlt - 0.005 ? '' : ' – manuell prüfen'}`);\n  return weiter('KEINER');\n}\n\n// ALLES: die ganze Zahlung, sonst der berechnete Betrag\nconst betrag = src.aktion === 'ALLES' ? gezahlt : runden(src.erstattungsbetrag);\nif (!(betrag > 0) || betrag > gezahlt) {\n  vermerk('ZAHLUNG_PRUEFEN', `Erstattung ${Number(betrag).toFixed(2)} passt nicht zur Mollie-Zahlung ${gezahlt.toFixed(2)}`);\n  return weiter('KEINER');\n}\n\nconst alterTage = Math.floor((Date.now() - new Date(info.zahlungsdatum)) / 86400000);\nconst frist = (config.mollieFristTage || {})[zahlung.method];\nconst fristAbgelaufen = Boolean(frist && alterTage > frist);\n// Ohne amountRemaining bietet Mollie für diese Zahlung keine Erstattung (mehr) an\nconst rest = zahlung.amountRemaining ? Number(zahlung.amountRemaining.value) : null;\n\n// PayPal über Mollie: Mollie erstattet nur bis zur Frist (180 Tage). Danach – oder wenn Mollie keine Erstattung mehr\n// anbietet – Payout bei PayPal an die PayPal-E-Mail des Zahlers (laut Mollie, sonst laut PayPal-Suche).\nlet weg = 'MOLLIE';\nlet email = '';\nif (zahlung.method === 'paypal' && (fristAbgelaufen || rest === null)) {\n  const warum = fristAbgelaufen\n    ? `Zahlung ${alterTage} Tage alt, Mollie erstattet PayPal nur bis ${frist} Tage`\n    : `Mollie bietet keine Erstattung mehr an (Zahlung ${alterTage} Tage alt)`;\n  if (!config.payoutsAktiv) {\n    vermerk('FRIST_ABGELAUFEN', `PayPal über Mollie: ${warum}. Payouts nicht aktiv – ${betrag.toFixed(2)} ${waehrung} manuell erstatten`, { betrag });\n    return weiter('KEINER');\n  }\n  email = String(zahlung.details?.consumerAccount || src.paypalEmail || '').trim();\n  if (!email.includes('@')) {\n    vermerk('ZAHLUNG_PRUEFEN', `PayPal über Mollie: ${warum}. Payout nicht möglich: keine PayPal-E-Mail des Zahlers (weder bei Mollie noch in der PayPal-Suche)`, { betrag });\n    return weiter('KEINER');\n  }\n  if (!$('Token holen (PayPal)').isExecuted) {\n    vermerk('FEHLER', `PayPal über Mollie: ${warum}. Payout nicht möglich: PayPal wurde in diesem Lauf nicht abgefragt (kein Token)`, { betrag });\n    return weiter('KEINER');\n  }\n  weg = 'PAYOUT';\n} else {\n  if (fristAbgelaufen) {\n    vermerk('FRIST_ABGELAUFEN', `Mollie (${zahlung.method}): Zahlung ${alterTage} Tage alt, Erstattung nur bis ${frist} Tage – ${betrag.toFixed(2)} ${waehrung} manuell erstatten`, { betrag });\n    return weiter('KEINER');\n  }\n  if (rest === null || betrag > rest + 0.005) {\n    vermerk('MANUELL_ERSTATTEN', rest === null\n      ? `Mollie bietet für diese Zahlung (${zahlung.method}) keine Erstattung über die API an – ${betrag.toFixed(2)} ${waehrung} manuell erstatten`\n      : `Mollie erstattet höchstens noch ${rest.toFixed(2)} ${waehrung}, berechnet ${betrag.toFixed(2)} – manuell prüfen`, { betrag });\n    return weiter('KEINER');\n  }\n}\n\nconst vorgang = `produktentfernung-wc-${src.bestellnummer}-${src.skus.join('+')}`;\n\n// Doppelschutz wie bei PayPal: nur ohne Protokoll-Eintrag oder wenn der letzte Versuch ABGELEHNT war\nconst protokoll = $('Protokoll laden (Mollie)').all().map(i => i.json);\nconst lesefehler = protokoll.find(r => r.error);\nif (lesefehler) {\n  vermerk('ZAHLUNG_PRUEFEN', 'Protokoll nicht lesbar – keine Erstattung ohne Doppelschutz: ' + JSON.stringify(lesefehler.error).slice(0, 200), { betrag });\n  return weiter('KEINER');\n}\nconst eintrag = protokoll.find(r => r.vorgang === vorgang);\nif (eintrag && eintrag.status !== 'ABGELEHNT') {\n  const offen = ['RESERVIERT', 'UNKLAR'].includes(eintrag.status) ? ' – Ergebnis beim Zahlungsanbieter prüfen' : '';\n  vermerk(eintrag.weg === 'PAYOUT' ? 'BEREITS_AUSGEZAHLT' : 'BEREITS_ERSTATTET',\n    `Laut Protokoll: ${eintrag.weg || ''} ${eintrag.status} seit ${String(eintrag.createdAt).slice(0, 10)}${eintrag.referenz ? ', Referenz ' + eintrag.referenz : ''}${offen}`,\n    { betrag, weg: eintrag.weg || weg, referenz: eintrag.referenz || '' });\n  return weiter('KEINER');\n}\n\nconst vorhaben = weg === 'PAYOUT' ? `per Payout an ${email} senden` : 'über Mollie erstatten';\nif (config.modus !== 'SCHARF') {\n  vermerk('TROCKENLAUF', `würde ${betrag.toFixed(2)} ${waehrung} ${vorhaben} (${zahlung.method}, Zahlung ${alterTage} Tage alt)`,\n    { betrag, weg, empfaenger: email });\n  return weiter('KEINER');\n}\n\n// Test-Limit: im Modus SCHARF nur die ersten Config.testLimit Vorgänge je Zahlungsweg – Mollie-Erstattungen und\n// PayPal-Payouts getrennt gezählt (Payouts zusammen mit der PayPal-Schleife). Der Rest wird nur geprüft.\nconst limit = Number(config.testLimit) || 0;\nconst zaehler = weg === 'PAYOUT' ? 'testPayPal' : 'testMollie';\nsd.lauf = sd.lauf || {};\nif (limit > 0 && (sd.lauf[zaehler] || 0) >= limit) {\n  vermerk('NICHT_VERARBEITET', `Test-Limit (${limit}) erreicht – würde ${betrag.toFixed(2)} ${waehrung} ${vorhaben} (${zahlung.method}, Zahlung ${alterTage} Tage alt)`,\n    { betrag, weg, empfaenger: email });\n  return weiter('KEINER');\n}\nsd.lauf[zaehler] = (sd.lauf[zaehler] || 0) + 1;\n\nif (weg === 'PAYOUT') {\n  // Payout: neue Zahlung an die PayPal-E-Mail des Zahlers.\n  // sender_batch_id und PayPal-Request-Id schützen 30 Tage vor Doppelzahlung, danach das Protokoll.\n  const payoutBody = {\n    sender_batch_header: {\n      sender_batch_id: vorgang,\n      recipient_type: 'EMAIL',\n      email_subject: config.payoutBetreff,\n      email_message: config.payoutNachricht\n    },\n    items: [{\n      recipient_type: 'EMAIL',\n      amount: { value: betrag.toFixed(2), currency: waehrung },\n      receiver: email,\n      note: `${config.notizAnKunde} Bestellung ${src.bestellnummer}`,\n      sender_item_id: String(src.bestellnummer).slice(0, 63)\n    }]\n  };\n  return weiter('PAYOUT', { vorgang, betrag, waehrung, email, payoutBody: JSON.stringify(payoutBody) });\n}\n\n// Erstattung: Idempotency-Key = Vorgang, Mollie liefert bei Wiederholung innerhalb einer Stunde die erste Antwort\nconst refundBody = {\n  amount: { currency: waehrung, value: betrag.toFixed(2) },\n  description: String(config.notizAnKunde).slice(0, 255),\n  metadata: { bestellnummer: src.bestellnummer, vorgang }\n};\nreturn weiter('MOLLIE', {\n  vorgang,\n  betrag,\n  waehrung,\n  molliePaymentId: zahlung.id,\n  refundBody: JSON.stringify(refundBody)\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        12592,
+        4624
+      ],
+      "id": "bf9c9839-70e0-4079-b1da-d9426c352753",
+      "name": "Mollie prüfen + Weg wählen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7378794c-9f99-47b7-b0c0-19e92a66db12",
+              "leftValue": "={{ $('Mollie prüfen + Weg wählen').first().json.weg }}",
+              "rightValue": "MOLLIE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        13280,
+        4400
+      ],
+      "id": "f99386ea-3554-439e-95ca-ef717aeeda00",
+      "name": "Mollie erstatten?"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "produktentfernung_auszahlungen"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "vorgang",
+              "keyValue": "={{ $json.vorgang }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "vorgang": "={{ $json.vorgang }}",
+            "bestellnummer": "={{ $json.bestellnummer }}",
+            "weg": "={{ $json.weg }}",
+            "transaktions_id": "={{ $json.transaktionsId }}",
+            "betrag": "={{ $json.betrag }}",
+            "waehrung": "={{ $json.waehrung }}",
+            "status": "RESERVIERT",
+            "referenz": "",
+            "grund": "={{ $json.weg === 'PAYOUT' ? 'Payout wird gesendet' : 'Erstattung wird gesendet' }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "vorgang",
+              "displayName": "vorgang",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bestellnummer",
+              "displayName": "bestellnummer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "weg",
+              "displayName": "weg",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "transaktions_id",
+              "displayName": "transaktions_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "betrag",
+              "displayName": "betrag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "waehrung",
+              "displayName": "waehrung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "referenz",
+              "displayName": "referenz",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "grund",
+              "displayName": "grund",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        13056,
+        4400
+      ],
+      "id": "11dfcac1-8a36-4810-b7ec-dba9509c2777",
+      "name": "Protokoll: reservieren (Mollie)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.mollieBaseUrl }}/v2/payments/{{ encodeURIComponent($('Mollie prüfen + Weg wählen').first().json.molliePaymentId) }}/refunds",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $('Mollie prüfen + Weg wählen').first().json.vorgang }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Mollie prüfen + Weg wählen').first().json.refundBody }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        13504,
+        4304
+      ],
+      "id": "8827c5d5-b23d-452c-98b4-3c686e013a6d",
+      "name": "Mollie-Erstattung",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "gdWT3FhCohiCfDh7",
+          "name": "Molli API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wertet die Mollie-Erstattung aus und bereitet den Protokoll-Eintrag vor.\n// Bewusst kein throw: der Loop geht weiter, der Report zeigt den Fehler.\nconst resp = $input.first().json;\nconst src = $('Mollie prüfen + Weg wählen').first().json;\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\n\n// Mollie antwortet mit Content-Type application/hal+json – je nach n8n-Einstellung kommt der Body als Text an\nconst alsObjekt = b => {\n  if (b && typeof b === 'object') return b;\n  if (typeof b !== 'string' || !b.trim()) return {};\n  try { return JSON.parse(b); } catch (e) { return { parseFehler: 'Antwort nicht lesbar: ' + b.slice(0, 150) }; }\n};\nconst r = alsObjekt(resp.body);\nconst fehlerText = x => {\n  const b = alsObjekt(x.body);\n  return [b.title, b.detail, b.field ? 'Feld ' + b.field : '', b.parseFehler, x.error?.message].filter(Boolean).join(' | ').slice(0, 400);\n};\nconst antwort = resp.statusCode ? 'HTTP ' + resp.statusCode : 'keine Antwort';\nconst wiederholt = String(resp.headers?.['idempotent-replayed'] || '') === 'true';\n\n// 201 = Erstattung angelegt. Refund-Status laut Mollie: queued, pending, processing, refunded, failed, canceled\nlet status;\nlet protokollStatus;\nlet grund = '';\nif (resp.statusCode === 201 && r.id) {\n  const gescheitert = ['failed', 'canceled'].includes(r.status);\n  status = r.status === 'refunded' ? 'ERSTATTET' : gescheitert ? 'FEHLER' : 'ERSTATTUNG_AUSSTEHEND';\n  // failed/canceled: kein Geld geflossen -> neuer Versuch erlaubt\n  protokollStatus = gescheitert ? 'ABGELEHNT' : String(r.status).toUpperCase();\n  if (status !== 'ERSTATTET') grund = `Mollie-Status ${r.status}${status === 'ERSTATTUNG_AUSSTEHEND' ? ' – Mollie führt die Erstattung noch aus' : ''}`;\n  if (wiederholt) grund = [grund, 'Erstattung bestand bereits (gleicher Idempotency-Key)'].filter(Boolean).join(' · ');\n} else if (resp.statusCode === 409) {\n  // Gleiche Anfrage läuft noch: offen, ob Mollie erstattet -> UNKLAR sperrt weitere Versuche\n  status = 'FEHLER';\n  protokollStatus = 'UNKLAR';\n  grund = `Mollie-Erstattung: ${antwort} ${fehlerText(resp)} – Ergebnis unklar, in Mollie prüfen`;\n} else if (resp.statusCode >= 400 && resp.statusCode < 500) {\n  // Abgelehnt, kein Geld geflossen (z. B. Zahlart nicht erstattbar, Frist abgelaufen, Guthaben zu gering)\n  status = 'FEHLER';\n  protokollStatus = 'ABGELEHNT';\n  grund = `Mollie-Erstattung abgelehnt: ${antwort} ${fehlerText(resp)} – manuell erstatten`;\n} else {\n  status = 'FEHLER';\n  protokollStatus = 'UNKLAR';\n  grund = `Mollie-Erstattung: ${antwort} ${fehlerText(resp)} – Ergebnis unklar, in Mollie prüfen`;\n}\n\nconst erstattet = r.amount?.value !== undefined ? Number(r.amount.value) : null;\nif (status !== 'FEHLER' && erstattet !== null && Math.abs(erstattet - src.betrag) > 0.01) {\n  grund = [grund, `Erstattet ${erstattet.toFixed(2)}, erwartet ${src.betrag.toFixed(2)} – prüfen`].filter(Boolean).join(' · ');\n}\n\nsd.done.push({\n  bestellnummer: src.bestellnummer,\n  status,\n  grund: grund.slice(0, 500),\n  weg: 'MOLLIE',\n  transaktionsId: src.transaktionsId,\n  zahlungsdatum: src.zahlungsdatum,\n  zahlungsBetrag: src.zahlungsBetrag,\n  captureStatus: src.captureStatus,\n  zuordnung: src.zuordnung,\n  betrag: erstattet ?? src.betrag,\n  referenz: r.id || '',\n  anbieterStatus: r.status || '',\n  debug: `${src.debug} · Refund ${antwort}${r.status ? ' ' + r.status : ''}${wiederholt ? ' (wiederholt)' : ''}`,\n  bearbeitetAm: new Date().toISOString()\n});\n\n// Für \"Protokoll: Ergebnis (Mollie)\" (Data Table)\nreturn [{\n  json: {\n    vorgang: src.vorgang,\n    bestellnummer: src.bestellnummer,\n    weg: 'MOLLIE',\n    transaktionsId: src.transaktionsId,\n    betrag: erstattet ?? src.betrag,\n    waehrung: src.waehrung,\n    protokollStatus,\n    referenz: r.id || '',\n    protokollGrund: (grund || status).slice(0, 250)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13728,
+        4304
+      ],
+      "id": "0c71ab6b-961c-4de6-8c4c-44a0d14d222f",
+      "name": "Mollie-Erstattung prüfen"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "produktentfernung_auszahlungen"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "vorgang",
+              "keyValue": "={{ $json.vorgang }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "vorgang": "={{ $json.vorgang }}",
+            "bestellnummer": "={{ $json.bestellnummer }}",
+            "weg": "={{ $json.weg }}",
+            "transaktions_id": "={{ $json.transaktionsId }}",
+            "betrag": "={{ $json.betrag }}",
+            "waehrung": "={{ $json.waehrung }}",
+            "status": "={{ $json.protokollStatus }}",
+            "referenz": "={{ $json.referenz }}",
+            "grund": "={{ $json.protokollGrund }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "vorgang",
+              "displayName": "vorgang",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "bestellnummer",
+              "displayName": "bestellnummer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "weg",
+              "displayName": "weg",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "transaktions_id",
+              "displayName": "transaktions_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "betrag",
+              "displayName": "betrag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "waehrung",
+              "displayName": "waehrung",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "referenz",
+              "displayName": "referenz",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "grund",
+              "displayName": "grund",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        13952,
+        4400
+      ],
+      "id": "a176e5e6-2ae7-465a-85f0-688e7d313208",
+      "name": "Protokoll: Ergebnis (Mollie)",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        14176,
+        4496
+      ],
+      "id": "42b3ae49-f2e7-4844-9f26-5c1f15eca186",
+      "name": "Wait (Mollie)",
+      "webhookId": "4137e951-b78a-4f6c-9b74-0182ff1fa776"
+    },
+    {
+      "parameters": {
+        "jsCode": "// FLACHE DEBUG-TABELLE: eine Zeile pro Bestellung, in n8n als Table-View lesbar.\n// Zeigt Zahlungsweg, Zuordnung, Antworten der Anbieter und den Protokoll-Eintrag – nur zum Ansehen, geht nicht in die Mail.\nconst config = $('Config').first().json.config;\nconst protokoll = $('Protokoll für Report laden').all().map(i => i.json).filter(r => r.vorgang);\n// Neuester Eintrag je Bestellung\nconst protokollJe = new Map();\nfor (const r of protokoll) {\n  const alt = protokollJe.get(r.bestellnummer);\n  if (!alt || String(r.updatedAt || r.createdAt) > String(alt.updatedAt || alt.createdAt)) protokollJe.set(r.bestellnummer, r);\n}\n\n// Bearbeitete und problematische Fälle zuerst, reine Einordnung danach\nconst RANG = s => s === 'FEHLER' ? 0\n  : ['ERSTATTET', 'ERSTATTUNG_AUSSTEHEND', 'AUSZAHLUNG_ANGESTOSSEN', 'TROCKENLAUF', 'NICHT_VERARBEITET'].includes(s) ? 1 : 2;\n\nconst rows = $input.all().map(i => i.json)\n  .sort((a, b) => RANG(a.status) - RANG(b.status) || String(a.status).localeCompare(String(b.status))\n    || String(a.bestellnummer).localeCompare(String(b.bestellnummer)));\n\nreturn rows.map(r => {\n  const p = protokollJe.get(r.bestellnummer);\n  return { json: {\n    modus:               config.modus,\n    bestellnummer:       r.bestellnummer,\n    status:              r.status,\n    fall:                r.fall || null,\n    // --- Zahlung laut Export ---\n    zahlungsweg:         r.zahlungsweg || null,\n    zahlungsartExport:   r.zahlungsart || null,\n    transaktionsIdExport: r.transaktionsIdExport || null,\n    // --- Zahlung beim Anbieter ---\n    zuordnung:           r.zuordnung || null,\n    transaktionsId:      r.transaktionsId || null,\n    bestellwert:         r.bestellwert,\n    gezahlt:             r.zahlungsBetrag === '' ? null : r.zahlungsBetrag,\n    zahlungsstatus:      r.captureStatus || null,\n    zahlungsdatum:       r.zahlungsdatum || null,\n    // --- Erstattung ---\n    weg:                 r.weg || null,\n    berechnet:           r.erstattungsbetrag === '' ? null : r.erstattungsbetrag,\n    betrag:              r.betrag === '' ? null : r.betrag,\n    referenz:            r.referenz || null,\n    anbieterStatus:      r.anbieterStatus || null,\n    // --- Protokoll (Data Table) ---\n    protokoll:           p ? `${p.weg || ''} ${p.status} (${String(p.updatedAt || p.createdAt).slice(0, 16)})`.trim() : null,\n    // --- Technik ---\n    debug:               r.debug || null,\n    grund:               r.grund || null\n  } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        15056,
+        3984
+      ],
+      "id": "7b5b4f51-4d92-4ae1-a2a6-f7f40e5b9da9",
+      "name": "Debug-Tabelle"
+    },
+    {
+      "parameters": {
+        "content": "## Mollie (läuft nach PayPal)\nBearbeitet: PayPal-Zahlungen über Mollie (Mollie-ID aus der PayPal-Suche), Bestellungen mit Zahlungsweg Mollie und alle, die PayPal nicht gefunden hat (z. B. „Karte“).\n1. **Finden:** mit `tr_…`/`ord_…` aus der PayPal-Suche oder dem Export direkt. Sonst `GET /v2/payments` und `GET /v2/orders` (je 250, neueste zuerst, bis zum ältesten Bestelldatum) laden und zuordnen: Bestellnummer in Beschreibung, Metadaten oder `orderNumber` **und** Betrag = Bestellwert **und** Datum Vortag bis +`suchPufferTage` → `NICHT_GEFUNDEN` · `BETRAG_PRUEFEN` · `TRANSAKTION_PRUEFEN`. Die Suche lädt alle Zahlungen bis zur ältesten gesuchten Bestellung (bei uns ein Jahr) – Schalter `mollieSucheAktiv`: `false` = nicht suchen, `NICHT_GEFUNDEN` mit Hinweis (manuell).\n2. **Prüfen** `GET /v2/payments/{tr_…}` bzw. `GET /v2/orders/{ord_…}?embed=payments`: nur `paid`, noch nichts erstattet (`amountRefunded`).\n3. **Erstatten** `POST /v2/payments/{tr_…}/refunds` mit `Idempotency-Key` = Vorgang – solange die Frist läuft (`mollieFristTage`: Kreditkarte 365, PayPal 180) und Mollie einen erstattbaren Betrag (`amountRemaining`) liefert.\n4. **PayPal über Mollie, älter als 180 Tage:** `POST /v1/payments/payouts` an die PayPal-E-Mail (`details.consumerAccount` bei Mollie, sonst aus der PayPal-Suche) – nur mit `payoutsAktiv`, sonst `FRIST_ABGELAUFEN`.\n5. **Andere Zahlarten nach der Frist** → `FRIST_ABGELAUFEN`; kein erstattbarer Betrag → `MANUELL_ERSTATTEN`.\n\n**Doppelschutz:** Protokoll (Data Table) wie bei PayPal, dazu der Idempotency-Key (Mollie: 1 Stunde) bzw. PayPal-Request-Id. **Wichtig:** Der API-Key „Molli API“ muss zum Website-Profil des WooCommerce-Shops gehören – sonst `NICHT_GEFUNDEN` mit Hinweis auf den Key.",
+        "height": 540,
+        "width": 1200,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        11344,
+        2416
+      ],
+      "id": "4ae6b73c-8ad1-4f51-9650-5dbc45b76d0e",
+      "name": "Sticky Mollie"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1a471fc6-5b6d-4712-b23b-fa2b9c248cb6",
+              "leftValue": "={{ $json.suche > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        10896,
+        4352
+      ],
+      "id": "dd1cfe85-19af-426c-8e83-9d2d481ba5f3",
+      "name": "Mollie suchen?"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.config.mollieBaseUrl }}/v2/payments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "250"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ (b => b && b._links && b._links.next ? b._links.next.href : $('Config').first().json.config.mollieBaseUrl + '/v2/payments?limit=250')((x => typeof x === \"string\" ? JSON.parse(x) : (x && typeof x.data === \"string\" ? JSON.parse(x.data) : x))($response.body)) }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ (b => !(b && b._links && b._links.next) || String(((b._embedded || {}).payments || []).slice(-1).map(x => x.createdAt)[0] || '') < $('Mollie vorbereiten').first().json.ab)((x => typeof x === \"string\" ? JSON.parse(x) : (x && typeof x.data === \"string\" ? JSON.parse(x.data) : x))($response.body)) }}",
+              "limitPagesFetched": true,
+              "maxRequests": 1000,
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        11120,
+        4512
+      ],
+      "id": "9f5a082e-f278-4e12-a64f-14a6e5dcb391",
+      "name": "Mollie-Zahlungen laden",
+      "executeOnce": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "gdWT3FhCohiCfDh7",
+          "name": "Molli API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.config.mollieBaseUrl }}/v2/orders",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "250"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ (b => b && b._links && b._links.next ? b._links.next.href : $('Config').first().json.config.mollieBaseUrl + '/v2/orders?limit=250')((x => typeof x === \"string\" ? JSON.parse(x) : (x && typeof x.data === \"string\" ? JSON.parse(x.data) : x))($response.body)) }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ (b => !(b && b._links && b._links.next) || String(((b._embedded || {}).orders || []).slice(-1).map(x => x.createdAt)[0] || '') < $('Mollie vorbereiten').first().json.ab)((x => typeof x === \"string\" ? JSON.parse(x) : (x && typeof x.data === \"string\" ? JSON.parse(x.data) : x))($response.body)) }}",
+              "limitPagesFetched": true,
+              "maxRequests": 1000,
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        11344,
+        4512
+      ],
+      "id": "d8515e90-4372-47ec-b31e-ed1c3762ba74",
+      "name": "Mollie-Orders laden",
+      "executeOnce": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "gdWT3FhCohiCfDh7",
+          "name": "Molli API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ordnet die geladenen Mollie-Zahlungen und -Orders den gesuchten Bestellungen zu.\n// Treffer: Bestellnummer steht in den Metadaten, in der Beschreibung (z. B. \"Order 1808742\") oder als orderNumber (Mollie-Order)\n// UND Betrag = Bestellwert UND Zahlung vom Vortag bis +suchPufferTage nach dem Bestelldatum.\n// Bestellungen mit Mollie-ID aus dem Export kommen direkt dazu.\nconst config = $('Config').first().json.config;\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\nsd.lauf = sd.lauf || {};\nconst suche = sd.mollieSuche || [];\nconst direkt = sd.mollieDirekt || [];\nconst TAG = 86400000;\n\n// Mollie antwortet mit Content-Type application/hal+json. Je nach n8n-Einstellung kommt eine Seite als Objekt,\n// als Text oder als Text in \"data\" an – hier immer in ein Objekt bringen.\nconst alsObjekt = j => {\n  const text = typeof j === 'string' ? j : (j && typeof j.data === 'string' ? j.data : null);\n  if (text === null) return j && j.data && typeof j.data === 'object' && !j._embedded ? j.data : (j || {});\n  try { return JSON.parse(text); } catch (e) { return { error: { message: 'Mollie-Antwort nicht lesbar: ' + text.slice(0, 150) } }; }\n};\n// Die Lade-Nodes laufen nur, wenn gesucht wird\nconst seiten = name => { try { return $(name).all().map(i => alsObjekt(i.json)); } catch (e) { return []; } };\nconst zahlungsSeiten = seiten('Mollie-Zahlungen laden');\nconst orderSeiten = seiten('Mollie-Orders laden');\n// Fehlerhafte Antworten (z. B. Orders API nicht verfügbar) für die Lauf-Info merken\nconst fehler = [...zahlungsSeiten, ...orderSeiten].filter(s => s.status >= 400 || s.error)\n  .map(s => `${s.status || ''} ${s.title || s.error?.message || ''}${s.detail ? ': ' + s.detail : ''}`.trim());\n\n// Mögliche Bestellnummern eines Mollie-Objekts\nconst nummernVon = obj => {\n  const t = new Set();\n  let md = obj.metadata;\n  if (typeof md === 'string') { try { md = JSON.parse(md); } catch (e) { md = { text: md }; } }\n  for (const v of Object.values(md || {})) if (['string', 'number'].includes(typeof v)) for (const m of String(v).match(/\\d+/g) || []) t.add(m);\n  for (const m of String(obj.description || '').match(/\\d+/g) || []) t.add(m);\n  if (obj.orderNumber) t.add(String(obj.orderNumber).trim());\n  return t;\n};\n\nconst gesucht = new Set(suche.map(o => o.bestellnummer));\nconst kandidaten = new Map();\nconst merke = (obj, quelle) => {\n  for (const nr of nummernVon(obj)) {\n    if (!gesucht.has(nr)) continue;\n    if (!kandidaten.has(nr)) kandidaten.set(nr, []);\n    kandidaten.get(nr).push({\n      id: obj.id, orderId: obj.orderId || '', quelle, status: obj.status,\n      betrag: Number(obj.amount?.value), waehrung: obj.amount?.currency,\n      datum: obj.paidAt || obj.createdAt || ''\n    });\n  }\n};\nlet anzahlZahlungen = 0;\nlet anzahlOrders = 0;\nfor (const s of zahlungsSeiten) for (const p of s._embedded?.payments || []) { anzahlZahlungen++; merke(p, 'Beschreibung/Metadaten'); }\nfor (const s of orderSeiten) for (const o of s._embedded?.orders || []) { anzahlOrders++; merke(o, 'Mollie-Order'); }\n\nsd.lauf.mollieZahlungenGeladen = anzahlZahlungen;\nsd.lauf.mollieOrdersGeladen = anzahlOrders;\nsd.lauf.mollieZuordnung = {};\nif (fehler.length) sd.lauf.mollieLadefehler = [...new Set(fehler)].slice(0, 3).join(' | ');\nconst zaehle = k => { sd.lauf.mollieZuordnung[k] = (sd.lauf.mollieZuordnung[k] || 0) + 1; };\n\nconst vermerk = (o, status, grund, extra = {}) => sd.done.push({\n  bestellnummer: o.bestellnummer, status, grund: String(grund).slice(0, 500), ...extra, bearbeitetAm: new Date().toISOString()\n});\nconst url = id => config.mollieBaseUrl + (id.startsWith('ord_') ? `/v2/orders/${encodeURIComponent(id)}?embed=payments` : `/v2/payments/${encodeURIComponent(id)}`);\n\nconst items = direkt.map(o => { zaehle(o.zuordnung || 'Transaktions-ID'); return { json: { ...o, mollieUrl: url(o.mollieId) } }; });\n\nfor (const o of suche) {\n  const start = new Date(o.bestelldatum).getTime() - TAG;\n  const ende = new Date(o.bestelldatum).getTime() + (config.suchPufferTage + 1) * TAG;\n  const alle = kandidaten.get(o.bestellnummer) || [];\n  // Zahlung einer Mollie-Order nicht doppelt zählen: die Zahlung (tr_) hat Vorrang vor der Order (ord_)\n  const zahlungsIdsZuOrders = new Set(alle.filter(k => k.orderId).map(k => k.orderId));\n  const eindeutig = alle.filter((k, i) => !(k.id.startsWith('ord_') && zahlungsIdsZuOrders.has(k.id))\n    && alle.findIndex(x => x.id === k.id) === i);\n  const imZeitraum = eindeutig.filter(k => { const t = new Date(k.datum).getTime(); return t >= start && t <= ende; });\n  const passend = imZeitraum.filter(k => Math.abs(k.betrag - o.bestellwert) <= 0.01 && k.waehrung === o.waehrung);\n  // Bezahlte bevorzugen (abgebrochene Versuche derselben Bestellung haben oft denselben Betrag)\n  const bezahlt = passend.filter(k => k.status === 'paid' || k.status === 'completed' || k.status === 'shipping' || k.status === 'authorized');\n  const treffer = bezahlt.length ? bezahlt : passend;\n  const debug = `Mollie-Suche: ${anzahlZahlungen} Zahlungen, ${anzahlOrders} Orders · Kandidaten ${eindeutig.length}, im Zeitraum ${imZeitraum.length}, Betrag passt ${passend.length}`;\n  const beiPayPal = o.paypalGesucht ? ` Bei PayPal gesucht: ${o.paypalGesucht}.` : '';\n\n  if (treffer.length === 1) {\n    zaehle(treffer[0].quelle);\n    items.push({ json: { ...o, mollieId: treffer[0].id, mollieUrl: url(treffer[0].id), zuordnung: treffer[0].quelle, debug } });\n  } else if (treffer.length > 1) {\n    zaehle('mehrdeutig');\n    vermerk(o, 'TRANSAKTION_PRUEFEN', `${treffer.length} Mollie-Zahlungen passen: ${treffer.map(k => k.id).join(', ')}`, { debug });\n  } else if (imZeitraum.length) {\n    zaehle('Betrag abweichend');\n    vermerk(o, 'BETRAG_PRUEFEN', `Mollie-Zahlung zur Bestellnummer gefunden (${imZeitraum.map(k => `${k.id} ${k.betrag.toFixed(2)}`).join(', ')}), Bestellwert laut Export ${Number(o.bestellwert).toFixed(2)}`, { debug });\n  } else {\n    zaehle('keine');\n    vermerk(o, 'NICHT_GEFUNDEN', `${o.paypalGesucht ? 'Weder bei PayPal noch bei Mollie gefunden.' + beiPayPal : 'Bei Mollie nicht gefunden.'} Bei Mollie: keine Zahlung mit Bestellnummer ${o.bestellnummer} zwischen Vortag und +${config.suchPufferTage} Tagen${eindeutig.length ? ` (${eindeutig.length} außerhalb des Zeitraums)` : ''}`, { debug });\n  }\n}\n\n// Keine Mollie-Zahlung zum Abfragen: Steuer-Item ohne mollieUrl -> IF leitet direkt zum Report\nreturn items.length ? items : [{ json: { mollie: 0 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11568,
+        4352
+      ],
+      "id": "ecd225ea-fd92-4721-94d1-80a075fa01fd",
+      "name": "Mollie zuordnen"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1e665e1a-7808-4b12-bac1-9069a7a09834",
+              "leftValue": "={{ ['MOLLIE', 'PAYOUT'].includes($json.weg) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        12816,
+        4624
+      ],
+      "id": "eca4cbed-7fb6-433e-a993-24cd33700923",
+      "name": "Geld bewegen? (Mollie)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.config.paypalBaseUrl }}/v1/payments/payouts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Token holen (PayPal)').first().json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "PayPal-Request-Id",
+              "value": "={{ $('Mollie prüfen + Weg wählen').first().json.vorgang }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Mollie prüfen + Weg wählen').first().json.payoutBody }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        13504,
+        4528
+      ],
+      "id": "28697f52-b85b-4d4a-a3f6-9ca73e0bb5e4",
+      "name": "Auszahlung (Payout, Mollie)",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wertet den Payout im Mollie-Zweig aus (PayPal über Mollie, älter als die Mollie-Frist) und bereitet den Protokoll-Eintrag vor.\n// Gleiche Auswertung wie \"Auszahlung prüfen\" in der PayPal-Schleife.\n// PayPal bearbeitet Payouts asynchron: PENDING heißt angenommen, nicht ausgezahlt.\nconst resp = $input.first().json;\nconst src = $('Mollie prüfen + Weg wählen').first().json;\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.done)) sd.done = [];\n\nconst body = resp.body || {};\nconst kopf = body.batch_header || {};\nconst fehlerText = x => [\n  x.body?.name,\n  x.body?.message,\n  ...(x.body?.details || []).map(d => [d.field, d.issue, d.description].filter(Boolean).join(': ')),\n  x.body?.debug_id ? 'debug_id ' + x.body.debug_id : '',\n  x.error?.message\n].filter(Boolean).join(' | ').slice(0, 400);\n\nconst antwort = resp.statusCode ? 'HTTP ' + resp.statusCode : 'keine Antwort';\n\n// Batch-Status laut PayPal: DENIED, PENDING, PROCESSING, SUCCESS, CANCELED\nconst angelegt = resp.statusCode === 201 && Boolean(kopf.payout_batch_id);\nconst ok = angelegt && kopf.batch_status !== 'DENIED';\n// sender_batch_id in den letzten 30 Tagen schon verwendet: PayPal lehnt ab und verlinkt den ursprünglichen Payout\nconst duplikat = !angelegt && (\n  (body.links || []).some(l => /\\/v1\\/payments\\/payouts\\//.test(String(l.href))) ||\n  /duplicate/i.test(`${body.name} ${body.message}`)\n);\n// 4xx bzw. DENIED = abgelehnt, kein Geld geflossen -> neuer Versuch erlaubt.\n// 5xx oder keine Antwort: offen, ob PayPal ausgezahlt hat -> UNKLAR sperrt weitere Versuche.\nconst abgelehnt = !ok && !duplikat && ((angelegt && kopf.batch_status === 'DENIED') || (resp.statusCode >= 400 && resp.statusCode < 500));\n\nlet status;\nlet protokollStatus;\nlet grund;\nif (ok) {\n  status = 'AUSZAHLUNG_ANGESTOSSEN';\n  protokollStatus = kopf.batch_status || 'PENDING';\n  grund = `Payout-Status ${kopf.batch_status} – Abschluss in PayPal prüfen`;\n} else if (duplikat) {\n  status = 'BEREITS_AUSGEZAHLT';\n  protokollStatus = 'DUPLIKAT';\n  grund = 'PayPal: Payout mit derselben sender_batch_id existiert bereits – ' + fehlerText(resp);\n} else if (abgelehnt) {\n  status = 'FEHLER';\n  protokollStatus = 'ABGELEHNT';\n  grund = angelegt ? `Payout von PayPal abgelehnt (Status DENIED, ${kopf.payout_batch_id})` : `Payout: ${antwort} ${fehlerText(resp)}`;\n} else {\n  status = 'FEHLER';\n  protokollStatus = 'UNKLAR';\n  grund = `Payout: ${antwort} ${fehlerText(resp)} – Ergebnis unklar, in PayPal prüfen`;\n}\n\nsd.done.push({\n  bestellnummer: src.bestellnummer,\n  status,\n  grund: grund.slice(0, 500),\n  weg: 'PAYOUT',\n  transaktionsId: src.transaktionsId,\n  zahlungsdatum: src.zahlungsdatum,\n  zahlungsBetrag: src.zahlungsBetrag,\n  captureStatus: src.captureStatus,\n  zuordnung: src.zuordnung,\n  betrag: src.betrag,\n  empfaenger: src.email,\n  referenz: kopf.payout_batch_id || '',\n  anbieterStatus: kopf.batch_status || '',\n  debug: `${src.debug} · Payout ${antwort}${kopf.batch_status ? ' ' + kopf.batch_status : ''}${body.debug_id ? ' · debug_id ' + body.debug_id : ''}`,\n  bearbeitetAm: new Date().toISOString()\n});\n\n// Für \"Protokoll: Ergebnis\" (Data Table)\nreturn [{\n  json: {\n    vorgang: src.vorgang,\n    bestellnummer: src.bestellnummer,\n    weg: 'PAYOUT',\n    transaktionsId: src.transaktionsId,\n    betrag: src.betrag,\n    waehrung: src.waehrung,\n    protokollStatus,\n    referenz: kopf.payout_batch_id || '',\n    protokollGrund: grund.slice(0, 250)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13728,
+        4528
+      ],
+      "id": "0957cba6-41a7-47f4-8073-19d3ca160487",
+      "name": "Auszahlung prüfen (Mollie)"
+    },
+    {
+      "parameters": {
+        "content": "## PayPal-Pfad\n",
+        "height": 640,
+        "width": 4096,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        10320,
+        3488
+      ],
+      "id": "5d154213-2839-4e5d-892f-a28e283dca89",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Mollie-Pfad\n",
+        "height": 640,
+        "width": 4096,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        10320,
+        4192
+      ],
+      "id": "2f20a358-2bf5-4815-92cd-5d39d2814fe4",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## PayPal-Transaktionen Suche\n",
+        "height": 496,
+        "width": 1472,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        10432,
+        3568
+      ],
+      "id": "4f70a7f0-b67f-465a-ad75-b29d111d42f2",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## PayPal - PayPal Rückerstattung oder PayOuts Auszahlung",
+        "height": 496,
+        "width": 2288,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        12080,
+        3568
+      ],
+      "id": "75cac505-6de1-445a-9c25-fafb5b90562f",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Mollie-Transaktionen Suche\n",
+        "height": 512,
+        "width": 1472,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        10448,
+        4272
+      ],
+      "id": "a43aae7b-de72-468f-bf00-f2817aefe944",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "height": 512,
+        "width": 2288,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        12080,
+        4272
+      ],
+      "id": "b80eca59-83ca-4a92-81b7-74812d6f43b1",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "height": 496,
+        "width": 1472,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        14432,
+        3920
+      ],
+      "id": "21f94247-4751-4a5f-85a5-0bb420fbb9de",
+      "name": "Sticky Note6"
+    }
+  ],
+  "connections": {
+    "JTL-Export hochladen (Formular)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "CSV parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV parsen": {
+      "main": [
+        [
+          {
+            "node": "Bestellungen bilden + berechnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellungen bilden + berechnen": {
+      "main": [
+        [
+          {
+            "node": "PayPal abfragen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PayPal abfragen?": {
+      "main": [
+        [
+          {
+            "node": "Protokoll laden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Protokoll laden (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Protokoll laden": {
+      "main": [
+        [
+          {
+            "node": "Token holen (PayPal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen (PayPal)": {
+      "main": [
+        [
+          {
+            "node": "Token prüfen + Suchfenster bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token prüfen + Suchfenster bauen": {
+      "main": [
+        [
+          {
+            "node": "Transaktionen suchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transaktionen suchen": {
+      "main": [
+        [
+          {
+            "node": "Zahlungen zuordnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlungen zuordnen": {
+      "main": [
+        [
+          {
+            "node": "Zahlungen zugeordnet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlungen zugeordnet?": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Protokoll laden (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Protokoll laden (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GET Zahlung (Capture)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Zahlung (Capture)": {
+      "main": [
+        [
+          {
+            "node": "Zahlung prüfen + Weg wählen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlung prüfen + Weg wählen": {
+      "main": [
+        [
+          {
+            "node": "Geld bewegen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erstatten?": {
+      "main": [
+        [
+          {
+            "node": "Erstattung (Refund)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auszahlung (Payout)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erstattung (Refund)": {
+      "main": [
+        [
+          {
+            "node": "Erstattung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erstattung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Protokoll: Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Protokoll: reservieren": {
+      "main": [
+        [
+          {
+            "node": "Erstatten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auszahlung (Payout)": {
+      "main": [
+        [
+          {
+            "node": "Auszahlung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auszahlung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Protokoll: Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Protokoll: Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Protokoll für Report laden": {
+      "main": [
+        [
+          {
+            "node": "Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report erstellen": {
+      "main": [
+        [
+          {
+            "node": "Report-Spalten",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Debug-Tabelle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report → CSV": {
+      "main": [
+        [
+          {
+            "node": "Protokoll-Übersicht",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Protokoll-Übersicht": {
+      "main": [
+        [
+          {
+            "node": "Report-Mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report-Spalten": {
+      "main": [
+        [
+          {
+            "node": "Report → CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Geld bewegen?": {
+      "main": [
+        [
+          {
+            "node": "Protokoll: reservieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Protokoll laden (Mollie)": {
+      "main": [
+        [
+          {
+            "node": "Mollie vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Mollie suchen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie abfragen?": {
+      "main": [
+        [
+          {
+            "node": "Loop Mollie",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Protokoll für Report laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Mollie": {
+      "main": [
+        [
+          {
+            "node": "Protokoll für Report laden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GET Mollie-Zahlung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Mollie-Zahlung": {
+      "main": [
+        [
+          {
+            "node": "Mollie prüfen + Weg wählen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie prüfen + Weg wählen": {
+      "main": [
+        [
+          {
+            "node": "Geld bewegen? (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie erstatten?": {
+      "main": [
+        [
+          {
+            "node": "Mollie-Erstattung",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auszahlung (Payout, Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Protokoll: reservieren (Mollie)": {
+      "main": [
+        [
+          {
+            "node": "Mollie erstatten?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie-Erstattung": {
+      "main": [
+        [
+          {
+            "node": "Mollie-Erstattung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie-Erstattung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Protokoll: Ergebnis (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Protokoll: Ergebnis (Mollie)": {
+      "main": [
+        [
+          {
+            "node": "Wait (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Mollie)": {
+      "main": [
+        [
+          {
+            "node": "Loop Mollie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie suchen?": {
+      "main": [
+        [
+          {
+            "node": "Mollie-Zahlungen laden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mollie zuordnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie-Zahlungen laden": {
+      "main": [
+        [
+          {
+            "node": "Mollie-Orders laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie-Orders laden": {
+      "main": [
+        [
+          {
+            "node": "Mollie zuordnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie zuordnen": {
+      "main": [
+        [
+          {
+            "node": "Mollie abfragen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Geld bewegen? (Mollie)": {
+      "main": [
+        [
+          {
+            "node": "Protokoll: reservieren (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auszahlung (Payout, Mollie)": {
+      "main": [
+        [
+          {
+            "node": "Auszahlung prüfen (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auszahlung prüfen (Mollie)": {
+      "main": [
+        [
+          {
+            "node": "Protokoll: Ergebnis (Mollie)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "MInh1JBYYcGGtu0b",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-10-01T09:39:30.891Z",
+      "updatedAt": "2026-10-01T09:39:30.891Z"
+    }
+  ],
+  "activeVersion": null
+}

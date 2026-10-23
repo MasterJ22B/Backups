@@ -1,0 +1,533 @@
+{
+  "updatedAt": "2026-08-18T08:12:38.639Z",
+  "createdAt": "2026-08-18T06:30:56.210Z",
+  "id": "eIElyXTfvheehU62",
+  "name": "Offene Posten B2B - Wochenreport an Buchhaltung (konsolidiert, n8n Cloud)",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "id": "368b34b3-2592-4d3d-962a-016eb79755c7",
+      "name": "Wöchentlicher Trigger (Mo 07:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1728,
+        1440
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    op.cKundenNr                                       AS Kundennummer,\n    op.cRechnungsNr                                    AS Rechnungsnummer,\n    op.cFirma                                          AS Firma,\n    op.Rechnungsdatum,\n    op.Betrag                                          AS Rechnungsbetrag,\n    op.OffenerPosten                                   AS OffenerBetrag,\n    op.naechstesZahlungsziel                           AS Faelligkeitsdatum,\n    DATEDIFF(day, op.naechstesZahlungsziel, GETDATE()) AS TageUeberfaellig,\n    CASE\n        WHEN op.naechstesZahlungsziel >= CAST(GETDATE() AS date) THEN 'offen (noch nicht fällig)'\n        ELSE 'überfällig'\n    END                                                 AS Faelligkeitsstatus,\n    op.Mahnstufe\nFROM Mahnwesen.lvOffenePosten AS op\nWHERE op.nIstEntwurf = 0\n  AND op.OffenerPosten > 0.99\n  AND op.kKundenGruppe = 5\nORDER BY op.cKundenNr ASC, op.naechstesZahlungsziel ASC;",
+        "options": {}
+      },
+      "id": "7a6c7559-f824-4558-8ff5-cb6747707623",
+      "name": "MSSQL: Offene Posten B2B",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [
+        -1488,
+        1440
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Globalen Zwischenspeicher für diesen Lauf leeren (überlebt über alle Loop-Iterationen hinweg)\nconst staticData = $getWorkflowStaticData('global');\nstaticData.files = [];\n\n// Alle Zeilen nach Kundennummer gruppieren -> ein Item pro Kunde mit Rechnungszeilen-Array\nconst rows = $input.all().map(i => i.json);\nconst grouped = {};\n\nfor (const r of rows) {\n  const key = r.Kundennummer;\n  if (!grouped[key]) grouped[key] = [];\n  grouped[key].push(r);\n}\n\nreturn Object.entries(grouped).map(([kundennummer, items]) => {\n  // älteste (früheste) Fälligkeit unter den ÜBERFÄLLIGEN Rechnungen dieses Kunden ermitteln\n  const ueberfaellige = items.filter(i => i.Faelligkeitsstatus === 'überfällig' && i.Faelligkeitsdatum);\n  let aeltesteFaelligkeit = null;\n  if (ueberfaellige.length > 0) {\n    aeltesteFaelligkeit = ueberfaellige.reduce((min, i) => {\n      const d = new Date(i.Faelligkeitsdatum);\n      return (min === null || d < min) ? d : min;\n    }, null);\n  }\n\n  return {\n    json: {\n      kundennummer,\n      firma: items[0].Firma,\n      anzahlRechnungen: items.length,\n      summeOffen: items.reduce((sum, i) => sum + (Number(i.OffenerBetrag) || 0), 0),\n      aeltesteFaelligkeitUeberfaellig: aeltesteFaelligkeit ? aeltesteFaelligkeit.toISOString() : null,\n      items\n    }\n  };\n});"
+      },
+      "id": "97d9224a-f452-43ea-b138-a284f2938d03",
+      "name": "Nach Kunde gruppieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1248,
+        1440
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "84b956d8-071d-4317-8131-de6548169d0d",
+      "name": "Pro Kunde durchlaufen",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1008,
+        1440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rechnungszeilen des aktuellen Kunden wieder in einzelne Items auflösen,\n// damit \"Convert to File\" daraus eine Zeile pro Rechnung macht.\nreturn $json.items.map(row => ({\n  json: {\n    Rechnungsnummer: row.Rechnungsnummer,\n    Rechnungsdatum: row.Rechnungsdatum,\n    Rechnungsbetrag: row.Rechnungsbetrag,\n    OffenerBetrag: row.OffenerBetrag,\n    Faelligkeitsdatum: row.Faelligkeitsdatum,\n    TageUeberfaellig: row.TageUeberfaellig,\n    Faelligkeitsstatus: row.Faelligkeitsstatus,\n    Mahnstufe: row.Mahnstufe\n  }\n}));"
+      },
+      "id": "df44fcdc-f2f2-425f-8a9d-4d613832c02e",
+      "name": "Rechnungszeilen entfalten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        1328
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "={{ 'Offene_Posten_' + $('Pro Kunde durchlaufen').item.json.firma+ '_' +$('Pro Kunde durchlaufen').item.json.kundennummer + '.xlsx' }}",
+          "headerRow": true,
+          "sheetName": "Offene Posten"
+        }
+      },
+      "id": "6d874ad6-7e7a-4a4c-ac8e-6d863b7afb33",
+      "name": "Excel erzeugen (Convert to File)",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -528,
+        1328
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Erzeugte Datei dieses Kunden im GLOBALEN Zwischenspeicher ablegen,\n// damit nach der Schleife alle Dateien zusammen in einer Mail verschickt werden können.\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.files) staticData.files = [];\n\nconst bin = $input.first().binary.data;\nconst kunde = $('Pro Kunde durchlaufen').item.json;\n\nstaticData.files.push({\n  fileName: bin.fileName,\n  mimeType: bin.mimeType,\n  data: bin.data,\n  kundennummer: kunde.kundennummer,\n  firma: kunde.firma,\n  anzahlRechnungen: kunde.anzahlRechnungen,\n  summeOffen: kunde.summeOffen,\n  aeltesteFaelligkeitUeberfaellig: kunde.aeltesteFaelligkeitUeberfaellig\n});\n\nreturn [{ json: { kundennummer: kunde.kundennummer } }];"
+      },
+      "id": "f11e67c7-7980-4c91-b7b5-8515a654bada",
+      "name": "In Zwischenspeicher ablegen1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -288,
+        1328
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Läuft erst, wenn die Schleife komplett durch ist (\"done\"-Ausgang von Split In Batches).\n// Baut aus dem GLOBALEN Zwischenspeicher EIN Item: alle Excel-Dateien als Anhänge + HTML-Tabelle als Zusammenfassung.\nconst staticData = $getWorkflowStaticData('global');\nconst files = staticData.files || [];\n\nconst binaryData = {};\nfiles.forEach((f, idx) => {\n  binaryData[`file_${idx}`] = {\n    data: f.data,\n    fileName: f.fileName,\n    mimeType: f.mimeType\n  };\n});\n\nconst fmtDatum = (iso) => {\n  if (!iso) return '–';\n  const d = new Date(iso);\n  return d.toLocaleDateString('de-DE');\n};\nconst fmtEuro = (n) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';\n\nconst zeilenHtml = files.map(f => `\n  <tr>\n    <td>${f.kundennummer}</td>\n    <td>${f.firma}</td>\n    <td style=\"text-align:right\">${f.anzahlRechnungen}</td>\n    <td style=\"text-align:right\">${fmtEuro(f.summeOffen)}</td>\n    <td>${fmtDatum(f.aeltesteFaelligkeitUeberfaellig)}</td>\n  </tr>`).join('');\n\nconst tabelleHtml = `\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse; font-family:Arial, sans-serif; font-size:13px;\">\n  <thead>\n    <tr style=\"background:#f0f0f0;\">\n      <th>Kundennummer</th>\n      <th>Kunde</th>\n      <th>Anzahl offener Rechnungen</th>\n      <th>Offener Posten (Summe)</th>\n      <th>Fälligkeit älteste überfällige Rechnung</th>\n    </tr>\n  </thead>\n  <tbody>${zeilenHtml}</tbody>\n</table>`;\n\nconst summeGesamt = files.reduce((s, f) => s + f.summeOffen, 0);\n\nconst result = {\n  json: {\n    anzahlKunden: files.length,\n    summeGesamt,\n    tabelleHtml\n  },\n  binary: binaryData\n};\n\nstaticData.files = []; // Zwischenspeicher für den nächsten Lauf leeren\n\nreturn [result];"
+      },
+      "id": "0d57eeaf-ba25-47b2-a783-7d07d5417cee",
+      "name": "Alle Dateien zusammenführen1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "it@buecherbuechse.de",
+        "toEmail": "christoph@buecherbuechse.de",
+        "subject": "=Offene Posten B2B – Wochenreport ({{ $json.anzahlKunden }} Kunden, {{ $json.summeGesamt.toFixed(2) }} € gesamt offen)",
+        "html": "=<p>Anbei die wöchentliche Übersicht der offenen Posten für {{ $json.anzahlKunden }} B2B-Kunden (eine Excel-Datei pro Kunde im Anhang).</p><p><b>Gesamtsumme offen: {{ $json.summeGesamt.toFixed(2) }} €</b></p>{{ $json.tabelleHtml }}<p style=\"margin-top:16px; color:#888; font-size:12px;\">Automatisch erzeugt aus JTL-Wawi.</p>",
+        "options": {
+          "attachments": "={{ Object.keys($binary).join(',') }}"
+        }
+      },
+      "id": "19f06a8c-b954-4b60-a2ae-92435d5f8332",
+      "name": "Sammel-E-Mail an Buchhaltung1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -528,
+        1600
+      ],
+      "webhookId": "2d40d6a4-bc81-48b3-bd29-9f88241353e4",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Erzeugte Datei dieses Kunden im GLOBALEN Zwischenspeicher ablegen,\n// damit nach der Schleife alle Dateien zusammen in einer Mail verschickt werden können.\n//\n// WICHTIG (n8n Cloud): binary.data.data ist auf Cloud nur eine interne Dateisystem-Referenz,\n// kein eingebettetes Base64. Deshalb muss der echte Inhalt über getBinaryDataBuffer geholt werden.\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.files) staticData.files = [];\n\nconst bin = $input.first().binary.data;\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst kunde = $('Pro Kunde durchlaufen1').item.json;\n\nstaticData.files.push({\n  fileName: bin.fileName,\n  mimeType: bin.mimeType,\n  data: buffer.toString('base64'),\n  kundennummer: kunde.kundennummer,\n  firma: kunde.firma,\n  anzahlRechnungen: kunde.anzahlRechnungen,\n  summeOffen: kunde.summeOffen,\n  anzahlUeberfaellig: kunde.anzahlUeberfaellig,\n  summeUeberfaellig: kunde.summeUeberfaellig,\n  aeltesteFaelligkeitUeberfaellig: kunde.aeltesteFaelligkeitUeberfaellig\n});\n\nreturn [{ json: { kundennummer: kunde.kundennummer } }];"
+      },
+      "id": "628de194-9676-4e20-8875-bf9c11d6c5f6",
+      "name": "In Zwischenspeicher ablegen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1360,
+        2240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Läuft erst, wenn die Schleife komplett durch ist (\"done\"-Ausgang von Split In Batches).\n// Baut aus dem GLOBALEN Zwischenspeicher EIN Item: alle Excel-Dateien als Anhänge + HTML-Tabelle als Zusammenfassung.\nconst staticData = $getWorkflowStaticData('global');\nconst files = staticData.files || [];\n\nconst binaryData = {};\nfiles.forEach((f, idx) => {\n  binaryData[`file_${idx}`] = {\n    data: f.data,\n    fileName: f.fileName,\n    mimeType: f.mimeType\n  };\n});\n\nconst fmtDatum = (iso) => {\n  if (!iso) return '–';\n  const d = new Date(iso);\n  return d.toLocaleDateString('de-DE');\n};\nconst fmtEuro = (n) => Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';\n\nconst zeilenHtml = files.map(f => `\n  <tr>\n    <td>${f.kundennummer}</td>\n    <td>${f.firma}</td>\n    <td style=\"text-align:right\">${f.anzahlRechnungen}</td>\n    <td style=\"text-align:right\">${fmtEuro(f.summeOffen)}</td>\n    <td style=\"text-align:right\">${f.anzahlUeberfaellig}</td>\n    <td style=\"text-align:right\">${fmtEuro(f.summeUeberfaellig)}</td>\n    <td>${fmtDatum(f.aeltesteFaelligkeitUeberfaellig)}</td>\n  </tr>`).join('');\n\nconst tabelleHtml = `\n<table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse; font-family:Arial, sans-serif; font-size:13px;\">\n  <thead>\n    <tr style=\"background:#f0f0f0;\">\n      <th>Kundennummer</th>\n      <th>Kunde</th>\n      <th>Anzahl offener Rechnungen</th>\n      <th>Offener Posten (Summe)</th>\n      <th>Anzahl überfälliger Rechnungen</th>\n      <th>Summe überfällig</th>\n      <th>Fälligkeit älteste überfällige Rechnung</th>\n    </tr>\n  </thead>\n  <tbody>${zeilenHtml}</tbody>\n</table>`;\n\nconst summeGesamt = files.reduce((s, f) => s + f.summeOffen, 0);\n\nconst result = {\n  json: {\n    anzahlKunden: files.length,\n    summeGesamt,\n    tabelleHtml\n  },\n  binary: binaryData\n};\n\nstaticData.files = []; // Zwischenspeicher für den nächsten Lauf leeren\n\nreturn [result];"
+      },
+      "id": "e1b07b77-f5bd-4e58-b48c-9c92a20fd5e0",
+      "name": "Alle Dateien zusammenführen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1840,
+        2512
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "it@buecherbuechse.de",
+        "toEmail": "buchhaltung@buecherbuechse.de",
+        "subject": "=Offene Posten B2B | Wochenreport ({{ $json.anzahlKunden }} Kunden, {{ $json.summeGesamt.toFixed(2) }} € gesamt offen)",
+        "html": "=<p>Anbei die wöchentliche Übersicht der offenen Posten für {{ $json.anzahlKunden }} B2B-Kunden (eine Excel-Datei pro Kunde im Anhang).</p><p><b>Gesamtsumme offen: {{ $json.summeGesamt.toFixed(2) }} €</b></p>{{ $json.tabelleHtml }}<p style=\"margin-top:16px; color:#888; font-size:12px;\">Automatisch erzeugt aus JTL-Wawi.</p>",
+        "options": {
+          "attachments": "={{ Object.keys($binary).join(',') }}"
+        }
+      },
+      "id": "9eed59af-cac2-4c79-b440-b4a27b61fba4",
+      "name": "Sammel-E-Mail an Buchhaltung",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -1600,
+        2512
+      ],
+      "webhookId": "4fbefe72-41c3-4cf4-a1d2-bf062c21295b",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "id": "430886e7-3ea1-4edc-be81-7775366d0ef0",
+      "name": "Wöchentlicher Trigger (Mo 07:00)1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2800,
+        2352
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    op.cKundenNr                                       AS Kundennummer,\n    op.cRechnungsNr                                    AS Rechnungsnummer,\n    op.cFirma                                          AS Firma,\n    op.Rechnungsdatum,\n    op.Betrag                                          AS Rechnungsbetrag,\n    op.OffenerPosten                                   AS OffenerBetrag,\n    op.naechstesZahlungsziel                           AS Faelligkeitsdatum,\n    DATEDIFF(day, op.naechstesZahlungsziel, GETDATE()) AS TageUeberfaellig,\n    CASE\n        WHEN op.naechstesZahlungsziel >= CAST(GETDATE() AS date) THEN 'offen (noch nicht fällig)'\n        ELSE 'überfällig'\n    END                                                 AS Faelligkeitsstatus,\n    op.Mahnstufe\nFROM Mahnwesen.lvOffenePosten AS op\nWHERE op.nIstEntwurf = 0\n  AND op.OffenerPosten > 0.99\n  AND op.kKundenGruppe = 5\nORDER BY op.cKundenNr ASC, op.naechstesZahlungsziel ASC;",
+        "options": {}
+      },
+      "id": "79cdf19d-d527-44c1-a351-1ab0296d6dbd",
+      "name": "MSSQL: Offene Posten B2B1",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1,
+      "position": [
+        -2560,
+        2352
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Globalen Zwischenspeicher für diesen Lauf leeren (überlebt über alle Loop-Iterationen hinweg)\nconst staticData = $getWorkflowStaticData('global');\nstaticData.files = [];\n\n// Alle Zeilen nach Kundennummer gruppieren -> ein Item pro Kunde mit Rechnungszeilen-Array\nconst rows = $input.all().map(i => i.json);\nconst grouped = {};\n\nfor (const r of rows) {\n  const key = r.Kundennummer;\n  if (!grouped[key]) grouped[key] = [];\n  grouped[key].push(r);\n}\n\nreturn Object.entries(grouped).map(([kundennummer, items]) => {\n  const ueberfaellige = items.filter(i => i.Faelligkeitsstatus === 'überfällig');\n  const ueberfaelligeMitDatum = ueberfaellige.filter(i => i.Faelligkeitsdatum);\n\n  let aeltesteFaelligkeit = null;\n  if (ueberfaelligeMitDatum.length > 0) {\n    aeltesteFaelligkeit = ueberfaelligeMitDatum.reduce((min, i) => {\n      const d = new Date(i.Faelligkeitsdatum);\n      return (min === null || d < min) ? d : min;\n    }, null);\n  }\n\n  return {\n    json: {\n      kundennummer,\n      firma: items[0].Firma,\n      anzahlRechnungen: items.length,\n      summeOffen: items.reduce((sum, i) => sum + (Number(i.OffenerBetrag) || 0), 0),\n      anzahlUeberfaellig: ueberfaellige.length,\n      summeUeberfaellig: ueberfaellige.reduce((sum, i) => sum + (Number(i.OffenerBetrag) || 0), 0),\n      aeltesteFaelligkeitUeberfaellig: aeltesteFaelligkeit ? aeltesteFaelligkeit.toISOString() : null,\n      items\n    }\n  };\n});"
+      },
+      "id": "ec39de2b-f7f5-4e20-9b7b-4c3586bb740b",
+      "name": "Nach Kunde gruppieren1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2320,
+        2352
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "3254e720-5087-457c-9954-e8baa8fdb413",
+      "name": "Pro Kunde durchlaufen1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2080,
+        2352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rechnungszeilen des aktuellen Kunden wieder in einzelne Items auflösen,\n// damit \"Convert to File\" daraus eine Zeile pro Rechnung macht.\nreturn $json.items.map(row => ({\n  json: {\n    Rechnungsnummer: row.Rechnungsnummer,\n    Rechnungsdatum: row.Rechnungsdatum,\n    Rechnungsbetrag: row.Rechnungsbetrag,\n    OffenerBetrag: row.OffenerBetrag,\n    Faelligkeitsdatum: row.Faelligkeitsdatum,\n    TageUeberfaellig: row.TageUeberfaellig,\n    Faelligkeitsstatus: row.Faelligkeitsstatus,\n    Mahnstufe: row.Mahnstufe\n  }\n}));"
+      },
+      "id": "e3c922d4-2406-4d9b-a893-09460a60354e",
+      "name": "Rechnungszeilen entfalten1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1840,
+        2240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "={{ 'Offene_Posten_' + $('Pro Kunde durchlaufen1').item.json.firma + '_' + $('Pro Kunde durchlaufen1').item.json.kundennummer + '.xlsx' }}",
+          "headerRow": true,
+          "sheetName": "Offene Posten"
+        }
+      },
+      "id": "89162f7e-898b-463c-a8bd-ea9c1885a2ad",
+      "name": "Excel erzeugen (Convert to File)1",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1600,
+        2240
+      ]
+    }
+  ],
+  "connections": {
+    "Wöchentlicher Trigger (Mo 07:00)": {
+      "main": [
+        [
+          {
+            "node": "MSSQL: Offene Posten B2B",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MSSQL: Offene Posten B2B": {
+      "main": [
+        [
+          {
+            "node": "Nach Kunde gruppieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nach Kunde gruppieren": {
+      "main": [
+        [
+          {
+            "node": "Pro Kunde durchlaufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pro Kunde durchlaufen": {
+      "main": [
+        [
+          {
+            "node": "Alle Dateien zusammenführen1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rechnungszeilen entfalten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rechnungszeilen entfalten": {
+      "main": [
+        [
+          {
+            "node": "Excel erzeugen (Convert to File)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excel erzeugen (Convert to File)": {
+      "main": [
+        [
+          {
+            "node": "In Zwischenspeicher ablegen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In Zwischenspeicher ablegen1": {
+      "main": [
+        [
+          {
+            "node": "Pro Kunde durchlaufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alle Dateien zusammenführen1": {
+      "main": [
+        [
+          {
+            "node": "Sammel-E-Mail an Buchhaltung1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In Zwischenspeicher ablegen": {
+      "main": [
+        [
+          {
+            "node": "Pro Kunde durchlaufen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alle Dateien zusammenführen": {
+      "main": [
+        [
+          {
+            "node": "Sammel-E-Mail an Buchhaltung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wöchentlicher Trigger (Mo 07:00)1": {
+      "main": [
+        [
+          {
+            "node": "MSSQL: Offene Posten B2B1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MSSQL: Offene Posten B2B1": {
+      "main": [
+        [
+          {
+            "node": "Nach Kunde gruppieren1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nach Kunde gruppieren1": {
+      "main": [
+        [
+          {
+            "node": "Pro Kunde durchlaufen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pro Kunde durchlaufen1": {
+      "main": [
+        [
+          {
+            "node": "Alle Dateien zusammenführen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rechnungszeilen entfalten1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rechnungszeilen entfalten1": {
+      "main": [
+        [
+          {
+            "node": "Excel erzeugen (Convert to File)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Excel erzeugen (Convert to File)1": {
+      "main": [
+        [
+          {
+            "node": "In Zwischenspeicher ablegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "df9aa932-2f55-4084-9846-07a98a188764",
+  "activeVersionId": null,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-08-18T06:30:56.211Z",
+      "createdAt": "2026-08-18T06:30:56.211Z",
+      "role": "workflow:owner",
+      "workflowId": "eIElyXTfvheehU62",
+      "projectId": "fpJ6gOBBO4AzTt5B"
+    }
+  ],
+  "activeVersion": null,
+  "tags": []
+}

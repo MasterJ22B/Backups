@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-05T08:29:41.060Z",
-  "createdAt": "2026-08-03T09:21:25.553Z",
   "id": "Yq5hzWEU5xHAX8vX",
   "name": "Shopify-Positionstausch-Zauberbuechse-Buch-August-2026-tagged",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-08-03T09:21:25.553Z",
+  "updatedAt": "2026-08-05T08:29:41.060Z",
   "isArchived": false,
+  "versionId": "1be00b39-ef04-44c4-b1cd-280a83eefc1d",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -1068,6 +1071,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -1077,21 +1081,17 @@
     "callerPolicy": "workflowsFromSameOwner"
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "1be00b39-ef04-44c4-b1cd-280a83eefc1d",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-08-03T09:21:25.556Z",
-      "createdAt": "2026-08-03T09:21:25.556Z",
       "role": "workflow:owner",
       "workflowId": "Yq5hzWEU5xHAX8vX",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-03T09:21:25.556Z",
+      "updatedAt": "2026-08-03T09:21:25.556Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-03T07:26:45.710Z",
-  "createdAt": "2026-07-01T09:35:53.941Z",
   "id": "WXJXAI3aB1PpKGX6",
   "name": "Shopify-Abo-Preiskorrektur-Zauberbuechse",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-07-01T09:35:53.941Z",
+  "updatedAt": "2026-08-03T07:26:45.710Z",
   "isArchived": false,
+  "versionId": "4f80dd5d-6669-4cea-bd84-1f0917188e85",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -924,6 +927,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -933,21 +937,17 @@
     "callerPolicy": "workflowsFromSameOwner"
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "4f80dd5d-6669-4cea-bd84-1f0917188e85",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-01T09:35:53.945Z",
-      "createdAt": "2026-07-01T09:35:53.945Z",
       "role": "workflow:owner",
       "workflowId": "WXJXAI3aB1PpKGX6",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-01T09:35:53.945Z",
+      "updatedAt": "2026-07-01T09:35:53.945Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

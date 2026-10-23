@@ -1,0 +1,346 @@
+{
+  "id": "vWqRa89lJuxRMDqC",
+  "name": "Mollie-Scan → Kandidaten-CSV (Flow A)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-08-21T16:19:37.130Z",
+  "updatedAt": "2026-08-24T07:27:57.690Z",
+  "isArchived": false,
+  "versionId": "10813172-40bd-4521-a179-889487eef63f",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        208,
+        576
+      ],
+      "id": "17f60f22-3631-410c-bb79-2e05f04ebdbb",
+      "name": "Manuell starten"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================================\n// FLOW A – Mollie-Scan. Rein lesend, erzeugt nur eine CSV.\n// Etappenweise: pro Lauf ein Zeitabschnitt, dann 'scanFortsetzenAb'\n// aus dem Ergebnis in 'scanStartUrl' eintragen und erneut starten.\n// =====================================================================\nconst CONFIG = {\n  mollieBasisUrl: 'https://api.mollie.com/v2',\n  scanProSeite:   250,      // Maximum der Orders API\n  scanMaxSeiten: 200,      // klein halten! Jede Seite ~900 KB Rohdaten\n  scanSortierung: 'desc',   // neueste zuerst\n\n  // Abbruch, sobald eine Seite nur noch aeltere Orders enthaelt.\n  scanAbbruchAelterAls: '2026-01-01',\n\n\n  // Fortsetzung: 'scanFortsetzenAb' aus dem letzten Lauf hier eintragen.\n  scanStartUrl: '',\n\n  scanStatus: ['authorized', 'shipping'],\n  nurBestellnummern: [],\n  testLimit: 0\n};\nreturn [{ json: { config: CONFIG } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        576
+      ],
+      "id": "84d115ec-68ed-44fc-bb25-0206797b94cf",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PHASE 1 – Startpunkt des Mollie-Scans.\n//\n// SPEICHER: Die Trefferliste liegt NICHT im Item, sondern im Workflow-\n// Speicher. Sonst waechst das Item mit jeder Seite, wird bei jeder\n// Iteration kopiert, und n8n haelt Ein- UND Ausgabe jeder Iteration vor\n// -> quadratischer Verbrauch. Bei 40+ Seiten reisst das die Ausfuehrung ab.\nconst config = $('Config').first().json.config;\n\nconst speicher = $getWorkflowStaticData('global');\nspeicher.scanTreffer = [];      // bei jedem Lauf frisch\nspeicher.scanGesehen = 0;\n\nreturn [{ json: {\n  naechsteUrl: config.scanStartUrl ||\n    (config.mollieBasisUrl + '/orders?limit=' + config.scanProSeite +\n     '&sort=' + config.scanSortierung),\n  seite: 0\n}}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        576
+      ],
+      "id": "5c75e908-8a35-4e4f-9a2d-f0fd778dd4d3",
+      "name": "Scan: Startpunkt"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.naechsteUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "file",
+              "outputPropertyName": "seite"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        864,
+        576
+      ],
+      "id": "ef6df679-4ce0-4664-b8a2-0f2164e9a7b9",
+      "name": "Mollie: Orders-Seite lesen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "gdWT3FhCohiCfDh7",
+          "name": "Molli API"
+        }
+      },
+      "notes": "Antwort wird als Binaerdatei geholt (responseFormat=file). n8n legt sie im Dateisystem ab statt im Arbeitsspeicher – bei ~900 KB je Seite der groesste Hebel."
+    },
+    {
+      "parameters": {
+        "jsCode": "// PHASE 1 – Eine Seite auswerten.\n//\n// Treffer wandern in den Workflow-Speicher, das Item bleibt winzig\n// (nur naechsteUrl + Zaehler). Dadurch bleibt der Speicherbedarf konstant,\n// statt mit jeder Seite zu wachsen.\nconst config   = $('Config').first().json.config;\nconst speicher = $getWorkflowStaticData('global');\n// Die Antwort kommt als BINAERDATEI (responseFormat=file). Sie liegt damit\n// im Dateisystem statt im Arbeitsspeicher – bei ~900 KB je Seite und vielen\n// Seiten ist das der Unterschied zwischen laeuft und stuerzt ab.\nlet resp = null, parseFehler = null;\ntry {\n  const puffer = await this.helpers.getBinaryDataBuffer(0, 'seite');\n  resp = JSON.parse(puffer.toString('utf8'));\n} catch (e) {\n  // Rueckfallebene, falls doch JSON statt Datei ankommt\n  const roh = $input.first().json;\n  if (typeof roh?.data === 'string') {\n    try { resp = JSON.parse(roh.data); } catch (e2) { parseFehler = e2.message; }\n  } else if (roh && typeof roh === 'object' && roh._embedded) {\n    resp = roh;\n  } else {\n    parseFehler = 'Antwort nicht lesbar: ' + e.message;\n  }\n}\n\nconst seite = ($('Scan: Seite auswerten').isExecuted\n  ? ($('Scan: Seite auswerten').first().json.seite || 0) : 0) + 1;\n\nif (parseFehler || typeof resp?.status === 'number' || resp?.detail) {\n  return [{ json: { seite, naechsteUrl: null, abbruchGrund: 'Fehler',\n    gesehen: speicher.scanGesehen || 0,\n    treffer: (speicher.scanTreffer || []).length,\n    fehler: parseFehler || [resp?.status, resp?.title, resp?.detail]\n      .filter(Boolean).join(' – ') }}];\n}\n\nconst orders  = resp?._embedded?.orders ?? [];\nconst gesucht = config.scanStatus || ['authorized'];\nconst geld    = v => (v && v.value !== undefined) ? Number(v.value) : null;\n\n// SCHLANK: nur was spaeter wirklich gebraucht wird.\nlet neue = 0;\nfor (const o of orders) {\n  if (!gesucht.includes(o?.status)) continue;\n  const lines = Array.isArray(o.lines) ? o.lines : [];\n  speicher.scanTreffer.push({\n    mollieId:      o.id,\n    // Der JTL-Bezug steckt nur hier – NICHT in tZahlung.\n    bestellnummer: String(o.metadata?.order_number ?? o.orderNumber ?? ''),\n    status:        o.status,\n    betrag:        geld(o.amount),\n    erfasst:       geld(o.amountCaptured),\n    expiresAt:     o.expiresAt ?? null,\n    versendbar:    lines.reduce((s, l) => s + (Number(l.shippableQuantity) || 0), 0)\n  });\n  neue++;\n}\n\nspeicher.scanGesehen = (speicher.scanGesehen || 0) + orders.length;\n\nlet naechsteUrl = resp?._links?.next?.href ?? null;\nlet grund = null;\n\nif (!naechsteUrl)                       grund = 'letzte Seite erreicht';\nelse if (seite >= config.scanMaxSeiten) { grund = 'maxSeiten erreicht'; naechsteUrl = null; }\nelse if (config.scanAbbruchAelterAls && orders.length) {\n  const grenze   = new Date(config.scanAbbruchAelterAls).getTime();\n  const juengste = Math.max(...orders.map(o => new Date(o.createdAt).getTime() || 0));\n  if (juengste < grenze) {\n    grund = 'nur noch Orders vor ' + config.scanAbbruchAelterAls;\n    naechsteUrl = null;\n  }\n}\n\n// Item bleibt bewusst klein – die Treffer stehen im Workflow-Speicher.\nreturn [{ json: { seite, naechsteUrl, abbruchGrund: grund,\n  gesehen: speicher.scanGesehen,\n  treffer: speicher.scanTreffer.length,\n  trefferDieseSeite: neue, fehler: null }}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        576
+      ],
+      "id": "d48e40e6-d369-4f65-a1d2-72d5532d5489",
+      "name": "Scan: Seite auswerten"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "w",
+              "leftValue": "={{ $json.naechsteUrl !== null && $json.naechsteUrl !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1312,
+        576
+      ],
+      "id": "071cc109-28a4-400a-a859-ba8dcd577a5b",
+      "name": "Weitere Seite?"
+    },
+    {
+      "parameters": {
+        "amount": 0.1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1312,
+        416
+      ],
+      "id": "08b5c74a-5da0-4516-a662-23504d3705c6",
+      "name": "Wait (Scan)",
+      "webhookId": "a1b2c3d4-1111-4222-8333-444455556666"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PHASE 2 – Kandidatenliste aus dem Workflow-Speicher.\n// EIN ITEM JE BESTELLUNG, sortiert nach Verfallsfrist: AELTESTE ZUERST.\nconst config   = $('Config').first().json.config;\nconst speicher = $getWorkflowStaticData('global');\nconst s        = $input.first().json;\n\nlet treffer = (speicher.scanTreffer || []).filter(t => t.bestellnummer);\n\n// Doppelte Bestellnummern zusammenfuehren\nconst proNr = new Map();\nfor (const t of treffer) if (!proNr.has(t.bestellnummer)) proNr.set(t.bestellnummer, t);\ntreffer = [...proNr.values()];\n\nconst weiss = (config.nurBestellnummern || [])\n  .map(v => String(v ?? '').trim()).filter(Boolean);\nif (weiss.length) {\n  const ok = new Set(weiss);\n  treffer = treffer.filter(t => ok.has(t.bestellnummer));\n}\n\n// Faellige zuerst\ntreffer.sort((a, b) =>\n  String(a.expiresAt ?? '9999').localeCompare(String(b.expiresAt ?? '9999')));\n\nif (config.testLimit > 0) treffer = treffer.slice(0, config.testLimit);\n\nconst tage = v => v ? Math.floor((new Date(v).getTime() - Date.now()) / 86400000) : null;\n\n// Feldnamen = CSV-Spalten. Flow B liest exakt diese wieder ein.\nreturn treffer.map(t => ({ json: {\n  bestellnummer:  t.bestellnummer,\n  mollieId:       t.mollieId,\n  status:         t.status,\n  betrag:         t.betrag,\n  erfasst:        t.erfasst,\n  expiresAt:      t.expiresAt,\n  restfristTage:  tage(t.expiresAt),\n  versendbar:     t.versendbar,\n  scanSeiten:       s.seite,\n  scanGesehen:      s.gesehen,\n  scanAbbruch:      s.abbruchGrund,\n  scanFortsetzenAb: s.abbruchGrund === 'maxSeiten erreicht' ? s.naechsteUrl : null,\n  scanFehler:       s.fehler ?? null,\n  runId: $execution.id\n}}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        576
+      ],
+      "id": "2045b216-c458-4f1b-bf34-1297c9f1a9e8",
+      "name": "Kandidaten aufbereiten"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CSV schreiben – FORMAT IST DIE SCHNITTSTELLE ZU FLOW B.\n// Aenderungen hier muessen dort nachgezogen werden.\nconst SPALTEN = [\"bestellnummer\", \"mollieId\", \"status\", \"betrag\", \"erfasst\", \"expiresAt\", \"restfristTage\", \"versendbar\"];\nconst T = ';';\n\nconst zeilen = $input.all().map(i => i.json).filter(z => z && z.bestellnummer);\nif (!zeilen.length) return [{ json: { zeilen: 0, hinweis: 'Keine Treffer' } }];\n\nconst p2  = n => String(n).padStart(2, '0');\nconst txt = v => v === null || v === undefined ? ''\n  : typeof v === 'number' ? String(v).replace('.', ',') : String(v);\nconst feld = v => { const s = txt(v);\n  return /[\"\\r\\n]/.test(s) || s.includes(T) ? '\"' + s.replace(/\"/g, '\"\"') + '\"' : s; };\n\nconst csv = '\\uFEFF' + [SPALTEN.join(T),\n  ...zeilen.map(z => SPALTEN.map(s => feld(z[s])).join(T))].join('\\r\\n') + '\\r\\n';\n\nconst j = new Date();\nconst name = 'mollie-kandidaten-' + j.getFullYear() + p2(j.getMonth()+1) + p2(j.getDate()) +\n             '-' + p2(j.getHours()) + p2(j.getMinutes()) + '.csv';\n\nconst kopf = zeilen[0] || {};\nconst summe = zeilen.reduce((s, z) => s + (Number(z.betrag) || 0), 0);\nconst fristen = zeilen.map(z => z.restfristTage).filter(x => x !== null && x !== '');\n\nreturn [{\n  json: {\n    dateiname:        name,\n    zeilen:           zeilen.length,\n    summeEUR:         Math.round(summe * 100) / 100,\n    scanSeiten:       kopf.scanSeiten ?? null,\n    scanGesehen:      kopf.scanGesehen ?? null,\n    scanAbbruch:      kopf.scanAbbruch ?? null,\n    scanFortsetzenAb: kopf.scanFortsetzenAb ?? null,\n    kuerzesteFrist:   fristen.length ? Math.min(...fristen) : null,\n    bereitsAbgelaufen: fristen.filter(x => x < 0).length,\n    spalten:          SPALTEN\n  },\n  binary: { data: {\n    data: Buffer.from(csv, 'utf8').toString('base64'),\n    mimeType: 'text/csv', fileName: name, fileExtension: 'csv' } }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1744,
+        576
+      ],
+      "id": "f3a5f7d2-dce0-4244-9945-0ad427419f5a",
+      "name": "CSV schreiben"
+    },
+    {
+      "parameters": {
+        "content": "## FLOW A – Mollie-Scan (rein lesend)\n### Die Orders API kennt keine Suche -> blaettern und lokal filtern.\n### Treffer liegen im Workflow-Speicher, nicht im Item.\n### ETAPPENWEISE fahren: scanMaxSeiten klein halten,\n### 'scanFortsetzenAb' aus dem Ergebnis in scanStartUrl uebernehmen.\n### NICHT manuell starten bei vielen Seiten -> Schedule + Mail.",
+        "height": 220,
+        "width": 1700,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        144,
+        304
+      ],
+      "id": "ef68702b-21e7-4b5a-951f-5b1fd6e7fa97",
+      "name": "SN A"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de",
+        "subject": "={{ 'Mollie-Scan: ' + $json.zeilen + ' Kandidaten, ' + $json.summeEUR + ' EUR' }}",
+        "html": "={{ '<h3>Mollie-Scan</h3><p>Treffer: <b>' + $json.zeilen + '</b><br>Summe: <b>' + $json.summeEUR + ' EUR</b><br>Seiten: ' + $json.scanSeiten + ' &middot; Orders gesehen: ' + $json.scanGesehen + '<br>Abbruch: <b>' + $json.scanAbbruch + '</b><br>Kürzeste Frist: ' + $json.kuerzesteFrist + ' Tage &middot; bereits abgelaufen: ' + $json.bereitsAbgelaufen + '</p><p>Fortsetzen ab:<br><code>' + ($json.scanFortsetzenAb || '– vollständig –') + '</code></p>' }}",
+        "options": {
+          "fileAttachments": "data"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1968,
+        576
+      ],
+      "id": "136b7a0d-5e9e-4c75-b46e-08ba4292860e",
+      "name": "Send an Email",
+      "webhookId": "52312781-53d7-424a-aa1f-2232b0fb6199",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manuell starten": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Scan: Startpunkt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scan: Startpunkt": {
+      "main": [
+        [
+          {
+            "node": "Mollie: Orders-Seite lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mollie: Orders-Seite lesen": {
+      "main": [
+        [
+          {
+            "node": "Scan: Seite auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scan: Seite auswerten": {
+      "main": [
+        [
+          {
+            "node": "Weitere Seite?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weitere Seite?": {
+      "main": [
+        [
+          {
+            "node": "Wait (Scan)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kandidaten aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Scan)": {
+      "main": [
+        [
+          {
+            "node": "Mollie: Orders-Seite lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kandidaten aufbereiten": {
+      "main": [
+        [
+          {
+            "node": "CSV schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV schreiben": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "vWqRa89lJuxRMDqC",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-08-21T16:19:37.149Z",
+      "updatedAt": "2026-08-21T16:19:37.149Z"
+    }
+  ],
+  "activeVersion": null
+}

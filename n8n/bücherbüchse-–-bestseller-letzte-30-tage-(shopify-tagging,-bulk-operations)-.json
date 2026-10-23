@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-27T06:36:04.000Z",
-  "createdAt": "2026-07-25T14:33:01.314Z",
   "id": "XkhgWQxmq51lbBnX",
   "name": "Bücherbüchse – Bestseller letzte 30 Tage (Shopify Tagging, Bulk Operations)",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-07-25T14:33:01.314Z",
+  "updatedAt": "2026-07-27T06:36:04.000Z",
   "isArchived": false,
+  "versionId": "4d64da24-128c-4c93-b43f-1902811cf8df",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -620,27 +623,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "4d64da24-128c-4c93-b43f-1902811cf8df",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-27T06:36:04.368Z",
-      "createdAt": "2026-07-27T06:36:04.368Z",
       "role": "workflow:owner",
       "workflowId": "XkhgWQxmq51lbBnX",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-27T06:36:04.368Z",
+      "updatedAt": "2026-07-27T06:36:04.368Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

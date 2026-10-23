@@ -1,0 +1,227 @@
+{
+  "id": "yeRlJs8Wunv3S3Nn",
+  "name": "Google Ads - BB Customer Match List - Main",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-10-20T09:06:04.702Z",
+  "updatedAt": "2026-10-20T09:09:12.458Z",
+  "isArchived": false,
+  "versionId": "4015523e-cc39-40a3-9853-a283ea3e7586",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtHour": 3,
+              "triggerAtMinute": 11
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -464,
+        32
+      ],
+      "id": "1e9cb417-9213-4a5d-ae01-d9307a56d81f",
+      "name": "am 1. des Monats"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nWITH KundenDaten AS\n(\n    SELECT\n        a.cMail AS EmailAdresse,\n        a.cVorname AS Vorname,\n        a.cName AS Nachname,\n        a.cLand AS Land,\n        a.cPLZ AS Postleitzahl,\n        a.cTel AS Telefonnummer,\n        ROW_NUMBER() OVER\n        (\n            PARTITION BY a.cMail\n            ORDER BY a.cTel\n        ) AS rn\n    FROM dbo.tAdresse AS a\n    WHERE a.cMail IS NOT NULL\n      AND LTRIM(RTRIM(a.cMail)) <> ''\n      AND EXISTS\n      (\n          SELECT 1\n          FROM dbo.tBestellung AS b\n          WHERE b.tKunde_kKunde = a.kKunde\n            AND b.cBestellNr NOT LIKE 'LEAF-%'\n            AND b.cBestellNr NOT LIKE 'CINNA-%'\n            AND b.cBestellNr NOT LIKE 'A-%'\n      )\n)\nSELECT COUNT(*) AS total\nFROM KundenDaten\nWHERE rn = 1;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        -240,
+        32
+      ],
+      "id": "88e5777f-fd84-4780-ba29-8eaf397d0889",
+      "name": "Microsoft SQL – Count",
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node – Mode: \"Run Once for All Items\"\n// Muss zur FETCH-Größe in \"Microsoft SQL – Seite\" im Sub-Workflow passen.\nconst PAGE_SIZE = 10000;\n\nconst total = Number($input.first().json.total);\n\nconst seiten = [];\nfor (let offset = 0; offset < total; offset += PAGE_SIZE) {\n  seiten.push({ json: { offset } });\n}\n\nreturn seiten;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        32
+      ],
+      "id": "ccdb30f0-960d-4576-a04e-547c630143ce",
+      "name": "Code – Seiten erzeugen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node – Mode: \"Run Once for All Items\"\n// Setzt die CSV-Teile der Seiten in Eingangsreihenfolge zusammen.\nconst HEADER = 'Email,First Name,Last Name,Country,Zip,Phone';\n\nconst chunks = items\n  .map(item => item.json.csv)\n  .filter(chunk => chunk);\n\nconst csv = [HEADER, ...chunks].join('\\n');\n\nconst data = await this.helpers.prepareBinaryData(\n  Buffer.from(csv, 'utf8'),\n  'bb-customer-match-list.csv',\n  'text/csv'\n);\n\nreturn [{ json: {}, binary: { data } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        32
+      ],
+      "id": "241e4f93-e378-40ba-81c3-325f4fa52733",
+      "name": "Code – CSV zusammensetzen"
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@mail.buecherbuechse.de",
+        "toEmail": "jesse.balsam@buecherbuechse.de;marc.hemmer@buecherbuechse.de",
+        "subject": "=BB | Google Customer Match List für {{ $now.minus(1,'months').format('MM.yyyy')}}",
+        "emailFormat": "text",
+        "text": "=Anbei befindet sich die bb-customer-match-list.csv vom {{ $now.format('dd.MM.yyyy') }}.\n\nDiese Mail wurde vom n8n Workflow: \"Google Ads - BB Customer Match List\" versendet. \n\nMit freundlichen Grüßen \n\nBB's n8n ",
+        "options": {
+          "attachments": "data"
+        }
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        656,
+        32
+      ],
+      "id": "fac96a1c-e40e-49f7-aa5c-7541e49fb8d9",
+      "name": "Send an Email",
+      "webhookId": "650e8bdf-1947-46b4-ad4e-88902aed99d8",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "XLT4vbUMPCr3yXIq",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/XLT4vbUMPCr3yXIq"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "offset": "={{ $json.offset }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "offset",
+              "displayName": "offset",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        208,
+        32
+      ],
+      "id": "c1cd1bcb-9640-4f5a-90f8-d94ba6b63d34",
+      "name": "Call 'Google Ads - BB Customer Match List Paged Sub'"
+    }
+  ],
+  "connections": {
+    "am 1. des Monats": {
+      "main": [
+        [
+          {
+            "node": "Microsoft SQL – Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Microsoft SQL – Count": {
+      "main": [
+        [
+          {
+            "node": "Code – Seiten erzeugen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code – Seiten erzeugen": {
+      "main": [
+        [
+          {
+            "node": "Call 'Google Ads - BB Customer Match List Paged Sub'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code – CSV zusammensetzen": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Google Ads - BB Customer Match List Paged Sub'": {
+      "main": [
+        [
+          {
+            "node": "Code – CSV zusammensetzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "yeRlJs8Wunv3S3Nn",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-10-20T09:06:04.704Z",
+      "updatedAt": "2026-10-20T09:06:04.704Z"
+    }
+  ],
+  "activeVersion": null
+}

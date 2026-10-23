@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-04-14T09:00:56.121Z",
-  "createdAt": "2025-12-27T18:37:04.477Z",
   "id": "4s7M1xKRFCSl7WEX",
   "name": "Minusbestände - Bericht",
   "active": true,
+  "activeVersionId": "e3053fef-7c7d-4048-9ead-0616b84b2ff5",
+  "createdAt": "2025-12-27T18:37:04.477Z",
+  "updatedAt": "2026-04-14T09:00:56.121Z",
   "isArchived": false,
+  "versionId": "b0a6b36b-35b1-45df-9e53-51b8e4cf99ed",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -129,6 +132,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "saveDataErrorExecution": "all",
@@ -152,26 +156,21 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "b0a6b36b-35b1-45df-9e53-51b8e4cf99ed",
-  "activeVersionId": "e3053fef-7c7d-4048-9ead-0616b84b2ff5",
-  "triggerCount": 1,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-01-27T12:05:26.770Z",
-      "createdAt": "2026-01-27T12:05:26.770Z",
       "role": "workflow:owner",
       "workflowId": "4s7M1xKRFCSl7WEX",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-01-27T12:05:26.770Z",
+      "updatedAt": "2026-01-27T12:05:26.770Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-03-28T22:02:44.000Z",
-    "createdAt": "2026-03-28T22:02:40.568Z",
     "versionId": "e3053fef-7c7d-4048-9ead-0616b84b2ff5",
     "workflowId": "4s7M1xKRFCSl7WEX",
     "nodes": [
@@ -301,7 +300,8 @@
     "authors": "Christoph Strauss",
     "name": "Version e3053fef",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-03-28T22:02:40.568Z",
+    "updatedAt": "2026-03-28T22:02:44.000Z"
+  }
 }

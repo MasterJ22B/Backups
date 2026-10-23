@@ -1,0 +1,747 @@
+{
+  "id": "YycpUgNYN17s9psM",
+  "name": "finway Export-API – Ausgaben-Export (Rolling Window)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-10-17T18:12:23.396Z",
+  "updatedAt": "2026-10-22T13:54:45.640Z",
+  "isArchived": false,
+  "versionId": "1e7748ed-a526-4c4c-9f52-2ce35f7298ca",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## finway Export-API\n**Ablauf:** Zeitraum in Monats-Chunks teilen → je Chunk: POST Export starten → pollen bis `done` → ZIP laden → CSV entpacken → Zeilen anreichern → Ziel.\n\n**Nachträgliche Belege:** Täglicher Lauf exportiert immer ein Rolling Window (`lookbackDays`, Default 90). Ziel MUSS per Upsert auf einen stabilen Schlüssel schreiben (kein Insert). Für Altfälle: Config `backfillFrom` setzen und manuell starten.\n\n**Annahmen (bitte gegen finwayAPI Anleitung.yaml prüfen):** Auth = `Authorization: Bearer fwk_live_…`; Response-Felder `exportId` und `status`; CSV-Trennzeichen `;`.\n\n**Credential:** 'Header Auth' mit Name `Authorization`, Wert `Bearer fwk_live_…` (Key läuft nach 12 Monaten ab!).",
+        "height": 300,
+        "width": 560,
+        "color": 4
+      },
+      "id": "93256c4f-66b3-4635-aa3a-ba241a08805b",
+      "name": "Hinweise",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d80a3cec-37ad-4d8e-ba84-066b8aecc481",
+      "name": "Manuell starten",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        48,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "baseUrl",
+              "value": "https://api.finway.de",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "companyId",
+              "value": "62c6949c30f91d006788856d",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "lookbackDays",
+              "value": 90,
+              "type": "number"
+            },
+            {
+              "id": "a4",
+              "name": "backfillFrom",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "includeArchived",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e7870ecc-1709-4ea2-b0d3-9751a9f6b9f4",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst now = new Date();\nconst end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));\nconst start = cfg.backfillFrom\n  ? new Date(cfg.backfillFrom + 'T00:00:00Z')\n  : new Date(end.getTime() - Number(cfg.lookbackDays) * 86400000);\nconst fmt = d => d.toISOString().slice(0, 10);\nconst items = [];\nlet cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));\nwhile (cur <= end) {\n  const monthEnd = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 0));\n  const to = monthEnd < end ? monthEnd : end;\n  items.push({ json: { from: fmt(cur), to: fmt(to) } });\n  cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 1));\n}\nreturn items;"
+      },
+      "id": "cc86855b-22ed-4978-b92c-33cd9da25de6",
+      "name": "Zeiträume bilden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "1272812d-78ef-4468-909c-51ecf576f05b",
+      "name": "Pro Zeitraum",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        720,
+        848
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "9a32050f-f205-4242-b3af-0eef06e67261",
+      "name": "Fertig",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        864,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.baseUrl }}/api/v1/exports/expenses",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ companyId: $('Config').first().json.companyId, from: $('Pro Zeitraum').last().json.from, to: $('Pro Zeitraum').last().json.to, includeArchived: $('Config').first().json.includeArchived }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "a83d06e6-6b89-4caa-bfff-07ded596b4a7",
+      "name": "Export starten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        592
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fLeeTDZ1wilhONn4",
+          "name": "finway Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.statusCode }}",
+                    "rightValue": 202,
+                    "operator": {
+                      "type": "number",
+                      "operation": "equals"
+                    },
+                    "id": "c316654d-6c4a-40ef-b6c7-2228e2eb4ae7"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "202 gestartet"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.statusCode }}",
+                    "rightValue": 429,
+                    "operator": {
+                      "type": "number",
+                      "operation": "equals"
+                    },
+                    "id": "0a462166-777d-4ebf-83ad-9dd07551f058"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "429 läuft bereits"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.statusCode }}",
+                    "rightValue": 404,
+                    "operator": {
+                      "type": "number",
+                      "operation": "equals"
+                    },
+                    "id": "f1e8decc-5406-45bf-9d65-122965d81d47"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "404 keine Ausgaben"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Fehler"
+        }
+      },
+      "id": "4297b97e-be9d-4254-b051-462affd2f793",
+      "name": "Start-Antwort",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1168,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 60
+      },
+      "id": "643aa16e-f249-415a-a29a-94ed16fcca35",
+      "name": "Warten (429)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1568,
+        752
+      ],
+      "webhookId": "cf5e3639-1d7d-4fd0-9533-05a8ae36ffa2"
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ 'finway Export fehlgeschlagen: HTTP ' + ($json.statusCode || '') + ' ' + JSON.stringify($json.body || $json) }}"
+      },
+      "id": "92ab03f0-467e-428f-a440-099be0ef0269",
+      "name": "Fehler stoppen",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2336,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "exportId",
+              "value": "={{ $json.body.exportId }}",
+              "type": "string"
+            },
+            {
+              "id": "b2",
+              "name": "from",
+              "value": "={{ $('Pro Zeitraum').last().json.from }}",
+              "type": "string"
+            },
+            {
+              "id": "b3",
+              "name": "to",
+              "value": "={{ $('Pro Zeitraum').last().json.to }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "acd949d7-d212-4307-ab3d-fb74fb861c25",
+      "name": "Export-ID merken",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1392,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "id": "92028180-316e-4f51-8ce6-71e0d772563f",
+      "name": "Warten (Polling)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1616,
+        400
+      ],
+      "webhookId": "16f6401b-4ed7-4bfc-8e29-855c148b441d"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.baseUrl }}/api/v1/exports/expenses/{{ $('Export-ID merken').last().json.exportId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "bba51188-81a3-4142-abd8-0c4306c9e838",
+      "name": "Status abfragen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1840,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fLeeTDZ1wilhONn4",
+          "name": "finway Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "done",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "done"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "pending",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pending"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "failed / unbekannt"
+        }
+      },
+      "id": "4b7b380c-630d-479a-b957-5ceb78f53c57",
+      "name": "Status?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2064,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config').first().json.baseUrl }}/v1/exports/expenses/{{ $('Export-ID merken').last().json.exportId }}/download",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "df397bb4-1668-4708-993b-b45260a9942c",
+      "name": "ZIP herunterladen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2304,
+        368
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fLeeTDZ1wilhONn4",
+          "name": "finway Auth"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "5cd04f28-b492-4bb8-ad26-dde204bbc1b9",
+      "name": "ZIP entpacken",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        2512,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "file_0",
+        "options": {
+          "delimiter": ";",
+          "headerRow": true
+        }
+      },
+      "id": "b7779cd7-e20c-4ba1-b58d-397498262d6b",
+      "name": "CSV lesen",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        2720,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Stabilen Schlüssel festlegen: Spaltenname der Beleg-/Antrags-ID aus der finway-CSV eintragen.\nconst KEY_COLUMN = 'HIER_ID_SPALTE';\nconst meta = $('Export-ID merken').last().json;\nconst now = new Date().toISOString().slice(0, 19).replace('T', ' ');\nreturn $input.all().map(i => {\n  const row = i.json;\n  const key = row[KEY_COLUMN] ?? JSON.stringify(row);\n  return { json: {\n    row_key: String(key).slice(0, 190),\n    export_id: meta.exportId,\n    export_from: meta.from,\n    export_to: meta.to,\n    last_seen_at: now,\n    payload: JSON.stringify(row)\n  } };\n});"
+      },
+      "id": "17580f09-f954-49ca-b721-0bdff396948a",
+      "name": "Zeilen anreichern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": {
+          "__rl": true,
+          "value": "finway_expenses",
+          "mode": "name"
+        },
+        "columnToMatchOn": "row_key",
+        "options": {}
+      },
+      "id": "126a382e-609b-4afa-99c3-b29d5f52d898",
+      "name": "MySQL Upsert",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        2816,
+        848
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "yEG5MndvkRzkGkRo",
+          "name": "BB Data Warehouse"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manuell starten": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Zeiträume bilden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zeiträume bilden": {
+      "main": [
+        [
+          {
+            "node": "Pro Zeitraum",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pro Zeitraum": {
+      "main": [
+        [
+          {
+            "node": "Fertig",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Export starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export starten": {
+      "main": [
+        [
+          {
+            "node": "Start-Antwort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start-Antwort": {
+      "main": [
+        [
+          {
+            "node": "Export-ID merken",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Warten (429)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pro Zeitraum",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler stoppen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warten (429)": {
+      "main": [
+        [
+          {
+            "node": "Export starten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export-ID merken": {
+      "main": [
+        [
+          {
+            "node": "Warten (Polling)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warten (Polling)": {
+      "main": [
+        [
+          {
+            "node": "Status abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status abfragen": {
+      "main": [
+        [
+          {
+            "node": "Status?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status?": {
+      "main": [
+        [
+          {
+            "node": "ZIP herunterladen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Warten (Polling)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fehler stoppen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ZIP herunterladen": {
+      "main": [
+        [
+          {
+            "node": "ZIP entpacken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ZIP entpacken": {
+      "main": [
+        [
+          {
+            "node": "CSV lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV lesen": {
+      "main": [
+        [
+          {
+            "node": "Zeilen anreichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zeilen anreichern": {
+      "main": [
+        [
+          {
+            "node": "MySQL Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MySQL Upsert": {
+      "main": [
+        [
+          {
+            "node": "Pro Zeitraum",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "YycpUgNYN17s9psM",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-10-17T18:12:23.404Z",
+      "updatedAt": "2026-10-17T18:12:23.404Z"
+    }
+  ],
+  "activeVersion": null
+}

@@ -1,0 +1,381 @@
+{
+  "id": "r6y7B9japeq7OEOa",
+  "name": "Shopify-Saldo-Gegenprobe-(read-only)",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-22T08:32:56.515Z",
+  "updatedAt": "2026-09-22T08:34:14.530Z",
+  "isArchived": false,
+  "versionId": "e9cb60b4-51d2-4b20-bdb7-61df7c17275f",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "18814a94-8b79-4086-8ed5-eb6862cf4536",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        64,
+        432
+      ],
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === Gegenprobe zum Scan-Flow – bewusst ein zweiter, unabhaengiger Weg ===\n// Der Scan-Flow liest REST orders.json. Dieser hier liest GraphQL orders.\n// Gleiche Frage, andere Implementierung: nur so faengt die Gegenprobe auch\n// einen Fehler im Fetch selbst und nicht nur einen in den Daten.\n\nconst TAGE = 14;\nconst jetzt = new Date();\nconst von = new Date(jetzt.getTime() - TAGE * 24 * 60 * 60 * 1000);\n\nconst CONFIG = {\n  shop: 'vdzvc0-nd',\n  apiVersion: '2024-10',\n\n  tage: TAGE,\n\n  // Grober Serverfilter: nur das Datum. Shopify liest das in Shop-Zeitzone\n  // (also 00:00 +02:00) und damit etwas weiter als noetig – gewollt.\n  queryDatum: von.toISOString().slice(0, 10),\n\n  // Exakte Grenze, identisch zum Scan-Flow. Darauf wird clientseitig geschnitten.\n  cutoffIso: von.toISOString(),\n\n  seitenGroesse: 250,\n\n  // Notbremse: verhindert eine Endlosschleife bei kaputtem Cursor.\n  maxSeiten: 40,\n\n  // Bestellungen mit Refunds koennen viele sein – Detailzeilen begrenzen.\n  detailLimitRefunds: 50\n};\n\nreturn [{ json: { config: CONFIG } }];\n"
+      },
+      "id": "0bd5533f-75b1-4ec5-af47-c993c96e60c4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        432
+      ],
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sammelbehaelter leeren. staticData ueberlebt Executions.\nconst staticData = $getWorkflowStaticData('global');\n\nstaticData.gp = {\n  seiten: 0,\n  gesamt: 0,\n  ausserhalb: 0,\n  negativ: [],\n  positiv: [],\n  unlesbar: [],\n  mitRefunds: [],\n  anzahlMitRefunds: 0,\n  summeRefunds: 0,\n  aelteste: null,\n  neueste: null\n};\n\nreturn [{ json: { cursor: null, hasNext: true, seite: 0 } }];\n"
+      },
+      "id": "808c7fc5-94c9-46c0-b58f-0ac4fcc706b2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        432
+      ],
+      "name": "Sammler leeren"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst cursor = $input.first().json.cursor || null;\n\n// sortKey CREATED_AT + reverse: neueste zuerst, wie bei der manuellen Pruefung.\nconst query = `query($cursor: String) {\n  orders(\n    first: ${config.seitenGroesse}\n    after: $cursor\n    query: \"created_at:>=${config.queryDatum}\"\n    sortKey: CREATED_AT\n    reverse: true\n  ) {\n    edges {\n      node {\n        id\n        name\n        createdAt\n        displayFinancialStatus\n        totalPriceSet       { presentmentMoney { amount currencyCode } }\n        totalRefundedSet    { presentmentMoney { amount } }\n        totalOutstandingSet { presentmentMoney { amount currencyCode } }\n      }\n    }\n    pageInfo { hasNextPage endCursor }\n  }\n}`;\n\nreturn [{\n  json: {\n    cursor,\n    gqlBody: JSON.stringify({ query, variables: { cursor } })\n  }\n}];\n"
+      },
+      "id": "8f7d6dba-1a49-414b-aff1-9118237489fe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        432
+      ],
+      "name": "Query bauen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "id": "3ca0497f-241b-4ba2-943a-15beecd37778",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        944,
+        432
+      ],
+      "name": "Token holen",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.access_token }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Query bauen').first().json.gqlBody }}",
+        "options": {}
+      },
+      "id": "8e527f12-864a-4104-b225-3e444685bc9c",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1168,
+        432
+      ],
+      "name": "Orders abfragen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\n\n// Shopify antwortet auf GraphQL-Fehler mit HTTP 200, der HTTP-Node schlaegt\n// also nicht fehl. Hier hart abbrechen: eine halbe Gegenprobe ist wertlos.\nif (Array.isArray(resp?.errors) && resp.errors.length) {\n  throw new Error('GraphQL-Fehler: ' + JSON.stringify(resp.errors));\n}\n\nconst conn = resp?.data?.orders;\nif (!conn) {\n  throw new Error('Keine Orders-Antwort: ' + JSON.stringify(resp).slice(0, 500));\n}\n\nconst config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst gp = staticData.gp;\n\nconst cutoffMs = new Date(config.cutoffIso).getTime();\ngp.seiten++;\n\nconst knoten = (conn.edges || []).map(e => e.node);\n\nfor (const o of knoten) {\n  // Serverfilter ist nur datumsgenau -> hier exakt auf das Fenster des\n  // Scan-Flows schneiden, sonst vergleicht man zwei verschiedene Mengen.\n  if (new Date(o.createdAt).getTime() < cutoffMs) {\n    gp.ausserhalb++;\n    continue;\n  }\n\n  gp.gesamt++;\n  if (!gp.neueste || o.createdAt > gp.neueste) gp.neueste = o.createdAt;\n  if (!gp.aelteste || o.createdAt < gp.aelteste) gp.aelteste = o.createdAt;\n\n  const satz = {\n    orderId: String(o.id).split('/').pop(),\n    orderName: o.name,\n    createdAt: o.createdAt,\n    status: o.displayFinancialStatus,\n    gesamtpreis: o.totalPriceSet?.presentmentMoney?.amount,\n    saldo: o.totalOutstandingSet?.presentmentMoney?.amount,\n    erstattet: o.totalRefundedSet?.presentmentMoney?.amount,\n    currency: o.totalOutstandingSet?.presentmentMoney?.currencyCode\n      || o.totalPriceSet?.presentmentMoney?.currencyCode,\n    adminUrl: `https://admin.shopify.com/store/${config.shop}/orders/${String(o.id).split('/').pop()}`\n  };\n\n  // null/'' waeren bei Number() eine 0 und wuerden als \"ausgeglichen\" durchgehen.\n  const roh = o.totalOutstandingSet?.presentmentMoney?.amount;\n  const saldo = (roh === null || roh === undefined || roh === '') ? NaN : Number(roh);\n  if (!Number.isFinite(saldo)) {\n    gp.unlesbar.push({ ...satz, grund: 'totalOutstandingSet unlesbar' });\n  } else if (saldo < 0) {\n    gp.negativ.push(satz);\n  } else if (saldo > 0) {\n    gp.positiv.push(satz);\n  }\n\n  const erstattet = Number(o.totalRefundedSet?.presentmentMoney?.amount || 0);\n  if (erstattet > 0) {\n    gp.anzahlMitRefunds++;\n    gp.summeRefunds += erstattet;\n    if (gp.mitRefunds.length < config.detailLimitRefunds) gp.mitRefunds.push(satz);\n  }\n}\n\nconst serverHatMehr = !!conn.pageInfo?.hasNextPage;\nconst limitErreicht = gp.seiten >= config.maxSeiten;\n\nreturn [{\n  json: {\n    cursor: conn.pageInfo?.endCursor || null,\n    hasNext: serverHatMehr && !limitErreicht,\n    abgebrochen: serverHatMehr && limitErreicht,\n    seite: gp.seiten,\n    seiteBestellungen: knoten.length,\n    imFensterBisher: gp.gesamt,\n    negativBisher: gp.negativ.length\n  }\n}];\n"
+      },
+      "id": "e04cc5bd-7a3f-466a-bf40-336c616b7fd5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        432
+      ],
+      "name": "Seite auswerten"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "id": "69c38db3-1002-431b-bdd6-c80b93266009",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1600,
+        432
+      ],
+      "name": "Wait",
+      "webhookId": "623d693b-f676-44ef-9f89-59aefc06f3b5"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "18032dfc-78ae-447f-9120-85d9fa402043",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "419bc215-ad86-4339-b84f-600a57aae19b",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1808,
+        432
+      ],
+      "name": "Weitere Seite?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Config').first().json.config;\nconst staticData = $getWorkflowStaticData('global');\nconst gp = staticData.gp;\nconst letzte = $input.first().json;\n\nconst summe = (liste) => liste\n  .reduce((s, r) => s + Math.abs(Number(r.saldo || 0)), 0)\n  .toFixed(2);\n\nconst vollstaendig = !letzte.abgebrochen;\nconst saldoNull = gp.gesamt - gp.negativ.length - gp.positiv.length - gp.unlesbar.length;\n\n// Das ist der eigentliche Zweck des Reports: eine Aussage, die man gegen den\n// Scan-Flow halten kann, statt nur einer Zahl.\nlet urteil;\nif (!vollstaendig) {\n  urteil = 'UNVOLLSTAENDIG – maxSeiten erreicht, Aussage nicht belastbar';\n} else {\n  const teile = [gp.negativ.length === 0\n    ? 'Scan-Flow muss 0 Kandidaten melden'\n    : 'Scan-Flow muss ' + gp.negativ.length + ' Kandidaten melden (' + summe(gp.negativ) + ' offen)'];\n  // Unlesbare Salden zusaetzlich, nicht anstelle der Kandidatenzahl.\n  if (gp.unlesbar.length) {\n    teile.push('PRUEFEN: ' + gp.unlesbar.length + ' Bestellung(en) mit unlesbarem Saldo');\n  }\n  urteil = teile.join(' – ');\n}\n\nconst zusammenfassung = {\n  zeile: 'ZUSAMMENFASSUNG',\n  lauf: new Date().toISOString(),\n  quelle: 'GraphQL orders – unabhaengig vom REST-Fetch des Scan-Flows',\n  urteil,\n  paginationVollstaendig: vollstaendig,\n\n  zeitraumTage: config.tage,\n  cutoff: config.cutoffIso,\n  serverFilter: 'created_at:>=' + config.queryDatum,\n  aeltesteBestellung: gp.aelteste,\n  neuesteBestellung: gp.neueste,\n\n  seitenGeholt: gp.seiten,\n  bestellungenImFenster: gp.gesamt,\n  vorCutoffVerworfen: gp.ausserhalb,\n\n  saldoNegativ: gp.negativ.length,\n  summeNegativ: summe(gp.negativ),\n  saldoPositiv: gp.positiv.length,\n  summePositiv: summe(gp.positiv),\n  saldoNull,\n  saldoUnlesbar: gp.unlesbar.length,\n\n  bestellungenMitRefunds: gp.anzahlMitRefunds,\n  summeErstattet: gp.summeRefunds.toFixed(2)\n};\n\nconst sortiert = (liste) => [...liste]\n  .sort((a, b) => Math.abs(Number(b.saldo || 0)) - Math.abs(Number(a.saldo || 0)));\n\nreturn [\n  { json: zusammenfassung },\n  ...sortiert(gp.negativ).map(r => ({ json: { zeile: 'SALDO_NEGATIV', ...r } })),\n  ...sortiert(gp.positiv).map(r => ({ json: { zeile: 'SALDO_POSITIV', ...r } })),\n  ...gp.unlesbar.map(r => ({ json: { zeile: 'UNLESBAR', ...r } })),\n  ...gp.mitRefunds.map(r => ({ json: { zeile: 'MIT_REFUND', ...r } }))\n];\n"
+      },
+      "id": "6621a657-a09b-46b4-865e-85bd00447927",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        592
+      ],
+      "name": "Gegenprobe-Report"
+    },
+    {
+      "parameters": {
+        "content": "## Gegenprobe – offene Salden (read-only)\nPrüft dasselbe 14-Tage-Fenster wie `Shopify-Refund-Scan-offene-Salden-14-Tage`, aber **über GraphQL statt REST**. Zwei Wege, eine Frage: nur so fällt auch ein Fehler im Fetch selbst auf und nicht bloß einer in den Daten.\n\n**Schreibt nichts.** Keine Refunds, keine Tags, keine Mails.\n\nDer Serverfilter ist nur datumsgenau (Shop-Zeitzone), deshalb wird in `Seite auswerten` zusätzlich exakt auf `Config.cutoffIso` geschnitten – sonst vergleicht man zwei verschiedene Mengen.",
+        "height": 300,
+        "width": 900,
+        "color": 4
+      },
+      "id": "e4b779de-9c22-4949-8ec0-b60d72dabc04",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "name": "Sticky Zweck"
+    },
+    {
+      "parameters": {
+        "content": "## Seitenschleife\nCursor-Pagination über `pageInfo.endCursor`, 250 pro Seite, 1 s Pause, vor jeder Seite ein frischer Token.\n\n`Config.maxSeiten` (40) ist die Notbremse gegen einen kaputten Cursor. Greift sie, steht `paginationVollstaendig: false` im Report und das Urteil lautet ausdrücklich **UNVOLLSTAENDIG** – eine halbe Gegenprobe ist wertlos.\n\nGraphQL-Fehler kommen bei Shopify mit HTTP 200. `Seite auswerten` wirft deshalb selbst, statt still weiterzuzählen.",
+        "height": 300,
+        "width": 880,
+        "color": 5
+      },
+      "id": "573e7f73-be1b-4b93-9797-239531c0d518",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        928,
+        0
+      ],
+      "name": "Sticky Loop"
+    },
+    {
+      "parameters": {
+        "content": "## Report\nDie `ZUSAMMENFASSUNG` enthält ein **`urteil`**, das man direkt gegen den Scan-Flow halten kann, z.B. „Scan-Flow muss 0 Kandidaten melden\".\n\nVerteilung: `saldoNegativ` (das sind die Refund-Kandidaten), `saldoPositiv` (Kunde schuldet uns), `saldoNull`, `saldoUnlesbar`, dazu `bestellungenMitRefunds` und `summeErstattet`.\n\nDetailzeilen: `SALDO_NEGATIV`, `SALDO_POSITIV`, `UNLESBAR`, `MIT_REFUND` – jeweils mit Admin-Link. Die ~1.400 unauffälligen Bestellungen stehen nur als Zahl drin.",
+        "height": 480,
+        "width": 560,
+        "color": 6
+      },
+      "id": "58fe341a-7cef-4a1b-bb6a-d9650db45528",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1984,
+        0
+      ],
+      "name": "Sticky Report"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Sammler leeren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sammler leeren": {
+      "main": [
+        [
+          {
+            "node": "Query bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen": {
+      "main": [
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Orders abfragen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Orders abfragen": {
+      "main": [
+        [
+          {
+            "node": "Seite auswerten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seite auswerten": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Weitere Seite?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weitere Seite?": {
+      "main": [
+        [
+          {
+            "node": "Query bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gegenprobe-Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "r6y7B9japeq7OEOa",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-09-22T08:32:56.518Z",
+      "updatedAt": "2026-09-22T08:32:56.518Z"
+    }
+  ],
+  "activeVersion": null
+}

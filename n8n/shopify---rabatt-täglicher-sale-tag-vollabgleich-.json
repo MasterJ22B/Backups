@@ -1,0 +1,2085 @@
+{
+  "id": "jyW270ZbU3Lq3isJ",
+  "name": "Shopify - Rabatt täglicher Sale-Tag Vollabgleich",
+  "active": true,
+  "activeVersionId": "a85e71c8-2e96-4f32-b926-32c6604511ad",
+  "createdAt": "2026-07-25T12:50:09.565Z",
+  "updatedAt": "2026-10-06T05:17:19.543Z",
+  "isArchived": false,
+  "versionId": "a85e71c8-2e96-4f32-b926-32c6604511ad",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cb763181-1dd1-4414-9a4f-ec0704a716e2",
+      "name": "Täglich 03:00 Uhr1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "coll-name",
+              "name": "collectionName",
+              "value": "Sale",
+              "type": "string"
+            },
+            {
+              "id": "merch-name",
+              "name": "merchName",
+              "value": "Merch",
+              "type": "string"
+            },
+            {
+              "id": "target-name",
+              "name": "targetName",
+              "value": "Merch (exkl. Sales)",
+              "type": "string"
+            },
+            {
+              "id": "e84b9d76-7f6b-4a4f-b739-6bb8152add3d",
+              "name": "goodiesName",
+              "value": "Rabattcode Goodies",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d5874776-eeed-47f0-9384-7c145baa3bb4",
+      "name": "Einstellungen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        176,
+        192
+      ],
+      "notes": "Zentrale Einstellungen: Name der Sale-Collection (collectionName), der Quell-Collection (merchName) und der Ziel-Collection (targetName)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": []
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query GetCollection($q: String!) { collections(first: 1, query: $q) { edges { node { id title } } } }\", variables: { q: \"title:'\" + $('Einstellungen').first().json.collectionName + \"'\" } }) }}",
+        "options": {}
+      },
+      "id": "1e7be25d-695e-48f5-b045-fbe8d1facdcc",
+      "name": "Collection-ID ermitteln",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        96
+      ],
+      "executeOnce": true,
+      "notes": "Ermittelt einmalig die Collection-GID anhand des Namens aus \"Einstellungen\". Funktioniert nur mit manuellen (Custom) Collections."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query GetProducts($cursor: String) { products(first: 250, after: $cursor) { edges { node { id title tags variants(first: 100) { edges { node { id price compareAtPrice } } } } } pageInfo { hasNextPage endCursor } } }\", variables: { cursor: null } }) }}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "variables",
+                    "value": "={{ { \"cursor\": $response.body.data.products.pageInfo.endCursor } }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.data.products.pageInfo.hasNextPage }}",
+              "limitPagesFetched": true
+            }
+          }
+        }
+      },
+      "id": "a44104a1-e9b4-4105-b80d-24897cdd2cc9",
+      "name": "Alle Produktseiten holen (GraphQL)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        96
+      ],
+      "notes": "Holt alle Produkte seitenweise (250 pro Seite, max. 100 Seiten). Pagination ersetzt das gesamte GraphQL \"variables\"-Objekt mit dem endCursor der Vorseite."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fasst alle geladenen Produktseiten zu einer flachen Liste von Produkten zusammen\nconst TAG_NAME = 'sale';\nconst alleProdukte = [];\n\nfor (const item of $input.all()) {\n  const body = item.json;\n  const edges = body?.data?.products?.edges || [];\n  for (const edge of edges) {\n    alleProdukte.push(edge.node);\n  }\n}\n\nfunction variantIstReduziert(v) {\n  const price = parseFloat(v.price);\n  const compareAt = v.compareAtPrice !== null && v.compareAtPrice !== undefined && v.compareAtPrice !== ''\n    ? parseFloat(v.compareAtPrice)\n    : null;\n\n  if (compareAt === null || isNaN(compareAt) || isNaN(price)) return false;\n\n  return compareAt > 0 && compareAt !== price;\n}\n\nconst ergebnisse = [];\n\nfor (const product of alleProdukte) {\n  const variants = (product.variants?.edges || []).map(e => e.node);\n  const hatReduzierteVariante = variants.some(variantIstReduziert);\n\n  const currentTags = (product.tags || []);\n  const hatTagBereits = currentTags.includes(TAG_NAME);\n\n  const needsTagAdd = hatReduzierteVariante && !hatTagBereits;\n  const needsTagRemove = !hatReduzierteVariante && hatTagBereits;\n\n  if (needsTagAdd || needsTagRemove) {\n    ergebnisse.push({\n      json: {\n        productId: product.id,\n        productGid: product.id,\n        title: product.title,\n        tagName: TAG_NAME,\n        hatReduzierteVariante,\n        hatTagBereits,\n        needsTagAdd,\n        needsTagRemove\n      }\n    });\n  }\n}\n\nreturn ergebnisse;"
+      },
+      "id": "c199e2f1-c24c-40c0-a63d-fc51639d3845",
+      "name": "Seiten zusammenführen & prüfen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        96
+      ],
+      "alwaysOutputData": true,
+      "notes": "Gibt NUR Produkte aus, bei denen sich der Tag-Status ändern muss - spart unnötige API-Calls."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.needsTagAdd }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "5f6376fc-12b2-48bf-be3c-3e1699de890a"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Tag hinzufügen"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.needsTagRemove }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "50d92fc6-2dcd-408f-a7ab-c007d2e37da9"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Tag entfernen"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "93811f08-4dca-40f8-a4fb-ab77ba257407",
+      "name": "Tag-Aktion nötig?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation tagsAdd($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { node { id } userErrors { field message } } }\", variables: { id: $json.productGid, tags: [$json.tagName] } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 2,
+              "batchInterval": 600
+            }
+          }
+        }
+      },
+      "id": "34030e8a-276f-490c-a682-baf1af55e592",
+      "name": "Tag hinzufügen (tagsAdd)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        0
+      ],
+      "notes": "Batching (2 Requests / 600ms) schont Shopifys GraphQL-Kostenlimit bei großen Katalogen."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation AddToCollection($id: ID!, $productIds: [ID!]!) { collectionAddProductsV2(id: $id, productIds: $productIds) { job { id done } userErrors { field message } } }\", variables: { id: $('Collection-ID ermitteln').first().json.data.collections.edges[0].node.id, productIds: [$json.productGid] } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 2,
+              "batchInterval": 600
+            }
+          }
+        }
+      },
+      "id": "8b5c14d8-f098-4a78-8d2b-eff7c76622d8",
+      "name": "Zur Collection hinzufügen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        0
+      ],
+      "notes": "Fügt reduzierte Produkte der manuellen Collection hinzu (collectionAddProductsV2, asynchroner Job)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation tagsRemove($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { node { id } userErrors { field message } } }\", variables: { id: $json.productGid, tags: [$json.tagName] } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 2,
+              "batchInterval": 600
+            }
+          }
+        }
+      },
+      "id": "82ee9b9f-35fa-49e7-9293-9cf4fe98d8f0",
+      "name": "Tag entfernen (tagsRemove)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation RemoveFromCollection($id: ID!, $productIds: [ID!]!) { collectionRemoveProducts(id: $id, productIds: $productIds) { job { id done } userErrors { field message } } }\", variables: { id: $('Collection-ID ermitteln').first().json.data.collections.edges[0].node.id, productIds: [$json.productGid] } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 2,
+              "batchInterval": 600
+            }
+          }
+        }
+      },
+      "id": "9ff2702b-8f5e-4eb1-9c54-c97afc662d9c",
+      "name": "Aus Collection entfernen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        192
+      ],
+      "notes": "Entfernt nicht mehr reduzierte Produkte aus der manuellen Collection (collectionRemoveProducts, asynchroner Job)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query { collections(first: 250) { edges { node { id title } } } }\" }) }}",
+        "options": {}
+      },
+      "id": "84a887ad-0931-429e-a882-9a913ba9ba68",
+      "name": "Alle Collections laden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        384
+      ],
+      "executeOnce": true,
+      "notes": "Lädt alle Collections, um Merch-, Sale- und Ziel-Collection anhand des Namens zu finden."
+    },
+    {
+      "parameters": {
+        "jsCode": "const names = $('Einstellungen').first().json;\nconst merchName = names.merchName;\nconst saleName = names.collectionName;\nconst targetName = names.targetName;\nconst goodiesName = names.goodiesName;\n\nconst map = {};\nfor (const it of $('Alle Collections laden').all()) {\n  const edges = it.json?.data?.collections?.edges || [];\n  for (const e of edges) map[e.node.title] = e.node.id;\n}\n\nconst merchId = map[merchName] || null;\nconst saleId = map[saleName] || null;\nconst targetId = map[targetName] || null;\nconst goodiesId = map[goodiesName] || null;\n\nconst fehlend = [];\nif (!merchId) fehlend.push(merchName);\nif (!saleId) fehlend.push(saleName);\nif (!targetId) fehlend.push(targetName);\nif (!goodiesId) fehlend.push(goodiesName);\nif (fehlend.length) {\n  throw new Error('Collection(s) nicht gefunden: ' + fehlend.join(', '));\n}\n\nreturn [{ json: { merchId, saleId, targetId,goodiesId } }];"
+      },
+      "id": "2dffd697-e765-493f-9a9f-d17fd7a9612b",
+      "name": "Collection-IDs matchen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        384
+      ],
+      "notes": "Ordnet die drei benötigten Collection-GIDs anhand der Namen zu."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query GetMembers($cursor: String) { collection(id: \\\"\" + $('Collection-IDs matchen').first().json.merchId + \"\\\") { products(first: 250, after: $cursor) { edges { node { id } } pageInfo { hasNextPage endCursor } } } }\", variables: { cursor: null } }) }}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "variables",
+                    "value": "={{ { \"cursor\": $response.body.data.collection.products.pageInfo.endCursor } }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.data.collection.products.pageInfo.hasNextPage }}",
+              "limitPagesFetched": true
+            }
+          }
+        }
+      },
+      "id": "7ea6ee68-dab3-43b6-85d1-aecc4cb4395a",
+      "name": "Merch-Produkte laden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        384
+      ],
+      "executeOnce": true,
+      "notes": "Lädt alle Produkt-GIDs der Quell-Collection \"Merch\" (paginiert)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query GetMembers($cursor: String) { collection(id: \\\"\" + $('Collection-IDs matchen').first().json.saleId + \"\\\") { products(first: 250, after: $cursor) { edges { node { id } } pageInfo { hasNextPage endCursor } } } }\", variables: { cursor: null } }) }}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "variables",
+                    "value": "={{ { \"cursor\": $response.body.data.collection.products.pageInfo.endCursor } }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.data.collection.products.pageInfo.hasNextPage }}",
+              "limitPagesFetched": true
+            }
+          }
+        }
+      },
+      "id": "8d261580-bef0-4c77-9062-6afeb4f133ee",
+      "name": "Sale-Produkte laden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        384
+      ],
+      "executeOnce": true,
+      "notes": "Lädt alle Produkt-GIDs der Sale-Collection (paginiert)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query GetMembers($cursor: String) { collection(id: \\\"\" + $('Collection-IDs matchen').first().json.targetId + \"\\\") { products(first: 250, after: $cursor) { edges { node { id } } pageInfo { hasNextPage endCursor } } } }\", variables: { cursor: null } }) }}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "variables",
+                    "value": "={{ { \"cursor\": $response.body.data.collection.products.pageInfo.endCursor } }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.data.collection.products.pageInfo.hasNextPage }}",
+              "limitPagesFetched": true
+            }
+          }
+        }
+      },
+      "id": "5c82f918-ade2-4c39-bbed-266a1d131920",
+      "name": "Ziel-Produkte laden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1696,
+        384
+      ],
+      "executeOnce": true,
+      "notes": "Lädt die aktuellen Produkt-GIDs der Ziel-Collection \"Merch (exkl. Sales)\" (paginiert)."
+    },
+    {
+      "parameters": {
+        "jsCode": "function sammle(nodeName) {\n  const s = new Set();\n  for (const it of $(nodeName).all()) {\n    const edges = it.json?.data?.collection?.products?.edges || [];\n    for (const e of edges) s.add(e.node.id);\n  }\n  return s;\n}\n\nconst merch = sammle('Merch-Produkte laden');\nconst goodies = sammle('Goodies-Produkte laden');\nconst sale = sammle('Sale-Produkte laden');\nconst ziel = sammle('Ziel-Produkte laden');\n\n// Basis = Merch UND Rabattcode Goodies zusammengeführt\nconst basis = new Set([...merch, ...goodies]);\n\n// Hinzufügen: in Basis (Merch+Goodies), NICHT in Sale, noch nicht im Ziel\nconst hinzu = [...basis].filter(id => !sale.has(id) && !ziel.has(id));\n// Entfernen: aktuell im Ziel UND in Sale (unverändert wie bisher)\nconst entfernen = [...ziel].filter(id => sale.has(id));\n\nfunction chunk(arr, n) { const r = []; for (let i = 0; i < arr.length; i += n) r.push(arr.slice(i, i + n)); return r; }\n\nconst out = [];\nfor (const c of chunk(hinzu, 100)) out.push({ json: { action: 'add', productIds: c, anzahl: c.length } });\nfor (const c of chunk(entfernen, 100)) out.push({ json: { action: 'remove', productIds: c, anzahl: c.length } });\n\nreturn out;"
+      },
+      "id": "1d02ea9a-cd5b-417b-91b7-5334246076ef",
+      "name": "Merch-Abgleich berechnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        384
+      ],
+      "notes": "Berechnet, welche Produkte zur Ziel-Collection hinzugefügt (Merch minus Sale) bzw. daraus entfernt (im Ziel und in Sale) werden müssen. Chunks à 100 IDs pro API-Call."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "add",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "a1"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Hinzufügen"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "remove",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "r1"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Entfernen"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "72278594-cf16-4452-86b1-37153fe5c11a",
+      "name": "Merch-Aktion?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2144,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation AddToCollection($id: ID!, $productIds: [ID!]!) { collectionAddProductsV2(id: $id, productIds: $productIds) { job { id done } userErrors { field message } } }\", variables: { id: $('Collection-IDs matchen').first().json.targetId, productIds: $json.productIds } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 800
+            }
+          }
+        }
+      },
+      "id": "a4094942-2bab-40a5-a3a0-0c5590b08865",
+      "name": "Zu Ziel-Collection hinzufügen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2368,
+        288
+      ],
+      "notes": "Fügt Merch-Produkte (ohne Sale) zur Ziel-Collection \"Merch (exkl. Sales)\" hinzu."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"mutation RemoveFromCollection($id: ID!, $productIds: [ID!]!) { collectionRemoveProducts(id: $id, productIds: $productIds) { job { id done } userErrors { field message } } }\", variables: { id: $('Collection-IDs matchen').first().json.targetId, productIds: $json.productIds } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 800
+            }
+          }
+        }
+      },
+      "id": "5155d2a9-20c6-4553-81ac-067eff9ecb20",
+      "name": "Aus Ziel-Collection entfernen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2368,
+        480
+      ],
+      "notes": "Entfernt Sale-Produkte aus der Ziel-Collection \"Merch (exkl. Sales)\"."
+    },
+    {
+      "parameters": {
+        "amount": 60
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        384
+      ],
+      "id": "51eea9ec-05ce-4385-a6d8-958a93e54338",
+      "name": "Wait",
+      "webhookId": "8f08b03c-b6c8-4f12-ba46-9da0e4079dd0"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        16,
+        192
+      ],
+      "id": "c05c5fd6-9ec6-4f22-bbe3-4880ddb997f5",
+      "name": "Token holen",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query GetMembers($cursor: String) { collection(id: \\\"\" + $('Collection-IDs matchen').first().json.goodiesId + \"\\\") { products(first: 250, after: $cursor) { edges { node { id } } pageInfo { hasNextPage endCursor } } } }\", variables: { cursor: null } }) }}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "variables",
+                    "value": "={{ { \"cursor\": $response.body.data.collection.products.pageInfo.endCursor } }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.data.collection.products.pageInfo.hasNextPage }}",
+              "limitPagesFetched": true
+            }
+          }
+        }
+      },
+      "id": "f60cc0f2-e35c-433a-a267-2cd70de525d7",
+      "name": "Goodies-Produkte laden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1392,
+        384
+      ],
+      "executeOnce": true,
+      "notes": "Lädt alle Produkt-GIDs der Collection \"Rabattcode Goodies\" (paginiert). Wird mit Merch-Produkten zur gemeinsamen Basis zusammengeführt."
+    }
+  ],
+  "connections": {
+    "Täglich 03:00 Uhr1": {
+      "main": [
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einstellungen": {
+      "main": [
+        [
+          {
+            "node": "Collection-ID ermitteln",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collection-ID ermitteln": {
+      "main": [
+        [
+          {
+            "node": "Alle Produktseiten holen (GraphQL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alle Produktseiten holen (GraphQL)": {
+      "main": [
+        [
+          {
+            "node": "Seiten zusammenführen & prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seiten zusammenführen & prüfen": {
+      "main": [
+        [
+          {
+            "node": "Tag-Aktion nötig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag-Aktion nötig?": {
+      "main": [
+        [
+          {
+            "node": "Tag hinzufügen (tagsAdd)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tag entfernen (tagsRemove)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag hinzufügen (tagsAdd)": {
+      "main": [
+        [
+          {
+            "node": "Zur Collection hinzufügen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag entfernen (tagsRemove)": {
+      "main": [
+        [
+          {
+            "node": "Aus Collection entfernen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alle Collections laden": {
+      "main": [
+        [
+          {
+            "node": "Collection-IDs matchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collection-IDs matchen": {
+      "main": [
+        [
+          {
+            "node": "Merch-Produkte laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merch-Produkte laden": {
+      "main": [
+        [
+          {
+            "node": "Sale-Produkte laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sale-Produkte laden": {
+      "main": [
+        [
+          {
+            "node": "Goodies-Produkte laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ziel-Produkte laden": {
+      "main": [
+        [
+          {
+            "node": "Merch-Abgleich berechnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merch-Abgleich berechnen": {
+      "main": [
+        [
+          {
+            "node": "Merch-Aktion?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merch-Aktion?": {
+      "main": [
+        [
+          {
+            "node": "Zu Ziel-Collection hinzufügen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aus Ziel-Collection entfernen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Alle Collections laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Einstellungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Goodies-Produkte laden": {
+      "main": [
+        [
+          {
+            "node": "Ziel-Produkte laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Täglich 03:00 Uhr1": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "node:Täglich 03:00 Uhr": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "jyW270ZbU3Lq3isJ",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-27T06:36:30.815Z",
+      "updatedAt": "2026-07-27T06:36:30.815Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "a85e71c8-2e96-4f32-b926-32c6604511ad",
+    "workflowId": "jyW270ZbU3Lq3isJ",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 3 * * *"
+              }
+            ]
+          }
+        },
+        "id": "cb763181-1dd1-4414-9a4f-ec0704a716e2",
+        "name": "Täglich 03:00 Uhr1",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -176,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "coll-name",
+                "name": "collectionName",
+                "value": "Sale",
+                "type": "string"
+              },
+              {
+                "id": "merch-name",
+                "name": "merchName",
+                "value": "Merch",
+                "type": "string"
+              },
+              {
+                "id": "target-name",
+                "name": "targetName",
+                "value": "Merch (exkl. Sales)",
+                "type": "string"
+              },
+              {
+                "id": "e84b9d76-7f6b-4a4f-b739-6bb8152add3d",
+                "name": "goodiesName",
+                "value": "Rabattcode Goodies",
+                "type": "string"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "d5874776-eeed-47f0-9384-7c145baa3bb4",
+        "name": "Einstellungen",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          176,
+          192
+        ],
+        "notes": "Zentrale Einstellungen: Name der Sale-Collection (collectionName), der Quell-Collection (merchName) und der Ziel-Collection (targetName)."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": []
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').item.json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"query GetCollection($q: String!) { collections(first: 1, query: $q) { edges { node { id title } } } }\", variables: { q: \"title:'\" + $('Einstellungen').first().json.collectionName + \"'\" } }) }}",
+          "options": {}
+        },
+        "id": "1e7be25d-695e-48f5-b045-fbe8d1facdcc",
+        "name": "Collection-ID ermitteln",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          448,
+          96
+        ],
+        "executeOnce": true,
+        "notes": "Ermittelt einmalig die Collection-GID anhand des Namens aus \"Einstellungen\". Funktioniert nur mit manuellen (Custom) Collections."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').item.json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"query GetProducts($cursor: String) { products(first: 250, after: $cursor) { edges { node { id title tags variants(first: 100) { edges { node { id price compareAtPrice } } } } } pageInfo { hasNextPage endCursor } } }\", variables: { cursor: null } }) }}",
+          "options": {
+            "pagination": {
+              "pagination": {
+                "parameters": {
+                  "parameters": [
+                    {
+                      "type": "body",
+                      "name": "variables",
+                      "value": "={{ { \"cursor\": $response.body.data.products.pageInfo.endCursor } }}"
+                    }
+                  ]
+                },
+                "paginationCompleteWhen": "other",
+                "completeExpression": "={{ !$response.body.data.products.pageInfo.hasNextPage }}",
+                "limitPagesFetched": true
+              }
+            }
+          }
+        },
+        "id": "a44104a1-e9b4-4105-b80d-24897cdd2cc9",
+        "name": "Alle Produktseiten holen (GraphQL)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          672,
+          96
+        ],
+        "notes": "Holt alle Produkte seitenweise (250 pro Seite, max. 100 Seiten). Pagination ersetzt das gesamte GraphQL \"variables\"-Objekt mit dem endCursor der Vorseite."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Fasst alle geladenen Produktseiten zu einer flachen Liste von Produkten zusammen\nconst TAG_NAME = 'sale';\nconst alleProdukte = [];\n\nfor (const item of $input.all()) {\n  const body = item.json;\n  const edges = body?.data?.products?.edges || [];\n  for (const edge of edges) {\n    alleProdukte.push(edge.node);\n  }\n}\n\nfunction variantIstReduziert(v) {\n  const price = parseFloat(v.price);\n  const compareAt = v.compareAtPrice !== null && v.compareAtPrice !== undefined && v.compareAtPrice !== ''\n    ? parseFloat(v.compareAtPrice)\n    : null;\n\n  if (compareAt === null || isNaN(compareAt) || isNaN(price)) return false;\n\n  return compareAt > 0 && compareAt !== price;\n}\n\nconst ergebnisse = [];\n\nfor (const product of alleProdukte) {\n  const variants = (product.variants?.edges || []).map(e => e.node);\n  const hatReduzierteVariante = variants.some(variantIstReduziert);\n\n  const currentTags = (product.tags || []);\n  const hatTagBereits = currentTags.includes(TAG_NAME);\n\n  const needsTagAdd = hatReduzierteVariante && !hatTagBereits;\n  const needsTagRemove = !hatReduzierteVariante && hatTagBereits;\n\n  if (needsTagAdd || needsTagRemove) {\n    ergebnisse.push({\n      json: {\n        productId: product.id,\n        productGid: product.id,\n        title: product.title,\n        tagName: TAG_NAME,\n        hatReduzierteVariante,\n        hatTagBereits,\n        needsTagAdd,\n        needsTagRemove\n      }\n    });\n  }\n}\n\nreturn ergebnisse;"
+        },
+        "id": "c199e2f1-c24c-40c0-a63d-fc51639d3845",
+        "name": "Seiten zusammenführen & prüfen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          896,
+          96
+        ],
+        "alwaysOutputData": true,
+        "notes": "Gibt NUR Produkte aus, bei denen sich der Tag-Status ändern muss - spart unnötige API-Calls."
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.needsTagAdd }}",
+                      "rightValue": true,
+                      "operator": {
+                        "type": "boolean",
+                        "operation": "true",
+                        "singleValue": true
+                      },
+                      "id": "5f6376fc-12b2-48bf-be3c-3e1699de890a"
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Tag hinzufügen"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.needsTagRemove }}",
+                      "rightValue": true,
+                      "operator": {
+                        "type": "boolean",
+                        "operation": "true",
+                        "singleValue": true
+                      },
+                      "id": "50d92fc6-2dcd-408f-a7ab-c007d2e37da9"
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Tag entfernen"
+              }
+            ]
+          },
+          "options": {
+            "fallbackOutput": "none"
+          }
+        },
+        "id": "93811f08-4dca-40f8-a4fb-ab77ba257407",
+        "name": "Tag-Aktion nötig?",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3,
+        "position": [
+          1120,
+          96
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').first().json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"mutation tagsAdd($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { node { id } userErrors { field message } } }\", variables: { id: $json.productGid, tags: [$json.tagName] } }) }}",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 2,
+                "batchInterval": 600
+              }
+            }
+          }
+        },
+        "id": "34030e8a-276f-490c-a682-baf1af55e592",
+        "name": "Tag hinzufügen (tagsAdd)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1344,
+          0
+        ],
+        "notes": "Batching (2 Requests / 600ms) schont Shopifys GraphQL-Kostenlimit bei großen Katalogen."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').first().json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"mutation AddToCollection($id: ID!, $productIds: [ID!]!) { collectionAddProductsV2(id: $id, productIds: $productIds) { job { id done } userErrors { field message } } }\", variables: { id: $('Collection-ID ermitteln').first().json.data.collections.edges[0].node.id, productIds: [$json.productGid] } }) }}",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 2,
+                "batchInterval": 600
+              }
+            }
+          }
+        },
+        "id": "8b5c14d8-f098-4a78-8d2b-eff7c76622d8",
+        "name": "Zur Collection hinzufügen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1568,
+          0
+        ],
+        "notes": "Fügt reduzierte Produkte der manuellen Collection hinzu (collectionAddProductsV2, asynchroner Job)."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').first().json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"mutation tagsRemove($id: ID!, $tags: [String!]!) { tagsRemove(id: $id, tags: $tags) { node { id } userErrors { field message } } }\", variables: { id: $json.productGid, tags: [$json.tagName] } }) }}",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 2,
+                "batchInterval": 600
+              }
+            }
+          }
+        },
+        "id": "82ee9b9f-35fa-49e7-9293-9cf4fe98d8f0",
+        "name": "Tag entfernen (tagsRemove)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1344,
+          192
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').first().json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"mutation RemoveFromCollection($id: ID!, $productIds: [ID!]!) { collectionRemoveProducts(id: $id, productIds: $productIds) { job { id done } userErrors { field message } } }\", variables: { id: $('Collection-ID ermitteln').first().json.data.collections.edges[0].node.id, productIds: [$json.productGid] } }) }}",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 2,
+                "batchInterval": 600
+              }
+            }
+          }
+        },
+        "id": "9ff2702b-8f5e-4eb1-9c54-c97afc662d9c",
+        "name": "Aus Collection entfernen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1568,
+          192
+        ],
+        "notes": "Entfernt nicht mehr reduzierte Produkte aus der manuellen Collection (collectionRemoveProducts, asynchroner Job)."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').item.json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"query { collections(first: 250) { edges { node { id title } } } }\" }) }}",
+          "options": {}
+        },
+        "id": "84a887ad-0931-429e-a882-9a913ba9ba68",
+        "name": "Alle Collections laden",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          448,
+          384
+        ],
+        "executeOnce": true,
+        "notes": "Lädt alle Collections, um Merch-, Sale- und Ziel-Collection anhand des Namens zu finden."
+      },
+      {
+        "parameters": {
+          "jsCode": "const names = $('Einstellungen').first().json;\nconst merchName = names.merchName;\nconst saleName = names.collectionName;\nconst targetName = names.targetName;\nconst goodiesName = names.goodiesName;\n\nconst map = {};\nfor (const it of $('Alle Collections laden').all()) {\n  const edges = it.json?.data?.collections?.edges || [];\n  for (const e of edges) map[e.node.title] = e.node.id;\n}\n\nconst merchId = map[merchName] || null;\nconst saleId = map[saleName] || null;\nconst targetId = map[targetName] || null;\nconst goodiesId = map[goodiesName] || null;\n\nconst fehlend = [];\nif (!merchId) fehlend.push(merchName);\nif (!saleId) fehlend.push(saleName);\nif (!targetId) fehlend.push(targetName);\nif (!goodiesId) fehlend.push(goodiesName);\nif (fehlend.length) {\n  throw new Error('Collection(s) nicht gefunden: ' + fehlend.join(', '));\n}\n\nreturn [{ json: { merchId, saleId, targetId,goodiesId } }];"
+        },
+        "id": "2dffd697-e765-493f-9a9f-d17fd7a9612b",
+        "name": "Collection-IDs matchen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          672,
+          384
+        ],
+        "notes": "Ordnet die drei benötigten Collection-GIDs anhand der Namen zu."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').item.json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"query GetMembers($cursor: String) { collection(id: \\\"\" + $('Collection-IDs matchen').first().json.merchId + \"\\\") { products(first: 250, after: $cursor) { edges { node { id } } pageInfo { hasNextPage endCursor } } } }\", variables: { cursor: null } }) }}",
+          "options": {
+            "pagination": {
+              "pagination": {
+                "parameters": {
+                  "parameters": [
+                    {
+                      "type": "body",
+                      "name": "variables",
+                      "value": "={{ { \"cursor\": $response.body.data.collection.products.pageInfo.endCursor } }}"
+                    }
+                  ]
+                },
+                "paginationCompleteWhen": "other",
+                "completeExpression": "={{ !$response.body.data.collection.products.pageInfo.hasNextPage }}",
+                "limitPagesFetched": true
+              }
+            }
+          }
+        },
+        "id": "7ea6ee68-dab3-43b6-85d1-aecc4cb4395a",
+        "name": "Merch-Produkte laden",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          896,
+          384
+        ],
+        "executeOnce": true,
+        "notes": "Lädt alle Produkt-GIDs der Quell-Collection \"Merch\" (paginiert)."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').item.json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"query GetMembers($cursor: String) { collection(id: \\\"\" + $('Collection-IDs matchen').first().json.saleId + \"\\\") { products(first: 250, after: $cursor) { edges { node { id } } pageInfo { hasNextPage endCursor } } } }\", variables: { cursor: null } }) }}",
+          "options": {
+            "pagination": {
+              "pagination": {
+                "parameters": {
+                  "parameters": [
+                    {
+                      "type": "body",
+                      "name": "variables",
+                      "value": "={{ { \"cursor\": $response.body.data.collection.products.pageInfo.endCursor } }}"
+                    }
+                  ]
+                },
+                "paginationCompleteWhen": "other",
+                "completeExpression": "={{ !$response.body.data.collection.products.pageInfo.hasNextPage }}",
+                "limitPagesFetched": true
+              }
+            }
+          }
+        },
+        "id": "8d261580-bef0-4c77-9062-6afeb4f133ee",
+        "name": "Sale-Produkte laden",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1120,
+          384
+        ],
+        "executeOnce": true,
+        "notes": "Lädt alle Produkt-GIDs der Sale-Collection (paginiert)."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').item.json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"query GetMembers($cursor: String) { collection(id: \\\"\" + $('Collection-IDs matchen').first().json.targetId + \"\\\") { products(first: 250, after: $cursor) { edges { node { id } } pageInfo { hasNextPage endCursor } } } }\", variables: { cursor: null } }) }}",
+          "options": {
+            "pagination": {
+              "pagination": {
+                "parameters": {
+                  "parameters": [
+                    {
+                      "type": "body",
+                      "name": "variables",
+                      "value": "={{ { \"cursor\": $response.body.data.collection.products.pageInfo.endCursor } }}"
+                    }
+                  ]
+                },
+                "paginationCompleteWhen": "other",
+                "completeExpression": "={{ !$response.body.data.collection.products.pageInfo.hasNextPage }}",
+                "limitPagesFetched": true
+              }
+            }
+          }
+        },
+        "id": "5c82f918-ade2-4c39-bbed-266a1d131920",
+        "name": "Ziel-Produkte laden",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1696,
+          384
+        ],
+        "executeOnce": true,
+        "notes": "Lädt die aktuellen Produkt-GIDs der Ziel-Collection \"Merch (exkl. Sales)\" (paginiert)."
+      },
+      {
+        "parameters": {
+          "jsCode": "function sammle(nodeName) {\n  const s = new Set();\n  for (const it of $(nodeName).all()) {\n    const edges = it.json?.data?.collection?.products?.edges || [];\n    for (const e of edges) s.add(e.node.id);\n  }\n  return s;\n}\n\nconst merch = sammle('Merch-Produkte laden');\nconst goodies = sammle('Goodies-Produkte laden');\nconst sale = sammle('Sale-Produkte laden');\nconst ziel = sammle('Ziel-Produkte laden');\n\n// Basis = Merch UND Rabattcode Goodies zusammengeführt\nconst basis = new Set([...merch, ...goodies]);\n\n// Hinzufügen: in Basis (Merch+Goodies), NICHT in Sale, noch nicht im Ziel\nconst hinzu = [...basis].filter(id => !sale.has(id) && !ziel.has(id));\n// Entfernen: aktuell im Ziel UND in Sale (unverändert wie bisher)\nconst entfernen = [...ziel].filter(id => sale.has(id));\n\nfunction chunk(arr, n) { const r = []; for (let i = 0; i < arr.length; i += n) r.push(arr.slice(i, i + n)); return r; }\n\nconst out = [];\nfor (const c of chunk(hinzu, 100)) out.push({ json: { action: 'add', productIds: c, anzahl: c.length } });\nfor (const c of chunk(entfernen, 100)) out.push({ json: { action: 'remove', productIds: c, anzahl: c.length } });\n\nreturn out;"
+        },
+        "id": "1d02ea9a-cd5b-417b-91b7-5334246076ef",
+        "name": "Merch-Abgleich berechnen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1920,
+          384
+        ],
+        "notes": "Berechnet, welche Produkte zur Ziel-Collection hinzugefügt (Merch minus Sale) bzw. daraus entfernt (im Ziel und in Sale) werden müssen. Chunks à 100 IDs pro API-Call."
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.action }}",
+                      "rightValue": "add",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      },
+                      "id": "a1"
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Hinzufügen"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.action }}",
+                      "rightValue": "remove",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      },
+                      "id": "r1"
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Entfernen"
+              }
+            ]
+          },
+          "options": {
+            "fallbackOutput": "none"
+          }
+        },
+        "id": "72278594-cf16-4452-86b1-37153fe5c11a",
+        "name": "Merch-Aktion?",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3,
+        "position": [
+          2144,
+          384
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').item.json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"mutation AddToCollection($id: ID!, $productIds: [ID!]!) { collectionAddProductsV2(id: $id, productIds: $productIds) { job { id done } userErrors { field message } } }\", variables: { id: $('Collection-IDs matchen').first().json.targetId, productIds: $json.productIds } }) }}",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 1,
+                "batchInterval": 800
+              }
+            }
+          }
+        },
+        "id": "a4094942-2bab-40a5-a3a0-0c5590b08865",
+        "name": "Zu Ziel-Collection hinzufügen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2368,
+          288
+        ],
+        "notes": "Fügt Merch-Produkte (ohne Sale) zur Ziel-Collection \"Merch (exkl. Sales)\" hinzu."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').item.json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"mutation RemoveFromCollection($id: ID!, $productIds: [ID!]!) { collectionRemoveProducts(id: $id, productIds: $productIds) { job { id done } userErrors { field message } } }\", variables: { id: $('Collection-IDs matchen').first().json.targetId, productIds: $json.productIds } }) }}",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 1,
+                "batchInterval": 800
+              }
+            }
+          }
+        },
+        "id": "5155d2a9-20c6-4553-81ac-067eff9ecb20",
+        "name": "Aus Ziel-Collection entfernen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2368,
+          480
+        ],
+        "notes": "Entfernt Sale-Produkte aus der Ziel-Collection \"Merch (exkl. Sales)\"."
+      },
+      {
+        "parameters": {
+          "amount": 60
+        },
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          224,
+          384
+        ],
+        "id": "51eea9ec-05ce-4385-a6d8-958a93e54338",
+        "name": "Wait",
+        "webhookId": "8f08b03c-b6c8-4f12-ba46-9da0e4079dd0"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpCustomAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "content-type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          16,
+          192
+        ],
+        "id": "c05c5fd6-9ec6-4f22-bbe3-4880ddb997f5",
+        "name": "Token holen",
+        "credentials": {
+          "httpCustomAuth": {
+            "id": "E1iS7U1eVERYdFhQ",
+            "name": "BB-Shopify-Credential"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://buecherbuechse.myshopify.com/admin/api/2025-01/graphql.json",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen').item.json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ query: \"query GetMembers($cursor: String) { collection(id: \\\"\" + $('Collection-IDs matchen').first().json.goodiesId + \"\\\") { products(first: 250, after: $cursor) { edges { node { id } } pageInfo { hasNextPage endCursor } } } }\", variables: { cursor: null } }) }}",
+          "options": {
+            "pagination": {
+              "pagination": {
+                "parameters": {
+                  "parameters": [
+                    {
+                      "type": "body",
+                      "name": "variables",
+                      "value": "={{ { \"cursor\": $response.body.data.collection.products.pageInfo.endCursor } }}"
+                    }
+                  ]
+                },
+                "paginationCompleteWhen": "other",
+                "completeExpression": "={{ !$response.body.data.collection.products.pageInfo.hasNextPage }}",
+                "limitPagesFetched": true
+              }
+            }
+          }
+        },
+        "id": "f60cc0f2-e35c-433a-a267-2cd70de525d7",
+        "name": "Goodies-Produkte laden",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1392,
+          384
+        ],
+        "executeOnce": true,
+        "notes": "Lädt alle Produkt-GIDs der Collection \"Rabattcode Goodies\" (paginiert). Wird mit Merch-Produkten zur gemeinsamen Basis zusammengeführt."
+      }
+    ],
+    "connections": {
+      "Täglich 03:00 Uhr1": {
+        "main": [
+          [
+            {
+              "node": "Token holen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Einstellungen": {
+        "main": [
+          [
+            {
+              "node": "Collection-ID ermitteln",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Wait",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Collection-ID ermitteln": {
+        "main": [
+          [
+            {
+              "node": "Alle Produktseiten holen (GraphQL)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Alle Produktseiten holen (GraphQL)": {
+        "main": [
+          [
+            {
+              "node": "Seiten zusammenführen & prüfen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Seiten zusammenführen & prüfen": {
+        "main": [
+          [
+            {
+              "node": "Tag-Aktion nötig?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Tag-Aktion nötig?": {
+        "main": [
+          [
+            {
+              "node": "Tag hinzufügen (tagsAdd)",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Tag entfernen (tagsRemove)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Tag hinzufügen (tagsAdd)": {
+        "main": [
+          [
+            {
+              "node": "Zur Collection hinzufügen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Tag entfernen (tagsRemove)": {
+        "main": [
+          [
+            {
+              "node": "Aus Collection entfernen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Alle Collections laden": {
+        "main": [
+          [
+            {
+              "node": "Collection-IDs matchen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Collection-IDs matchen": {
+        "main": [
+          [
+            {
+              "node": "Merch-Produkte laden",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Merch-Produkte laden": {
+        "main": [
+          [
+            {
+              "node": "Sale-Produkte laden",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sale-Produkte laden": {
+        "main": [
+          [
+            {
+              "node": "Goodies-Produkte laden",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ziel-Produkte laden": {
+        "main": [
+          [
+            {
+              "node": "Merch-Abgleich berechnen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Merch-Abgleich berechnen": {
+        "main": [
+          [
+            {
+              "node": "Merch-Aktion?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Merch-Aktion?": {
+        "main": [
+          [
+            {
+              "node": "Zu Ziel-Collection hinzufügen",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Aus Ziel-Collection entfernen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait": {
+        "main": [
+          [
+            {
+              "node": "Alle Collections laden",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Token holen": {
+        "main": [
+          [
+            {
+              "node": "Einstellungen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Goodies-Produkte laden": {
+        "main": [
+          [
+            {
+              "node": "Ziel-Produkte laden",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version a85e71c8",
+    "description": "",
+    "autosaved": false,
+    "createdAt": "2026-10-06T05:17:19.544Z",
+    "updatedAt": "2026-10-06T05:20:41.000Z"
+  }
+}

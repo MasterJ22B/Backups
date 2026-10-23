@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-28T10:54:55.942Z",
-  "createdAt": "2026-01-22T10:15:35.660Z",
   "id": "aKvTJFhnORgU-sZkhJGUT",
   "name": "Github-Backup-Workflow-V2",
   "active": true,
+  "activeVersionId": "a6a5c699-fe29-447e-8a11-ce6a0d5cc307",
+  "createdAt": "2026-01-22T10:15:35.660Z",
+  "updatedAt": "2026-07-28T10:54:55.942Z",
   "isArchived": false,
+  "versionId": "a6a5c699-fe29-447e-8a11-ce6a0d5cc307",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -439,6 +442,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "availableInMCP": false,
@@ -459,26 +463,21 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "a6a5c699-fe29-447e-8a11-ce6a0d5cc307",
-  "activeVersionId": "a6a5c699-fe29-447e-8a11-ce6a0d5cc307",
-  "triggerCount": 1,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-01-22T10:15:35.664Z",
-      "createdAt": "2026-01-22T10:15:35.664Z",
       "role": "workflow:owner",
       "workflowId": "aKvTJFhnORgU-sZkhJGUT",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-01-22T10:15:35.664Z",
+      "updatedAt": "2026-01-22T10:15:35.664Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-07-28T10:59:07.000Z",
-    "createdAt": "2026-07-28T10:54:55.943Z",
     "versionId": "a6a5c699-fe29-447e-8a11-ce6a0d5cc307",
     "workflowId": "aKvTJFhnORgU-sZkhJGUT",
     "nodes": [
@@ -919,7 +918,8 @@
     "authors": "Jesse Balsam",
     "name": "Version a6a5c699",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-07-28T10:54:55.943Z",
+    "updatedAt": "2026-07-28T10:59:07.000Z"
+  }
 }

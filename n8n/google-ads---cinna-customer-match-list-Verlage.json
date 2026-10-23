@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-06-02T14:31:00.347Z",
-  "createdAt": "2026-05-05T07:24:57.058Z",
   "id": "x9Cp2Kq4bRAwx11i",
   "name": "Google Ads - CINNA Customer Match List",
   "active": true,
+  "activeVersionId": "1a213fba-8273-4767-9fb6-71b22034ff46",
+  "createdAt": "2026-05-05T07:24:57.058Z",
+  "updatedAt": "2026-06-02T14:31:00.347Z",
   "isArchived": false,
+  "versionId": "1a213fba-8273-4767-9fb6-71b22034ff46",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -352,6 +355,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -370,26 +374,28 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "1a213fba-8273-4767-9fb6-71b22034ff46",
-  "activeVersionId": "1a213fba-8273-4767-9fb6-71b22034ff46",
-  "triggerCount": 1,
+  "tags": [
+    {
+      "id": "7yj1m1x4xrHvUucU",
+      "name": "Verlage",
+      "createdAt": "2026-03-08T13:05:09.107Z",
+      "updatedAt": "2026-03-08T13:05:09.107Z"
+    }
+  ],
   "shared": [
     {
-      "updatedAt": "2026-05-05T07:24:57.063Z",
-      "createdAt": "2026-05-05T07:24:57.063Z",
       "role": "workflow:owner",
       "workflowId": "x9Cp2Kq4bRAwx11i",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-05-05T07:24:57.063Z",
+      "updatedAt": "2026-05-05T07:24:57.063Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-06-02T14:31:04.000Z",
-    "createdAt": "2026-06-02T14:31:00.348Z",
     "versionId": "1a213fba-8273-4767-9fb6-71b22034ff46",
     "workflowId": "x9Cp2Kq4bRAwx11i",
     "nodes": [
@@ -743,14 +749,8 @@
     "authors": "Christoph Strauss",
     "name": "Version 1a213fba",
     "description": "",
-    "autosaved": true
-  },
-  "tags": [
-    {
-      "updatedAt": "2026-03-08T13:05:09.107Z",
-      "createdAt": "2026-03-08T13:05:09.107Z",
-      "id": "7yj1m1x4xrHvUucU",
-      "name": "Verlage"
-    }
-  ]
+    "autosaved": true,
+    "createdAt": "2026-06-02T14:31:00.348Z",
+    "updatedAt": "2026-06-02T14:31:04.000Z"
+  }
 }

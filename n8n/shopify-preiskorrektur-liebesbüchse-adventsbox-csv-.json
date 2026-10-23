@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-08-03T07:26:22.403Z",
-  "createdAt": "2026-07-23T08:41:14.055Z",
   "id": "zxuvpfGMS2DWqXyh",
   "name": "Shopify-Preiskorrektur-Liebesbüchse-Adventsbox-CSV",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-07-23T08:41:14.055Z",
+  "updatedAt": "2026-08-03T07:26:22.403Z",
   "isArchived": false,
+  "versionId": "661e04d6-72e9-4609-b3d3-25a9c1be28db",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -814,27 +817,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "661e04d6-72e9-4609-b3d3-25a9c1be28db",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-23T08:41:14.062Z",
-      "createdAt": "2026-07-23T08:41:14.062Z",
       "role": "workflow:owner",
       "workflowId": "zxuvpfGMS2DWqXyh",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-23T08:41:14.062Z",
+      "updatedAt": "2026-07-23T08:41:14.062Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

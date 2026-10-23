@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-02T17:58:40.398Z",
-  "createdAt": "2026-07-02T17:57:49.801Z",
   "id": "VG10cQCHSDJZkuTw",
   "name": "BB Watchdog Daily Summary",
   "active": true,
+  "activeVersionId": "4c84d9f2-8efd-4b70-8240-1fd851063bfe",
+  "createdAt": "2026-07-02T17:57:49.801Z",
+  "updatedAt": "2026-07-02T17:58:40.398Z",
   "isArchived": false,
+  "versionId": "4c84d9f2-8efd-4b70-8240-1fd851063bfe",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -134,6 +137,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -143,7 +147,7 @@
     "global": {
       "dailyDbBaseline": {
         "initialized_at": "2026-07-02T18:16:17.109Z",
-        "updated_at": "2026-08-12T04:10:22.585Z",
+        "updated_at": "2026-10-02T04:10:35.894Z",
         "records": {
           "admin_user|1|admin": {
             "record_type": "admin_user",
@@ -429,7 +433,7 @@
       },
       "dailyFileBaseline": {
         "initialized_at": "2026-07-02T18:16:17.111Z",
-        "updated_at": "2026-08-12T04:10:22.586Z",
+        "updated_at": "2026-10-02T04:10:35.895Z",
         "records": {
           "PLUGIN_DIR|wp-content/plugins/action-scheduler-high-volume-master": {
             "kind": "PLUGIN_DIR",
@@ -1128,24 +1132,19 @@
       }
     }
   },
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "4c84d9f2-8efd-4b70-8240-1fd851063bfe",
-  "activeVersionId": "4c84d9f2-8efd-4b70-8240-1fd851063bfe",
-  "triggerCount": 1,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-07-02T17:57:49.803Z",
-      "createdAt": "2026-07-02T17:57:49.803Z",
       "role": "workflow:owner",
       "workflowId": "VG10cQCHSDJZkuTw",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-02T17:57:49.803Z",
+      "updatedAt": "2026-07-02T17:57:49.803Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-07-02T17:59:01.000Z",
-    "createdAt": "2026-07-02T17:58:40.399Z",
     "versionId": "4c84d9f2-8efd-4b70-8240-1fd851063bfe",
     "workflowId": "VG10cQCHSDJZkuTw",
     "nodes": [
@@ -1281,7 +1280,8 @@
     "authors": "Patrick Schmitz",
     "name": "Version 4c84d9f2",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-07-02T17:58:40.399Z",
+    "updatedAt": "2026-07-02T17:59:01.000Z"
+  }
 }

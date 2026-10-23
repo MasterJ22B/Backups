@@ -1,0 +1,2190 @@
+{
+  "id": "fus6jAJZN33Nd7el",
+  "name": "Externe Auftragsnummer für Shopify Abo-Verlängerungsbestellungen anpassen Botanica",
+  "active": true,
+  "activeVersionId": "ec2469f2-6196-4e0d-af57-56d6dae85194",
+  "createdAt": "2026-05-26T11:14:26.495Z",
+  "updatedAt": "2026-08-21T09:38:30.214Z",
+  "isArchived": false,
+  "versionId": "8c2878df-e60e-401e-9c11-81509389a6a2",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1280,
+        272
+      ],
+      "id": "237171cb-679e-411c-aae8-342ef341435c",
+      "name": "Wait",
+      "webhookId": "21f59781-326b-4391-922a-52f991dc8318"
+    },
+    {
+      "parameters": {
+        "jsCode": "const shop = 'hfmtrs-bh';\n\nconst createdMin = DateTime.now().setZone('Europe/Berlin').minus({ days: 30 }).startOf('day').plus({ hours: 6 }).toISO();\nconst createdMax = DateTime.now().setZone('Europe/Berlin').startOf('day').plus({ hours: 6 }).toISO();\n\nconst initUrl = `https://${shop}.myshopify.com/admin/api/2024-10/orders.json`\n  + `?status=any`\n  + `&limit=250`\n  + `&order=created_at+asc`\n  + `&fields=id,name,tags`\n  + `&created_at_min=${encodeURIComponent(createdMin)}`\n  + `&created_at_max=${encodeURIComponent(createdMax)}`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.collectedOrders = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrl,\n    hasNext: true\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        272
+      ],
+      "id": "aa099055-0124-4d0b-abcb-e8b2d0cacd4e",
+      "name": "Array leeren + Start URL setzen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": []
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen ').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        272
+      ],
+      "id": "10493983-1803-4c1b-bb14-e274ffd7a9c2",
+      "name": "GET Bestellungen ",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1cc19d84-2834-4e79-a678-0e4ec1b036a6",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1456,
+        272
+      ],
+      "id": "d8af6790-555e-4217-99fa-56018d707c39",
+      "name": "GIbt es NextURL?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst orders = response.body?.orders || response.orders || [];\nconst respHeaders = response.headers || {};\nconst linkHeader = respHeaders.link || respHeaders.Link || '';\n\n// Filter Abo-Bestellungen\nconst filtered = orders.filter(order =>\n  (order.tags || '')\n    .split(',')\n    .map(t => t.trim())\n    .includes('appstle_subscription_recurring_order')\n);\n\n// In globales Array pushen\nconst staticData = $getWorkflowStaticData('global');\nstaticData.collectedOrders = (staticData.collectedOrders || []).concat(filtered);\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.collectedOrders.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        272
+      ],
+      "id": "baef251f-31ba-4c4a-b6aa-ad2d04cd1bb0",
+      "name": "NextURL weitergeben + Profile speichern "
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.collectedOrders || [];\n\nreturn collected.map(order => ({ json: order }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        288
+      ],
+      "id": "cc10b60a-c24d-4923-a074-d1d796488c97",
+      "name": "Ausgabe der Profile ",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2f2e7f7b-586b-4b92-8f5c-69fe53f7c676",
+              "leftValue": "={{ $json }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1888,
+        288
+      ],
+      "id": "06fc1bf8-0586-4c72-b32a-9541025e4a30",
+      "name": "Gibt es passende Profile?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst seen = new Set();\nconst unique = [];\n\nfor (const item of items) {\n  const id = item.json.id;\n  if (!seen.has(id)) {\n    seen.add(id);\n    unique.push(item);\n  }\n}\n\nreturn unique;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        208
+      ],
+      "id": "0f18b2f1-2217-4fd2-a457-de131e7f4952",
+      "name": "Dopplungen annullieren"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        368
+      ],
+      "id": "a6e57a32-e206-4069-ac8d-a09c3b51de5b",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "52b03569-dd2c-4f53-83fe-04cf2c60e477",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        256,
+        336
+      ],
+      "id": "8972e420-2850-4151-ab8a-94f3b7fcc163",
+      "name": "Webhook",
+      "webhookId": "52b03569-dd2c-4f53-83fe-04cf2c60e477",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3zQNkBEH7uLk3qT6",
+          "name": "Header Auth account"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cExterneAuftragsnummer, cAuftragsNr \nFROM Verkauf.tAuftrag\nWHERE cAuftragsNr = '{{ $json.name }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        2272,
+        256
+      ],
+      "id": "476db501-d092-4749-a809-06f26b8eaa1b",
+      "name": "Bestellungen prüfen ",
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "785bcfeb-e4b6-48a2-a251-aa3802f48318",
+              "leftValue": "={{ $json.cExterneAuftragsnummer }}",
+              "rightValue": "={{ $json.cAuftragsNr }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "={{ true }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2448,
+        256
+      ],
+      "id": "9c43ed7f-d670-4920-9b80-bf6a0a384be8",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE Verkauf.tAuftrag\nSET cExterneAuftragsnummer = STUFF(cExterneAuftragsnummer, 1, 5, 'LEAFABO-')\nWHERE cAuftragsNr = '{{ $json.cAuftragsNr }}'\n  AND cExterneAuftragsnummer LIKE 'LEAF-%';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        2672,
+        240
+      ],
+      "id": "21abde0c-1156-482d-9de5-75aa7e09e7c4",
+      "name": "Microsoft SQL",
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+        "toEmail": "jesse.balsam@buecherbuechse.de;christoph@buecherbuechse.de",
+        "subject": "Workflow: Anpassung der Externen Auftragsnummern der LEAF- und CINNA-Abos",
+        "html": "={{ $json.mailText }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3344,
+        464
+      ],
+      "id": "3b24beee-aafc-4b60-93e1-c6491b51f823",
+      "name": "Send an Email",
+      "webhookId": "a7f03196-36de-4df4-bf15-e49276ab2eaa",
+      "credentials": {
+        "smtp": {
+          "id": "Hx8rTZCW0DgWFZiw",
+          "name": "SMTP account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hfmtrs-bh.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        560,
+        272
+      ],
+      "id": "253d680f-d7fe-4e59-a28a-83672afaa58c",
+      "name": "Token holen ",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "3fGkYz6ZrStnQPI9",
+          "name": "LEAF/CINNA-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1280,
+        720
+      ],
+      "id": "2c8d24f3-3f5a-4e20-8142-0f91b01c82e6",
+      "name": "Wait1",
+      "webhookId": "21f59781-326b-4391-922a-52f991dc8318"
+    },
+    {
+      "parameters": {
+        "jsCode": "const shop = 'atwphh-7u';\n\nconst createdMin = DateTime.now().setZone('Europe/Berlin').minus({ days: 30 }).startOf('day').plus({ hours: 6 }).toISO();\nconst createdMax = DateTime.now().setZone('Europe/Berlin').startOf('day').plus({ hours: 6 }).toISO();\n\nconst initUrlB = `https://${shop}.myshopify.com/admin/api/2024-10/orders.json`\n  + `?status=any`\n  + `&limit=250`\n  + `&order=created_at+asc`\n  + `&fields=id,name,tags`\n  + `&created_at_min=${encodeURIComponent(createdMin)}`\n  + `&created_at_max=${encodeURIComponent(createdMax)}`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.collectedOrdersB = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrlB,\n    hasNext: true\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        720
+      ],
+      "id": "e94f2191-3105-4ca7-96c6-979a59b818dc",
+      "name": "Array leeren + Start URL setzen1"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.nextUrl }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": []
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $('Token holen 1').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        720
+      ],
+      "id": "2a09bd03-daf5-441e-822d-8702689c26c0",
+      "name": "GET Bestellungen 1",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1cc19d84-2834-4e79-a678-0e4ec1b036a6",
+              "leftValue": "={{ $json.hasNext }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1456,
+        720
+      ],
+      "id": "55b0d613-cb08-4df0-9678-c362f243164f",
+      "name": "GIbt es NextURL?1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst orders = response.body?.orders || response.orders || [];\nconst respHeaders = response.headers || {};\nconst linkHeader = respHeaders.link || respHeaders.Link || '';\n\n// Filter Abo-Bestellungen\nconst filtered = orders.filter(order =>\n  (order.tags || '')\n    .split(',')\n    .map(t => t.trim())\n    .includes('appstle_subscription_recurring_order')\n);\n\n// In globales Array pushen\nconst staticData = $getWorkflowStaticData('global');\nstaticData.collectedOrdersB = (staticData.collectedOrdersB || []).concat(filtered);\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.collectedOrdersB.length\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        720
+      ],
+      "id": "80a0124d-d581-4f5a-a6e7-48a911a39d9e",
+      "name": "NextURL weitergeben + Profile speichern 1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.collectedOrdersB || [];\n\nreturn collected.map(order => ({ json: order }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        736
+      ],
+      "id": "df63fa3c-50fc-4080-b47b-d4deb34b660c",
+      "name": "Ausgabe der Profile 1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2f2e7f7b-586b-4b92-8f5c-69fe53f7c676",
+              "leftValue": "={{ $json }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1904,
+        736
+      ],
+      "id": "a8a1cdd6-afb1-44d1-9aa3-c2bfddb0030a",
+      "name": "Gibt es passende Profile?1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst seen = new Set();\nconst unique = [];\n\nfor (const item of items) {\n  const id = item.json.id;\n  if (!seen.has(id)) {\n    seen.add(id);\n    unique.push(item);\n  }\n}\n\nreturn unique;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        656
+      ],
+      "id": "0bce50e8-25e8-44a9-84ce-51f58fac870d",
+      "name": "Dopplungen annullieren1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        816
+      ],
+      "id": "1436d063-5f5c-413f-9198-82dfdf157e2a",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT cExterneAuftragsnummer, cAuftragsNr \nFROM Verkauf.tAuftrag\nWHERE cAuftragsNr = '{{ $json.name }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        2288,
+        704
+      ],
+      "id": "234b990b-8775-41c7-b071-c145a118300a",
+      "name": "Bestellungen prüfen 1",
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "785bcfeb-e4b6-48a2-a251-aa3802f48318",
+              "leftValue": "={{ $json.cExterneAuftragsnummer }}",
+              "rightValue": "={{ $json.cAuftragsNr }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "={{ true }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2448,
+        704
+      ],
+      "id": "206cc41a-0bf9-47c2-8377-b537aec97899",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE Verkauf.tAuftrag\nSET cExterneAuftragsnummer = STUFF(cExterneAuftragsnummer, 1, 6, 'CINNAABO-')\nWHERE cAuftragsNr = '{{ $json.cAuftragsNr }}'\n  AND cExterneAuftragsnummer LIKE 'CINNA-%';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        2672,
+        688
+      ],
+      "id": "f1de097a-6fa9-4d96-84bc-3d4bc124562e",
+      "name": "Microsoft SQL1",
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://atwphh-7u.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        560,
+        720
+      ],
+      "id": "2a0a4cd9-0a2a-4ff1-8473-d7893028d9f1",
+      "name": "Token holen 1",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "3fGkYz6ZrStnQPI9",
+          "name": "LEAF/CINNA-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2976,
+        464
+      ],
+      "id": "e6dcd392-6597-462c-bb27-fa5d888b8799",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Pakete = alle Items, die eine cAuftragsNr mitbringen\nconst pakete = items.filter(item => item.json && item.json.cAuftragsNr);\n\nif (pakete.length === 0) {\n  return [{\n    json: {\n      mailText: `<p>Es wurden keine externen Auftragsnummern angepasst.</p>\n<p>Mit freundlichen Grüßen<br>Jesse's n8n-Workflow</p>`,\n    },\n  }];\n}\n\nconst listenEintraege = pakete\n  .map(item => `  <li>${item.json.cAuftragsNr}</li>`)\n  .join('\\n');\n\nconst mailText = `\n<p>Folgende Auftragsnummern wurden vom n8n-Workflow angepasst:</p>\n\n<ul style=\"font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6;\">\n${listenEintraege}\n</ul>\n\n<p>Mit freundlichen Grüßen<br>Jesse's n8n-Workflow</p>\n`;\n\nreturn [{\n  json: {\n    mailText,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        464
+      ],
+      "id": "ee1deb12-c023-47a0-bb15-9d15b020a109",
+      "name": "E-Mail Vorbereitung"
+    },
+    {
+      "parameters": {
+        "content": "## LEAF-Pagination",
+        "height": 336,
+        "width": 2384,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        528,
+        176
+      ],
+      "id": "bc4adc9a-f5e4-4945-bf00-f165587a307f",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## CINNA Pagination\n",
+        "height": 336,
+        "width": 2384,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        528,
+        624
+      ],
+      "id": "1db47bf8-d0a4-40a6-8a31-5926f5b934ec",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Mailing\n",
+        "height": 416,
+        "width": 576,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2944,
+        304
+      ],
+      "id": "e5b6d789-d3ca-4a3b-a493-9e2e80f97a95",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        256,
+        512
+      ],
+      "id": "562289dd-8d57-434a-92ed-00766914ca6d",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "connections": {
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "GIbt es NextURL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Array leeren + Start URL setzen": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Bestellungen ": {
+      "main": [
+        [
+          {
+            "node": "NextURL weitergeben + Profile speichern ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIbt es NextURL?": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ausgabe der Profile ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextURL weitergeben + Profile speichern ": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ausgabe der Profile ": {
+      "main": [
+        [
+          {
+            "node": "Gibt es passende Profile?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es passende Profile?": {
+      "main": [
+        [
+          {
+            "node": "Dopplungen annullieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dopplungen annullieren": {
+      "main": [
+        [
+          {
+            "node": "Bestellungen prüfen ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Token holen 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellungen prüfen ": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Microsoft SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen ": {
+      "main": [
+        [
+          {
+            "node": "Array leeren + Start URL setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "GIbt es NextURL?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Array leeren + Start URL setzen1": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Bestellungen 1": {
+      "main": [
+        [
+          {
+            "node": "NextURL weitergeben + Profile speichern 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GIbt es NextURL?1": {
+      "main": [
+        [
+          {
+            "node": "GET Bestellungen 1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ausgabe der Profile 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NextURL weitergeben + Profile speichern 1": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ausgabe der Profile 1": {
+      "main": [
+        [
+          {
+            "node": "Gibt es passende Profile?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gibt es passende Profile?1": {
+      "main": [
+        [
+          {
+            "node": "Dopplungen annullieren1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dopplungen annullieren1": {
+      "main": [
+        [
+          {
+            "node": "Bestellungen prüfen 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellungen prüfen 1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen 1": {
+      "main": [
+        [
+          {
+            "node": "Array leeren + Start URL setzen1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Microsoft SQL1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "E-Mail Vorbereitung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail Vorbereitung": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Token holen ",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Token holen 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "saveExecutionProgress": true
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    },
+    "global": {
+      "collectedOrders": [],
+      "collectedOrdersB": []
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "fus6jAJZN33Nd7el",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-05-26T11:14:26.500Z",
+      "updatedAt": "2026-05-26T11:14:26.500Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "ec2469f2-6196-4e0d-af57-56d6dae85194",
+    "workflowId": "fus6jAJZN33Nd7el",
+    "nodes": [
+      {
+        "parameters": {
+          "amount": 1
+        },
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          1280,
+          272
+        ],
+        "id": "237171cb-679e-411c-aae8-342ef341435c",
+        "name": "Wait",
+        "webhookId": "21f59781-326b-4391-922a-52f991dc8318"
+      },
+      {
+        "parameters": {
+          "jsCode": "const shop = 'hfmtrs-bh';\n\nconst createdMin = DateTime.now().setZone('Europe/Berlin').minus({ days: 1 }).startOf('day').plus({ hours: 6 }).toISO();\nconst createdMax = DateTime.now().setZone('Europe/Berlin').startOf('day').plus({ hours: 6 }).toISO();\n\nconst initUrl = `https://${shop}.myshopify.com/admin/api/2024-10/orders.json`\n  + `?status=any`\n  + `&limit=250`\n  + `&order=created_at+asc`\n  + `&fields=id,name,tags`\n  + `&created_at_min=${encodeURIComponent(createdMin)}`\n  + `&created_at_max=${encodeURIComponent(createdMax)}`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.collectedOrders = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrl,\n    hasNext: true\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          720,
+          272
+        ],
+        "id": "aa099055-0124-4d0b-abcb-e8b2d0cacd4e",
+        "name": "Array leeren + Start URL setzen"
+      },
+      {
+        "parameters": {
+          "url": "={{ $json.nextUrl }}",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": []
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen ').item.json.access_token }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          896,
+          272
+        ],
+        "id": "10493983-1803-4c1b-bb14-e274ffd7a9c2",
+        "name": "GET Bestellungen ",
+        "retryOnFail": true,
+        "maxTries": 5,
+        "waitBetweenTries": 5000
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "1cc19d84-2834-4e79-a678-0e4ec1b036a6",
+                "leftValue": "={{ $json.hasNext }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1456,
+          272
+        ],
+        "id": "d8af6790-555e-4217-99fa-56018d707c39",
+        "name": "GIbt es NextURL?"
+      },
+      {
+        "parameters": {
+          "jsCode": "const response = $input.first().json;\nconst orders = response.body?.orders || response.orders || [];\nconst respHeaders = response.headers || {};\nconst linkHeader = respHeaders.link || respHeaders.Link || '';\n\n// Filter Abo-Bestellungen\nconst filtered = orders.filter(order =>\n  (order.tags || '')\n    .split(',')\n    .map(t => t.trim())\n    .includes('appstle_subscription_recurring_order')\n);\n\n// In globales Array pushen\nconst staticData = $getWorkflowStaticData('global');\nstaticData.collectedOrders = (staticData.collectedOrders || []).concat(filtered);\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.collectedOrders.length\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1088,
+          272
+        ],
+        "id": "baef251f-31ba-4c4a-b6aa-ad2d04cd1bb0",
+        "name": "NextURL weitergeben + Profile speichern "
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.collectedOrders || [];\n\nreturn collected.map(order => ({ json: order }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1664,
+          288
+        ],
+        "id": "cc10b60a-c24d-4923-a074-d1d796488c97",
+        "name": "Ausgabe der Profile ",
+        "alwaysOutputData": true
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "2f2e7f7b-586b-4b92-8f5c-69fe53f7c676",
+                "leftValue": "={{ $json }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "object",
+                  "operation": "notEmpty",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1888,
+          288
+        ],
+        "id": "06fc1bf8-0586-4c72-b32a-9541025e4a30",
+        "name": "Gibt es passende Profile?"
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\n\nconst seen = new Set();\nconst unique = [];\n\nfor (const item of items) {\n  const id = item.json.id;\n  if (!seen.has(id)) {\n    seen.add(id);\n    unique.push(item);\n  }\n}\n\nreturn unique;"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2080,
+          208
+        ],
+        "id": "0f18b2f1-2217-4fd2-a457-de131e7f4952",
+        "name": "Dopplungen annullieren"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2080,
+          368
+        ],
+        "id": "a6e57a32-e206-4069-ac8d-a09c3b51de5b",
+        "name": "Code in JavaScript"
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "52b03569-dd2c-4f53-83fe-04cf2c60e477",
+          "authentication": "headerAuth",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          256,
+          336
+        ],
+        "id": "8972e420-2850-4151-ab8a-94f3b7fcc163",
+        "name": "Webhook",
+        "webhookId": "52b03569-dd2c-4f53-83fe-04cf2c60e477",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "3zQNkBEH7uLk3qT6",
+            "name": "Header Auth account"
+          }
+        },
+        "disabled": true
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT cExterneAuftragsnummer, cAuftragsNr \nFROM Verkauf.tAuftrag\nWHERE cAuftragsNr = '{{ $json.name }}';",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          2272,
+          256
+        ],
+        "id": "476db501-d092-4749-a809-06f26b8eaa1b",
+        "name": "Bestellungen prüfen ",
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "785bcfeb-e4b6-48a2-a251-aa3802f48318",
+                "leftValue": "={{ $json.cExterneAuftragsnummer }}",
+                "rightValue": "={{ $json.cAuftragsNr }}",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "looseTypeValidation": "={{ true }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2448,
+          256
+        ],
+        "id": "9c43ed7f-d670-4920-9b80-bf6a0a384be8",
+        "name": "If"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE Verkauf.tAuftrag\nSET cExterneAuftragsnummer = STUFF(cExterneAuftragsnummer, 1, 5, 'LEAFABO-')\nWHERE cAuftragsNr = '{{ $json.cAuftragsNr }}'\n  AND cExterneAuftragsnummer LIKE 'LEAF-%';",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          2672,
+          240
+        ],
+        "id": "21abde0c-1156-482d-9de5-75aa7e09e7c4",
+        "name": "Microsoft SQL",
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "fromEmail": "Bücherbüchse Automations <n8n@mail.buecherbuechse.de>",
+          "toEmail": "jesse.balsam@buecherbuechse.de;christoph@buecherbuechse.de",
+          "subject": "Workflow: Anpassung der Externen Auftragsnummern der LEAF- und CINNA-Abos",
+          "html": "={{ $json.mailText }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          3344,
+          464
+        ],
+        "id": "3b24beee-aafc-4b60-93e1-c6491b51f823",
+        "name": "Send an Email",
+        "webhookId": "a7f03196-36de-4df4-bf15-e49276ab2eaa",
+        "credentials": {
+          "smtp": {
+            "id": "Hx8rTZCW0DgWFZiw",
+            "name": "SMTP account 3"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://hfmtrs-bh.myshopify.com/admin/oauth/access_token",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpCustomAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "content-type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          560,
+          272
+        ],
+        "id": "253d680f-d7fe-4e59-a28a-83672afaa58c",
+        "name": "Token holen ",
+        "credentials": {
+          "httpCustomAuth": {
+            "id": "3fGkYz6ZrStnQPI9",
+            "name": "LEAF/CINNA-Shopify-Credential"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "amount": 1
+        },
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          1280,
+          720
+        ],
+        "id": "2c8d24f3-3f5a-4e20-8142-0f91b01c82e6",
+        "name": "Wait1",
+        "webhookId": "21f59781-326b-4391-922a-52f991dc8318"
+      },
+      {
+        "parameters": {
+          "jsCode": "const shop = 'atwphh-7u';\n\nconst createdMin = DateTime.now().setZone('Europe/Berlin').minus({ days: 1 }).startOf('day').plus({ hours: 6 }).toISO();\nconst createdMax = DateTime.now().setZone('Europe/Berlin').startOf('day').plus({ hours: 6 }).toISO();\n\nconst initUrlB = `https://${shop}.myshopify.com/admin/api/2024-10/orders.json`\n  + `?status=any`\n  + `&limit=250`\n  + `&order=created_at+asc`\n  + `&fields=id,name,tags`\n  + `&created_at_min=${encodeURIComponent(createdMin)}`\n  + `&created_at_max=${encodeURIComponent(createdMax)}`;\n\n// Globales Array leeren\nconst staticData = $getWorkflowStaticData('global');\nstaticData.collectedOrdersB = [];\n\nreturn [{\n  json: {\n    nextUrl: initUrlB,\n    hasNext: true\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          720,
+          720
+        ],
+        "id": "e94f2191-3105-4ca7-96c6-979a59b818dc",
+        "name": "Array leeren + Start URL setzen1"
+      },
+      {
+        "parameters": {
+          "url": "={{ $json.nextUrl }}",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": []
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Shopify-Access-Token",
+                "value": "={{ $('Token holen 1').item.json.access_token }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          896,
+          720
+        ],
+        "id": "2a09bd03-daf5-441e-822d-8702689c26c0",
+        "name": "GET Bestellungen 1",
+        "retryOnFail": true,
+        "maxTries": 5,
+        "waitBetweenTries": 5000
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "1cc19d84-2834-4e79-a678-0e4ec1b036a6",
+                "leftValue": "={{ $json.hasNext }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1456,
+          720
+        ],
+        "id": "55b0d613-cb08-4df0-9678-c362f243164f",
+        "name": "GIbt es NextURL?1"
+      },
+      {
+        "parameters": {
+          "jsCode": "const response = $input.first().json;\nconst orders = response.body?.orders || response.orders || [];\nconst respHeaders = response.headers || {};\nconst linkHeader = respHeaders.link || respHeaders.Link || '';\n\n// Filter Abo-Bestellungen\nconst filtered = orders.filter(order =>\n  (order.tags || '')\n    .split(',')\n    .map(t => t.trim())\n    .includes('appstle_subscription_recurring_order')\n);\n\n// In globales Array pushen\nconst staticData = $getWorkflowStaticData('global');\nstaticData.collectedOrdersB = (staticData.collectedOrdersB || []).concat(filtered);\n\n// Next URL extrahieren\nconst nextMatch = linkHeader\n  .split(',')\n  .find(s => s.includes('rel=\"next\"'));\nconst nextUrl = nextMatch ? nextMatch.match(/<(.+?)>/)?.[1] : null;\n\nreturn [{\n  json: {\n    nextUrl: nextUrl,\n    hasNext: !!nextUrl,\n    collectedCount: staticData.collectedOrdersB.length\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1088,
+          720
+        ],
+        "id": "80a0124d-d581-4f5a-a6e7-48a911a39d9e",
+        "name": "NextURL weitergeben + Profile speichern 1"
+      },
+      {
+        "parameters": {
+          "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst collected = staticData.collectedOrdersB || [];\n\nreturn collected.map(order => ({ json: order }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1680,
+          736
+        ],
+        "id": "df63fa3c-50fc-4080-b47b-d4deb34b660c",
+        "name": "Ausgabe der Profile 1",
+        "alwaysOutputData": true
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "2f2e7f7b-586b-4b92-8f5c-69fe53f7c676",
+                "leftValue": "={{ $json }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "object",
+                  "operation": "notEmpty",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1904,
+          736
+        ],
+        "id": "a8a1cdd6-afb1-44d1-9aa3-c2bfddb0030a",
+        "name": "Gibt es passende Profile?1"
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\n\nconst seen = new Set();\nconst unique = [];\n\nfor (const item of items) {\n  const id = item.json.id;\n  if (!seen.has(id)) {\n    seen.add(id);\n    unique.push(item);\n  }\n}\n\nreturn unique;"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2080,
+          656
+        ],
+        "id": "0bce50e8-25e8-44a9-84ce-51f58fac870d",
+        "name": "Dopplungen annullieren1"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2080,
+          816
+        ],
+        "id": "1436d063-5f5c-413f-9198-82dfdf157e2a",
+        "name": "Code in JavaScript1"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT cExterneAuftragsnummer, cAuftragsNr \nFROM Verkauf.tAuftrag\nWHERE cAuftragsNr = '{{ $json.name }}';",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          2288,
+          704
+        ],
+        "id": "234b990b-8775-41c7-b071-c145a118300a",
+        "name": "Bestellungen prüfen 1",
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "785bcfeb-e4b6-48a2-a251-aa3802f48318",
+                "leftValue": "={{ $json.cExterneAuftragsnummer }}",
+                "rightValue": "={{ $json.cAuftragsNr }}",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "looseTypeValidation": "={{ true }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2448,
+          704
+        ],
+        "id": "206cc41a-0bf9-47c2-8377-b537aec97899",
+        "name": "If1"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE Verkauf.tAuftrag\nSET cExterneAuftragsnummer = STUFF(cExterneAuftragsnummer, 1, 6, 'CINNAABO-')\nWHERE cAuftragsNr = '{{ $json.cAuftragsNr }}'\n  AND cExterneAuftragsnummer LIKE 'CINNA-%';",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.microsoftSql",
+        "typeVersion": 1.1,
+        "position": [
+          2672,
+          688
+        ],
+        "id": "f1de097a-6fa9-4d96-84bc-3d4bc124562e",
+        "name": "Microsoft SQL1",
+        "credentials": {
+          "microsoftSql": {
+            "id": "a6mkpraM66kvytdS",
+            "name": "JTL Datenbank jessebalsam"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://atwphh-7u.myshopify.com/admin/oauth/access_token",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpCustomAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "content-type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          560,
+          720
+        ],
+        "id": "2a0a4cd9-0a2a-4ff1-8473-d7893028d9f1",
+        "name": "Token holen 1",
+        "credentials": {
+          "httpCustomAuth": {
+            "id": "3fGkYz6ZrStnQPI9",
+            "name": "LEAF/CINNA-Shopify-Credential"
+          }
+        }
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          2976,
+          464
+        ],
+        "id": "e6dcd392-6597-462c-bb27-fa5d888b8799",
+        "name": "Merge"
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\n\n// Pakete = alle Items, die eine cAuftragsNr mitbringen\nconst pakete = items.filter(item => item.json && item.json.cAuftragsNr);\n\nif (pakete.length === 0) {\n  return [{\n    json: {\n      mailText: `<p>Es wurden keine externen Auftragsnummern angepasst.</p>\n<p>Mit freundlichen Grüßen<br>Jesse's n8n-Workflow</p>`,\n    },\n  }];\n}\n\nconst listenEintraege = pakete\n  .map(item => `  <li>${item.json.cAuftragsNr}</li>`)\n  .join('\\n');\n\nconst mailText = `\n<p>Folgende Auftragsnummern wurden vom n8n-Workflow angepasst:</p>\n\n<ul style=\"font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6;\">\n${listenEintraege}\n</ul>\n\n<p>Mit freundlichen Grüßen<br>Jesse's n8n-Workflow</p>\n`;\n\nreturn [{\n  json: {\n    mailText,\n  },\n}];\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3136,
+          464
+        ],
+        "id": "ee1deb12-c023-47a0-bb15-9d15b020a109",
+        "name": "E-Mail Vorbereitung"
+      },
+      {
+        "parameters": {
+          "content": "## LEAF-Pagination",
+          "height": 336,
+          "width": 2384,
+          "color": 4
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          528,
+          176
+        ],
+        "id": "bc4adc9a-f5e4-4945-bf00-f165587a307f",
+        "name": "Sticky Note"
+      },
+      {
+        "parameters": {
+          "content": "## CINNA Pagination\n",
+          "height": 336,
+          "width": 2384,
+          "color": 6
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          528,
+          624
+        ],
+        "id": "1db47bf8-d0a4-40a6-8a31-5926f5b934ec",
+        "name": "Sticky Note1"
+      },
+      {
+        "parameters": {
+          "content": "## Mailing\n",
+          "height": 416,
+          "width": 576,
+          "color": 5
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          2944,
+          304
+        ],
+        "id": "e5b6d789-d3ca-4a3b-a493-9e2e80f97a95",
+        "name": "Sticky Note2"
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtHour": 6
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          256,
+          512
+        ],
+        "id": "562289dd-8d57-434a-92ed-00766914ca6d",
+        "name": "Schedule Trigger"
+      }
+    ],
+    "connections": {
+      "Wait": {
+        "main": [
+          [
+            {
+              "node": "GIbt es NextURL?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Array leeren + Start URL setzen": {
+        "main": [
+          [
+            {
+              "node": "GET Bestellungen ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GET Bestellungen ": {
+        "main": [
+          [
+            {
+              "node": "NextURL weitergeben + Profile speichern ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GIbt es NextURL?": {
+        "main": [
+          [
+            {
+              "node": "GET Bestellungen ",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Ausgabe der Profile ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "NextURL weitergeben + Profile speichern ": {
+        "main": [
+          [
+            {
+              "node": "Wait",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ausgabe der Profile ": {
+        "main": [
+          [
+            {
+              "node": "Gibt es passende Profile?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Gibt es passende Profile?": {
+        "main": [
+          [
+            {
+              "node": "Dopplungen annullieren",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code in JavaScript",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Dopplungen annullieren": {
+        "main": [
+          [
+            {
+              "node": "Bestellungen prüfen ",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Token holen ",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Token holen 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Bestellungen prüfen ": {
+        "main": [
+          [
+            {
+              "node": "If",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "If": {
+        "main": [
+          [
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Microsoft SQL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Token holen ": {
+        "main": [
+          [
+            {
+              "node": "Array leeren + Start URL setzen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait1": {
+        "main": [
+          [
+            {
+              "node": "GIbt es NextURL?1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Array leeren + Start URL setzen1": {
+        "main": [
+          [
+            {
+              "node": "GET Bestellungen 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GET Bestellungen 1": {
+        "main": [
+          [
+            {
+              "node": "NextURL weitergeben + Profile speichern 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GIbt es NextURL?1": {
+        "main": [
+          [
+            {
+              "node": "GET Bestellungen 1",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Ausgabe der Profile 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "NextURL weitergeben + Profile speichern 1": {
+        "main": [
+          [
+            {
+              "node": "Wait1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ausgabe der Profile 1": {
+        "main": [
+          [
+            {
+              "node": "Gibt es passende Profile?1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Gibt es passende Profile?1": {
+        "main": [
+          [
+            {
+              "node": "Dopplungen annullieren1",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code in JavaScript1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Dopplungen annullieren1": {
+        "main": [
+          [
+            {
+              "node": "Bestellungen prüfen 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Bestellungen prüfen 1": {
+        "main": [
+          [
+            {
+              "node": "If1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Token holen 1": {
+        "main": [
+          [
+            {
+              "node": "Array leeren + Start URL setzen1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "If1": {
+        "main": [
+          [
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 1
+            },
+            {
+              "node": "Microsoft SQL1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Merge": {
+        "main": [
+          [
+            {
+              "node": "E-Mail Vorbereitung",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "E-Mail Vorbereitung": {
+        "main": [
+          [
+            {
+              "node": "Send an Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "Token holen ",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Token holen 1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Jesse Balsam",
+    "name": "Version ec2469f2",
+    "description": "",
+    "autosaved": true,
+    "createdAt": "2026-08-21T09:07:21.650Z",
+    "updatedAt": "2026-08-21T09:07:30.000Z"
+  }
+}

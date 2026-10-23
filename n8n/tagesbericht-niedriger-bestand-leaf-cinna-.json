@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-28T09:42:55.133Z",
-  "createdAt": "2026-06-02T09:16:26.397Z",
   "id": "jg0JQuiQcZjL4VB2",
   "name": "Tagesbericht-niedriger-Bestand-LEAF-CINNA",
   "active": true,
+  "activeVersionId": "261bb987-c9d4-496b-b9bf-afacf84d4798",
+  "createdAt": "2026-06-02T09:16:26.397Z",
+  "updatedAt": "2026-07-28T09:42:55.133Z",
   "isArchived": false,
+  "versionId": "261bb987-c9d4-496b-b9bf-afacf84d4798",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -646,6 +649,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
@@ -662,27 +666,15 @@
     "global": {
       "lowStock": [
         {
-          "produkt": "Bookish Murder Mystery Event Blood and Betrayals",
-          "variante": "Default Title",
-          "sku": "E-2026-03-53",
-          "bestand": 0
+          "produkt": "Dragons and Disasters",
+          "variante": "mit Farbschnitt und Signatur",
+          "sku": "L-2026-02-02-FS-SIG",
+          "bestand": -179
         },
         {
           "produkt": "Kuscheltier \"Drizz\"",
           "variante": "Default Title",
           "sku": "L-SB-2025-02-01-01",
-          "bestand": 0
-        },
-        {
-          "produkt": "Spellbound Scandal",
-          "variante": "Mit Farbschnitt",
-          "sku": "L-2026-07-01-F",
-          "bestand": 0
-        },
-        {
-          "produkt": "Spellbound Scandal",
-          "variante": "Mit Farbschnitt und Signatur",
-          "sku": "L-2026-07-01-F-SIG",
           "bestand": 0
         },
         {
@@ -694,44 +686,39 @@
       ],
       "lowStockB": [
         {
-          "produkt": "Lost Villains",
-          "variante": "mit Farbschnitt",
-          "sku": "C-2025-07-04-FS",
-          "bestand": -429
+          "produkt": "House of Crimson Curses - Kingdom of Immortal Lovers Band 3",
+          "variante": "Standard",
+          "sku": "C-2026-09-01-S",
+          "bestand": 0
         },
         {
-          "produkt": "Smut Slut Socken",
-          "variante": "39 - 42",
-          "sku": "C-M-08-39  42",
-          "bestand": -2
+          "produkt": "Lost Villains",
+          "variante": "mit Farbschnitt und Signatur",
+          "sku": "C-2025-07-04-FS-SIG",
+          "bestand": 0
         },
         {
           "produkt": "The Darkness in Our Souls",
           "variante": "mit Farbschnitt und Signatur",
           "sku": "C-2025-07-07-FS-SIG",
-          "bestand": -24
+          "bestand": 0
         }
       ]
     }
   },
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "261bb987-c9d4-496b-b9bf-afacf84d4798",
-  "activeVersionId": "261bb987-c9d4-496b-b9bf-afacf84d4798",
-  "triggerCount": 1,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-06-02T09:16:26.402Z",
-      "createdAt": "2026-06-02T09:16:26.402Z",
       "role": "workflow:owner",
       "workflowId": "jg0JQuiQcZjL4VB2",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-02T09:16:26.402Z",
+      "updatedAt": "2026-06-02T09:16:26.402Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-07-28T09:42:56.000Z",
-    "createdAt": "2026-07-28T09:42:55.135Z",
     "versionId": "261bb987-c9d4-496b-b9bf-afacf84d4798",
     "workflowId": "jg0JQuiQcZjL4VB2",
     "nodes": [
@@ -1379,7 +1366,8 @@
     "authors": "Christoph Strauss",
     "name": "Version 261bb987",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-07-28T09:42:55.135Z",
+    "updatedAt": "2026-07-28T09:42:56.000Z"
+  }
 }

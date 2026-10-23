@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-07-08T10:26:06.421Z",
-  "createdAt": "2026-06-26T08:14:26.800Z",
   "id": "6TahL11tWYSu83Dn",
   "name": "Shopify-Konstelos-Versandart-Check",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-06-26T08:14:26.800Z",
+  "updatedAt": "2026-07-08T10:26:06.421Z",
   "isArchived": false,
+  "versionId": "21219034-00a6-4ea0-a241-b52a5f9bfc24",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {},
@@ -404,27 +407,24 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "21219034-00a6-4ea0-a241-b52a5f9bfc24",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-06-26T08:14:26.804Z",
-      "createdAt": "2026-06-26T08:14:26.804Z",
       "role": "workflow:owner",
       "workflowId": "6TahL11tWYSu83Dn",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-26T08:14:26.804Z",
+      "updatedAt": "2026-06-26T08:14:26.804Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

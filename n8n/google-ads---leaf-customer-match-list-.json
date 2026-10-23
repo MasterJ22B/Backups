@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-06-02T14:23:01.833Z",
-  "createdAt": "2026-03-09T05:59:42.615Z",
   "id": "EiZmqe9ky7I9KO5u",
   "name": "Google Ads - LEAF Customer Match List",
   "active": true,
+  "activeVersionId": "bedd22f9-a48d-4437-a00f-a30ef9a64c50",
+  "createdAt": "2026-03-09T05:59:42.615Z",
+  "updatedAt": "2026-10-20T08:29:39.301Z",
   "isArchived": false,
+  "versionId": "e665af73-3fc4-4188-a887-9b4b877d94a1",
+  "triggerCount": 1,
   "nodes": [
     {
       "parameters": {
@@ -191,48 +194,10 @@
       "typeVersion": 3.2,
       "position": [
         1136,
-        224
+        144
       ],
       "id": "32604efd-b33a-47ec-a744-fc5bce4aba11",
       "name": "Merge"
-    },
-    {
-      "parameters": {
-        "promptType": "define",
-        "text": "=You receive one JSON object.\n\nTask:\n- Change only the value of the attribute \"Phone\".\n- Keep every other field exactly unchanged.\n- Return only valid JSON.\n- No explanation.\n- No markdown.\n- Do not add or remove attributes.\n\nGoal:\nClean and normalize \"Phone\" for Google Customer Match.\n\nTarget format:\n- Only digits\n- No plus sign\n- No spaces\n- No slashes\n- No dashes\n- No parentheses\n- No dots\n- No other separators\n- Must include country code\n- Must not start with a national leading 0\n\nExamples:\n\"+49 151 23456789\" -> \"4915123456789\"\n\"0049 151 23456789\" -> \"4915123456789\"\n\"0151 23456789\" with Country \"de\" -> \"4915123456789\"\n\"+43 664 1234567\" -> \"436641234567\"\n\"0664 1234567\" with Country \"at\" -> \"436641234567\"\n\"+41 79 123 45 67\" -> \"41791234567\"\n\"079 123 45 67\" with Country \"ch\" -> \"41791234567\"\n\nRules:\n1. Only modify \"Phone\".\n2. Keep all other attributes and values exactly unchanged, including \"sonderfall\".\n3. If \"Phone\" is empty, keep it empty.\n4. Remove spaces, slashes, dashes, parentheses, dots, and other separators before interpreting the number.\n5. If the number starts with \"+49\", convert it to \"49\".\n6. If the number starts with \"0049\", convert it to \"49\".\n7. If the number starts with \"+43\", convert it to \"43\".\n8. If the number starts with \"0043\", convert it to \"43\".\n9. If the number starts with \"+41\", convert it to \"41\".\n10. If the number starts with \"0041\", convert it to \"41\".\n11. If \"Country\" is \"de\" and the number starts with \"0\", replace the leading \"0\" with \"49\".\n12. If \"Country\" is \"at\" and the number starts with \"0\", replace the leading \"0\" with \"43\".\n13. If \"Country\" is \"ch\" and the number starts with \"0\", replace the leading \"0\" with \"41\".\n14. If the number already starts with a clear international country code, keep the country code and remove only separators and plus signs.\n15. If the number is national and \"Country\" does not clearly identify the country, keep the original \"Phone\" unchanged.\n16. If the number is too short, incomplete, or ambiguous and cannot be normalized safely, keep the original \"Phone\" unchanged.\n17. If the number is obviously fake or invalid, set \"Phone\" to an empty string.\n\nObviously fake or invalid:\n- only zeros\n- only one repeated digit\n- simple test sequences like \"123456\", \"0123456789\", \"999999999\"\n- fewer than 7 digits after cleaning\n- more than 15 digits after cleaning\n\nImportant:\n- Do not invent digits.\n- Do not guess country codes.\n- Do not modify any field except \"Phone\".\n- Return the full JSON object with all original attributes.\n\nInput:\n{{ JSON.stringify($json, null, 2) }}",
-        "messages": {
-          "messageValues": []
-        },
-        "batching": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "typeVersion": 1.9,
-      "position": [
-        512,
-        48
-      ],
-      "id": "04f5c39b-80bf-4f47-b879-63d1fa246985",
-      "name": "Basic LLM Chain"
-    },
-    {
-      "parameters": {
-        "model": "gpt-5.4",
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatAzureOpenAi",
-      "typeVersion": 1,
-      "position": [
-        528,
-        176
-      ],
-      "id": "2e21e21e-bc2e-4cce-9aa4-a13fff96a4de",
-      "name": "Azure OpenAI Chat Model",
-      "credentials": {
-        "azureOpenAiApi": {
-          "id": "jyqLAhX2g3rrnKmm",
-          "name": "Azure Open AI account 2"
-        }
-      }
     },
     {
       "parameters": {
@@ -249,19 +214,6 @@
       ],
       "id": "15796982-ddf3-463a-9f6c-82f829f9c7ad",
       "name": "Sticky Note2"
-    },
-    {
-      "parameters": {
-        "jsCode": "return items.map((item, index) => {\n  const value = item.json.text ?? item.json;\n\n  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {\n    return { json: value };\n  }\n\n  if (typeof value !== 'string') {\n    throw new Error(`Item ${index}: Weder String noch Objekt gefunden.`);\n  }\n\n  try {\n    return {\n      json: JSON.parse(value.trim()),\n    };\n  } catch (error) {\n    throw new Error(`Item ${index}: Ungültiges JSON: ${value}`);\n  }\n});"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        848,
-        48
-      ],
-      "id": "d07af89b-23f1-481c-950f-5cfab0ac9af9",
-      "name": "Verwertung der AI Ausgabe"
     },
     {
       "parameters": {
@@ -299,8 +251,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        720,
-        208
+        736,
+        128
       ],
       "id": "ec90c1c7-1d2c-4fee-a249-0bd5eca9b7ea",
       "name": "Code in JavaScript"
@@ -380,33 +332,6 @@
         ]
       ]
     },
-    "Azure OpenAI Chat Model": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Basic LLM Chain",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Basic LLM Chain": {
-      "main": [
-        [
-          {
-            "node": "Verwertung der AI Ausgabe",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Verwertung der AI Ausgabe": {
-      "main": [
-        []
-      ]
-    },
     "Löschen Sonderfall-Attributs ": {
       "main": [
         [
@@ -430,6 +355,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -448,26 +374,21 @@
       ]
     }
   },
+  "pinData": {},
   "meta": {
     "templateCredsSetupCompleted": true
   },
-  "nodeGroups": [],
-  "pinData": {},
-  "versionId": "bedd22f9-a48d-4437-a00f-a30ef9a64c50",
-  "activeVersionId": "bedd22f9-a48d-4437-a00f-a30ef9a64c50",
-  "triggerCount": 1,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-03-09T05:59:42.618Z",
-      "createdAt": "2026-03-09T05:59:42.618Z",
       "role": "workflow:owner",
       "workflowId": "EiZmqe9ky7I9KO5u",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-03-09T05:59:42.618Z",
+      "updatedAt": "2026-03-09T05:59:42.618Z"
     }
   ],
   "activeVersion": {
-    "updatedAt": "2026-06-02T14:23:12.000Z",
-    "createdAt": "2026-06-02T14:23:01.834Z",
     "versionId": "bedd22f9-a48d-4437-a00f-a30ef9a64c50",
     "workflowId": "EiZmqe9ky7I9KO5u",
     "nodes": [
@@ -899,7 +820,8 @@
     "authors": "Christoph Strauss",
     "name": "Version bedd22f9",
     "description": "",
-    "autosaved": true
-  },
-  "tags": []
+    "autosaved": true,
+    "createdAt": "2026-06-02T14:23:01.834Z",
+    "updatedAt": "2026-06-02T14:23:12.000Z"
+  }
 }

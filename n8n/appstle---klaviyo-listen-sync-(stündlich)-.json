@@ -1,0 +1,1873 @@
+{
+  "id": "b0DYjS01FHT86V9r",
+  "name": "Appstle - Klaviyo Listen-Sync (stündlich)",
+  "active": true,
+  "activeVersionId": "5df4faa0-e4f0-4c8d-8550-08e6e5f0039b",
+  "createdAt": "2026-09-20T20:47:01.601Z",
+  "updatedAt": "2026-09-28T12:26:18.898Z",
+  "isArchived": false,
+  "versionId": "5df4faa0-e4f0-4c8d-8550-08e6e5f0039b",
+  "triggerCount": 1,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "b08a353e-867e-43cf-a716-847fdfb56faf",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars.BB_APPSTLE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "35b5bdc9-c87e-4aee-998d-a7d1e0d3fb9b",
+      "name": "Selling Plans Bücherbüchse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        528
+      ],
+      "notes": "GET all-selling-plans - flache Liste aller Selling Plans, ohne Pagination"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---- Konfiguration (pro Marke pflegen) ----\nconst BRAND = { name: 'Bücherbüchse', appstleVar: 'BB_APPSTLE_API_KEY', klaviyoVar: 'BB_KLAVIYO_API_KEY' };\n\n// Numerische Selling-Plan-IDs, die NICHT synchronisiert werden.\n// ACHTUNG: Selling-Plan-IDs sind pro Shop verschieden - fuer diese Marke pruefen!\nconst EXCLUDE_SELLING_PLAN_IDS = [\n  '3156017267', // Update Payment Method\n  '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (exakter Name, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// Status, fuer die je Selling Plan eine Klaviyo-Liste gepflegt wird\nconst STATUSES = ['ACTIVE', 'PAUSED', 'CANCELLED'];\n// ---- Ende Konfiguration ----\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\nconst esc = s => String(s).replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"');\n\nconst seen = new Set();\nconst result = [];\n\nfor (const item of $input.all()) {\n  const plan = item.json;\n  if (!plan || plan.id === undefined || plan.id === null) continue;\n\n  // Appstle liefert die Plan-ID als Shopify-GID (gid://shopify/SellingPlan/123)\n  const sellingPlanId = String(plan.id).split('/').pop();\n  if (excludeIds.has(sellingPlanId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of STATUSES) {\n    const key = sellingPlanId + '|' + status;\n    if (seen.has(key)) continue;\n    seen.add(key);\n\n    // Listenname: Marke | Selling-Plan-Name | STATUS (Lookup per equals(name, ...))\n    // Setzt voraus, dass der Selling-Plan-Name innerhalb einer Marke eindeutig ist (mit dem Nutzer abgestimmt).\n    // Falls sich ein Name doch einmal wiederholt, wuerden zwei Selling-Plan-IDs in dieselbe Liste\n    // schreiben und sich beim Abgleich gegenseitig Kontakte entfernen -> im Zweifel Namen in Appstle eindeutig halten.\n    const listName = `${BRAND.name} | ${plan.groupName || '-'} | ${status}`;\n\n    result.push({\n      json: {\n        brand: BRAND.name,\n        appstleVar: BRAND.appstleVar,\n        klaviyoVar: BRAND.klaviyoVar,\n        sellingPlanId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status,\n        listName,\n        listFilter: `equals(name,\"${esc(listName)}\")`\n      }\n    });\n  }\n}\n\nreturn result;"
+      },
+      "id": "427c0436-d92f-4c90-a920-ded97b89be1c",
+      "name": "Kombinationen Bücherbüchse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars.LEAF_APPSTLE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "991fb182-b052-46df-965f-9ced2bf4b4bf",
+      "name": "Selling Plans LEAF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        832
+      ],
+      "disabled": true,
+      "notes": "GET all-selling-plans - flache Liste aller Selling Plans, ohne Pagination"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---- Konfiguration (pro Marke pflegen) ----\nconst BRAND = { name: 'LEAF', appstleVar: 'LEAF_APPSTLE_API_KEY', klaviyoVar: 'LEAF_KLAVIYO_API_KEY' };\n\n// Numerische Selling-Plan-IDs, die NICHT synchronisiert werden.\n// ACHTUNG: Selling-Plan-IDs sind pro Shop verschieden - fuer diese Marke pruefen!\nconst EXCLUDE_SELLING_PLAN_IDS = [\n  '3156017267', // Update Payment Method\n  '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (exakter Name, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// Status, fuer die je Selling Plan eine Klaviyo-Liste gepflegt wird\nconst STATUSES = ['ACTIVE', 'PAUSED', 'CANCELLED'];\n// ---- Ende Konfiguration ----\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\nconst esc = s => String(s).replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"');\n\nconst seen = new Set();\nconst result = [];\n\nfor (const item of $input.all()) {\n  const plan = item.json;\n  if (!plan || plan.id === undefined || plan.id === null) continue;\n\n  // Appstle liefert die Plan-ID als Shopify-GID (gid://shopify/SellingPlan/123)\n  const sellingPlanId = String(plan.id).split('/').pop();\n  if (excludeIds.has(sellingPlanId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of STATUSES) {\n    const key = sellingPlanId + '|' + status;\n    if (seen.has(key)) continue;\n    seen.add(key);\n\n    // Listenname: Marke | Selling-Plan-Name | STATUS (Lookup per equals(name, ...))\n    // Setzt voraus, dass der Selling-Plan-Name innerhalb einer Marke eindeutig ist (mit dem Nutzer abgestimmt).\n    // Falls sich ein Name doch einmal wiederholt, wuerden zwei Selling-Plan-IDs in dieselbe Liste\n    // schreiben und sich beim Abgleich gegenseitig Kontakte entfernen -> im Zweifel Namen in Appstle eindeutig halten.\n    const listName = `${BRAND.name} | ${plan.groupName || '-'} | ${status}`;\n\n    result.push({\n      json: {\n        brand: BRAND.name,\n        appstleVar: BRAND.appstleVar,\n        klaviyoVar: BRAND.klaviyoVar,\n        sellingPlanId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status,\n        listName,\n        listFilter: `equals(name,\"${esc(listName)}\")`\n      }\n    });\n  }\n}\n\nreturn result;"
+      },
+      "id": "cee34bcb-926a-45ca-9476-23ddeba6e676",
+      "name": "Kombinationen LEAF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        832
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars.CINNA_APPSTLE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "14851e17-1ad1-4453-89e7-065c79514bff",
+      "name": "Selling Plans CINNA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        1120
+      ],
+      "disabled": true,
+      "notes": "GET all-selling-plans - flache Liste aller Selling Plans, ohne Pagination"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---- Konfiguration (pro Marke pflegen) ----\nconst BRAND = { name: 'CINNA', appstleVar: 'CINNA_APPSTLE_API_KEY', klaviyoVar: 'CINNA_KLAVIYO_API_KEY' };\n\n// Numerische Selling-Plan-IDs, die NICHT synchronisiert werden.\n// ACHTUNG: Selling-Plan-IDs sind pro Shop verschieden - fuer diese Marke pruefen!\nconst EXCLUDE_SELLING_PLAN_IDS = [\n  '3156017267', // Update Payment Method\n  '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (exakter Name, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// Status, fuer die je Selling Plan eine Klaviyo-Liste gepflegt wird\nconst STATUSES = ['ACTIVE', 'PAUSED', 'CANCELLED'];\n// ---- Ende Konfiguration ----\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\nconst esc = s => String(s).replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"');\n\nconst seen = new Set();\nconst result = [];\n\nfor (const item of $input.all()) {\n  const plan = item.json;\n  if (!plan || plan.id === undefined || plan.id === null) continue;\n\n  // Appstle liefert die Plan-ID als Shopify-GID (gid://shopify/SellingPlan/123)\n  const sellingPlanId = String(plan.id).split('/').pop();\n  if (excludeIds.has(sellingPlanId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of STATUSES) {\n    const key = sellingPlanId + '|' + status;\n    if (seen.has(key)) continue;\n    seen.add(key);\n\n    // Listenname: Marke | Selling-Plan-Name | STATUS (Lookup per equals(name, ...))\n    // Setzt voraus, dass der Selling-Plan-Name innerhalb einer Marke eindeutig ist (mit dem Nutzer abgestimmt).\n    // Falls sich ein Name doch einmal wiederholt, wuerden zwei Selling-Plan-IDs in dieselbe Liste\n    // schreiben und sich beim Abgleich gegenseitig Kontakte entfernen -> im Zweifel Namen in Appstle eindeutig halten.\n    const listName = `${BRAND.name} | ${plan.groupName || '-'} | ${status}`;\n\n    result.push({\n      json: {\n        brand: BRAND.name,\n        appstleVar: BRAND.appstleVar,\n        klaviyoVar: BRAND.klaviyoVar,\n        sellingPlanId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status,\n        listName,\n        listFilter: `equals(name,\"${esc(listName)}\")`\n      }\n    });\n  }\n}\n\nreturn result;"
+      },
+      "id": "10eff3ba-8325-4c19-9933-f036de9570de",
+      "name": "Kombinationen CINNA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        1120
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## Setup\n\n**n8n Variables** (je Marke):\n- `BB_APPSTLE_API_KEY`, `LEAF_APPSTLE_API_KEY`, `CINNA_APPSTLE_API_KEY` (bereits vorhanden)\n- `BB_KLAVIYO_API_KEY`, `LEAF_KLAVIYO_API_KEY`, `CINNA_KLAVIYO_API_KEY` (neu, Klaviyo **Private API Key**)\n\n**Klaviyo-Scopes:** `lists:read`, `lists:write`, `profiles:read`, `profiles:write`\n\n**Wichtig:**\n- In Node *Diff berechnen* steht `DRY_RUN = true` → erst manuell testen, dann auf `false` stellen und aktivieren.\n- Je Selling Plan × Status wird eine Liste `Marke | Selling-Plan-Name | STATUS` angelegt und per Diff gepflegt (setzt eindeutige Plan-Namen je Marke voraus).\n- Listenmitgliedschaft ändert **keinen** Marketing-Consent.\n- Nutzen alle Marken *einen* Klaviyo-Account, dieselbe Variable in den drei Code-Nodes `Kombinationen …` eintragen.",
+        "height": 420,
+        "width": 560,
+        "color": 5
+      },
+      "id": "d33e1658-574b-4923-9803-f3e74e7edb1a",
+      "name": "Sticky Note Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "Sync je Selling Plan × Status:\nAppstle-Vertraege → E-Mails → Klaviyo-Liste finden/anlegen → aktuelle Mitglieder → Diff → Entfernen/Hinzufuegen",
+        "height": 340,
+        "width": 2788,
+        "color": 4
+      },
+      "id": "5f93ea28-69e2-46f9-8646-1e57c04acc4a",
+      "name": "Sticky Note Sync",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1136,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nach dem Loop: Gesamtzusammenfassung + Detailaufstellung pro Klaviyo-Liste.\n// Baut zusaetzlich einen HTML-Report fuer die Summary-Mail.\n// WICHTIG: Hier NICHT mehr werfen - der Guard-Fehler wird erst NACH der Mail\n// im Node \"Guard-Check\" geworfen, damit die Summary-Mail immer rausgeht.\nconst rows = $input.all()\n  .map(i => i.json)\n  .filter(r => r && r.list); // leere Items ueberspringen\n\nconst guarded = rows.filter(r => r.guardTriggered);\n\n// Pro Liste aufschluesseln (addPlanned = hinzugefuegt, removePlanned = entfernt)\nconst details = rows.map(r => ({\n  brand: r.brand,\n  list: r.list,\n  listId: r.listId,\n  listCreated: !!r.listCreated,\n  targetEmails: r.targetEmails || 0,\n  currentMembers: r.currentMembers || 0,\n  added: r.addPlanned || 0,\n  removed: r.guardTriggered ? 0 : (r.removePlanned || 0),\n  guardTriggered: !!r.guardTriggered,\n  dryRun: !!r.dryRun\n})).sort((a, b) => (b.added + b.removed) - (a.added + a.removed));\n\nconst summary = {\n  lists: rows.length,\n  created: rows.filter(r => r.listCreated).length,\n  added: details.reduce((a, r) => a + r.added, 0),\n  removed: details.reduce((a, r) => a + r.removed, 0),\n  guarded: guarded.length,\n  dryRun: rows.some(r => r.dryRun)\n};\n\nconst WARN = String.fromCharCode(9888) + String.fromCharCode(65039); // Warn-Emoji\nconst ranAt = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });\nconst esc = s => String(s == null ? '' : s)\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst td = (v, extra) => '<td style=\"padding:6px 10px;border:1px solid #e4e7ec;' + (extra || '') + '\">' + v + '</td>';\nconst th = (v, extra) => '<th style=\"padding:6px 10px;border:1px solid #e4e7ec;' + (extra || '') + '\">' + v + '</th>';\n\n// Nur Listen mit tatsaechlichen Aenderungen (oder Guard) in der Tabelle zeigen\nconst changed = details.filter(d => d.added > 0 || d.removed > 0 || d.guardTriggered);\nconst shown = changed.length ? changed : details;\n\nconst rowsHtml = shown.map(d => {\n  const flags = [];\n  if (d.listCreated) flags.push('neu angelegt');\n  if (d.guardTriggered) flags.push(WARN + ' Entfernen uebersprungen (Sicherheitsnetz)');\n  return '<tr>'\n    + td(esc(d.list))\n    + td('+' + d.added, 'text-align:right;color:#0a7d33;font-weight:600;')\n    + td('-' + d.removed, 'text-align:right;color:#b42318;font-weight:600;')\n    + td(d.currentMembers, 'text-align:right;')\n    + td(esc(flags.join(', ')), 'color:#8a919b;font-size:12px;')\n    + '</tr>';\n}).join('');\n\nconst subject = '[Klaviyo-Sync'\n  + (summary.dryRun ? ' | DRY-RUN' : '')\n  + (summary.guarded ? ' | ' + WARN + ' Guard' : '')\n  + '] +' + summary.added + ' / -' + summary.removed + ' ueber ' + summary.lists + ' Listen';\n\nconst guardBanner = summary.guarded\n  ? '<p style=\"padding:10px 14px;background:#fff4ed;border:1px solid #f9c9a8;border-radius:8px;color:#93370d;\">'\n    + WARN + ' Sicherheitsnetz bei ' + summary.guarded + ' Liste(n) ausgeloest – Entfernen wurde uebersprungen. Details siehe Tabelle.</p>'\n  : '';\n\nconst LF = String.fromCharCode(10);\nconst html = [\n  '<div style=\"font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#16191d;\">',\n  '<h2 style=\"margin:0 0 4px;\">Appstle → Klaviyo Listen-Sync</h2>',\n  '<p style=\"margin:0 0 16px;color:#545b66;\">Lauf: ' + esc(ranAt) + ' (Europe/Berlin)'\n    + (summary.dryRun ? ' &middot; <strong>DRY-RUN (keine Schreibvorgaenge)</strong>' : '') + '</p>',\n  '<table style=\"border-collapse:collapse;margin-bottom:20px;\">',\n  '<tr>' + td('Listen gesamt') + td(summary.lists, 'text-align:right;font-weight:600;')\n    + td('neu angelegt') + td(summary.created, 'text-align:right;font-weight:600;') + '</tr>',\n  '<tr>' + td('Mitglieder hinzugefuegt') + td('+' + summary.added, 'text-align:right;font-weight:600;color:#0a7d33;')\n    + td('Mitglieder entfernt') + td('-' + summary.removed, 'text-align:right;font-weight:600;color:#b42318;') + '</tr>',\n  '</table>',\n  guardBanner,\n  '<h3 style=\"margin:0 0 8px;\">' + (changed.length ? 'Geaenderte Listen' : 'Alle Listen (keine Aenderungen)') + '</h3>',\n  '<table style=\"border-collapse:collapse;font-size:13px;\">',\n  '<thead><tr style=\"background:#f5f6f8;\">'\n    + th('Liste', 'text-align:left;') + th('Hinzugefuegt', 'text-align:right;') + th('Entfernt', 'text-align:right;')\n    + th('Mitglieder aktuell', 'text-align:right;') + th('Hinweis', 'text-align:left;') + '</tr></thead>',\n  '<tbody>' + (rowsHtml || '<tr>' + td('Keine Listen verarbeitet.', 'color:#8a919b;') + '</tr>') + '</tbody>',\n  '</table>',\n  '</div>'\n].join(LF);\n\nreturn [{ json: { ...summary, ranAt, subject, html, details } }];"
+      },
+      "id": "593dccf7-d455-46e9-ad97-f24890b12bfe",
+      "name": "Zusammenfassung",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "automations@buecherbuechse.de",
+        "toEmail": "christoph@buecherbuechse.de",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "af2601ec-4d38-446a-baca-46c7b9fee002",
+      "name": "Summary Mail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        1168
+      ],
+      "webhookId": "6800686b-1313-473d-b8ac-cb6b40d85dea",
+      "credentials": {
+        "smtp": {
+          "id": "ZzNsJGHozTJiS4R6",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Laeuft NACH der Summary-Mail: bei ausgeloestem Sicherheitsnetz Fehler werfen,\n// damit der Error-Workflow benachrichtigt (die Mail ist zu diesem Zeitpunkt bereits versendet).\nconst s = $json || {};\nif (s.guarded > 0) {\n  const list = (s.details || [])\n    .filter(d => d.guardTriggered)\n    .map(d => `${d.list} (${d.removed === 0 ? 'uebersprungen' : d.removed})`)\n    .join('; ');\n  throw new Error('Klaviyo-Sync: Sicherheitsnetz hat Entfernen uebersprungen bei ' + s.guarded + ' Liste(n): ' + list);\n}\nreturn [{ json: s }];"
+      },
+      "id": "8e8821a9-321c-439d-97f3-b0a2b38c2b69",
+      "name": "Guard-Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-contract-details",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "sellingPlanId",
+              "value": "={{ $json.sellingPlanId }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ $json.status }}"
+            },
+            {
+              "name": "size",
+              "value": "1000"
+            },
+            {
+              "name": "sort",
+              "value": "id,asc"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $vars[$json.appstleVar] }}"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "value": "={{ $pageCount }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !Array.isArray($response.body) || $response.body.length < 1000 }}",
+              "limitPagesFetched": true,
+              "maxRequests": 200,
+              "requestInterval": 250
+            }
+          }
+        }
+      },
+      "id": "3a9c6054-7ee9-4e82-b9d8-684d6f97365a",
+      "name": "Appstle E-Mails abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1184,
+        832
+      ],
+      "retryOnFail": true,
+      "alwaysOutputData": true,
+      "notes": "Alle Vertraege je Selling Plan x Status, seitenweise (size=1000, max. 2000). Liefert customerEmail je Vertrag. Bei Fehler bricht der Flow bewusst ab (sonst wuerde der Diff Kontakte entfernen)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Alle Vertraege (alle Seiten) dieses Plan x Status -> eindeutige E-Mail-Menge\nconst ctx = $('Loop Over Items').first().json;\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n\nconst emails = new Set();\nlet contracts = 0;\nlet withoutEmail = 0;\nlet invalid = 0;\n\nfor (const item of $input.all()) {\n  const c = item.json;\n  // leeres Item (alwaysOutputData bei 0 Treffern) ueberspringen\n  if (!c || (c.subscriptionContractId ?? c.id) === undefined) continue;\n  contracts++;\n\n  const raw = c.customerEmail;\n  if (!raw) { withoutEmail++; continue; }\n\n  const email = String(raw).trim().toLowerCase();\n  if (!EMAIL_RE.test(email)) { invalid++; continue; }\n  emails.add(email);\n}\n\nreturn [{\n  json: {\n    ...ctx,\n    targetEmails: [...emails],\n    contracts,\n    withoutEmail,\n    invalid\n  }\n}];"
+      },
+      "id": "e8428f45-ad39-4f90-b6ab-ad5583322fc4",
+      "name": "Ziel-E-Mails sammeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://a.klaviyo.com/api/lists",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter",
+              "value": "={{ $json.listFilter }}"
+            },
+            {
+              "name": "fields[list]",
+              "value": "name"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Klaviyo-API-Key ' + $vars[$json.klaviyoVar] }}"
+            },
+            {
+              "name": "revision",
+              "value": "2026-07-15"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "37666766-0288-45b0-96e4-59590f2b738d",
+      "name": "Klaviyo Liste suchen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1888,
+        832
+      ],
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wertet die Klaviyo-Listensuche eindeutig zu einem Boolean aus.\n// (Ein direkter Zahlenvergleich \"data.length > 0\" in der IF-Node ist unzuverlaessig,\n// da n8n bei 0 als Ergebnis manche numerischen Bedingungen faelschlich als erfuellt behandelt -\n// daher hier explizit im Code auswerten statt in der IF-Node vergleichen zu lassen.)\nconst ctx = $('Ziel-E-Mails sammeln').first().json;\nconst body = $json || {};\nconst matches = Array.isArray(body.data) ? body.data : [];\n\nreturn [{\n  json: {\n    ...ctx,\n    listExists: matches.length > 0,\n    existingListId: matches.length > 0 ? matches[0].id : null\n  }\n}];"
+      },
+      "id": "8b6fd8aa-caeb-4e48-b2d9-7cde2f0e52cf",
+      "name": "Suchergebnis auswerten1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        736
+      ],
+      "notes": "Wandelt die rohe Klaviyo-Antwort in ein eindeutiges listExists (boolean) um, statt data.length direkt in der IF-Node mit 0 zu vergleichen."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "32cda9bb-c97c-4aa9-9d3b-b2f8cd1f1928",
+              "leftValue": "={{ $json.listExists }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "99d0e768-edc8-4f03-a9bc-3aacd7a53832",
+      "name": "Liste vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2224,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Wird nach \"Liste vorhanden?\" (Treffer, $json = Suchergebnis-Kontext von \"Suchergebnis auswerten1\")\n// ODER nach \"Klaviyo Liste anlegen\" (neu angelegt, $json = rohe Create-Response von POST /api/lists) ausgefuehrt.\nconst ctx = $('Suchergebnis auswerten1').first().json;\n\nlet listId = ctx.existingListId || null;\nlet listCreated = false;\n\nif (!listId) {\n  // Kein Treffer bei der Suche -> dieser Durchlauf kommt aus dem Anlegen-Zweig,\n  // $json ist dann direkt die Antwort von POST /api/lists ({ data: { id, ... } })\n  const body = $json || {};\n  listId = body.data && body.data.id;\n  listCreated = true;\n}\n\nif (!listId) {\n  throw new Error('Klaviyo-Liste konnte nicht ermittelt werden: ' + ctx.listName);\n}\n\nreturn { json: { ...ctx, listId, listCreated } };"
+      },
+      "id": "bbf08e0c-b33a-4d53-9b4d-8849b7ed4b72",
+      "name": "Listen-ID festlegen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2672,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://a.klaviyo.com/api/lists/' + $json.listId + '/profiles' }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields[profile]",
+              "value": "email"
+            },
+            {
+              "name": "page[size]",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Klaviyo-API-Key ' + $vars[$json.klaviyoVar] }}"
+            },
+            {
+              "name": "revision",
+              "value": "2026-07-15"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {}
+          },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.body.links.next }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.links || !$response.body.links.next }}",
+              "limitPagesFetched": true,
+              "maxRequests": 500,
+              "requestInterval": 100
+            }
+          }
+        }
+      },
+      "id": "1a3e1d8e-0ec7-4e47-88e9-7d149f9388ea",
+      "name": "Klaviyo Mitglieder laden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2848,
+        832
+      ],
+      "retryOnFail": true,
+      "notes": "Aktuelle Listenmitglieder (id + email), 100 pro Seite. Fehler stoppen den Flow bewusst (kein Diff auf unvollstaendigen Daten)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ---- Konfiguration ----\nconst DRY_RUN = false;            // true = nur berechnen, NICHTS in Klaviyo schreiben\nconst CHUNK_REMOVE = 1000;       // Klaviyo: max. 1000 Profile pro Remove-Call\nconst CHUNK_ADD = 5000;          // Klaviyo: max. 10.000 Profile pro Bulk-Import-Job\nconst GUARD_MIN_REMOVALS = 50;   // Sicherheitsnetz: Entfernen ueberspringen, wenn ...\nconst GUARD_MAX_SHARE = 0.5;     // ... mehr als 50 % der Liste (und >= 50 Profile) entfernt wuerden\n// ---- Ende Konfiguration ----\n\nconst ctx = $('Listen-ID festlegen').first().json;\nconst target = new Set(ctx.targetEmails);\n\n// Aktuelle Listenmitglieder aus allen Seiten: email -> [profileIds]\nconst current = new Map();\nlet withoutEmail = 0;\nfor (const page of $input.all()) {\n  const data = (page.json && page.json.data) || [];\n  for (const p of data) {\n    const email = String((p.attributes && p.attributes.email) || '').trim().toLowerCase();\n    if (!email) { withoutEmail++; continue; } // nicht zuordenbar -> nicht anfassen\n    if (!current.has(email)) current.set(email, []);\n    current.get(email).push(p.id);\n  }\n}\n\nconst toAdd = [...target].filter(e => !current.has(e));\nlet toRemove = [];\nfor (const [email, ids] of current) {\n  if (!target.has(email)) toRemove.push(...ids);\n}\n\n// Sicherheitsnetz gegen Massenentfernung (z.B. bei fehlerhaften/leeren Appstle-Antworten)\nconst currentCount = current.size;\nconst removePlanned = toRemove.length;\nlet guardTriggered = false;\nif (removePlanned >= GUARD_MIN_REMOVALS && removePlanned > currentCount * GUARD_MAX_SHARE) {\n  guardTriggered = true;\n  toRemove = [];\n}\n\nconst stats = {\n  brand: ctx.brand,\n  list: ctx.listName,\n  listId: ctx.listId,\n  listCreated: ctx.listCreated,\n  contracts: ctx.contracts,\n  targetEmails: target.size,\n  currentMembers: currentCount,\n  addPlanned: toAdd.length,\n  removePlanned,\n  guardTriggered,\n  dryRun: DRY_RUN\n};\n\nconst base = { brand: ctx.brand, klaviyoVar: ctx.klaviyoVar, listId: ctx.listId, listName: ctx.listName };\nconst chunks = (arr, n) => {\n  const out = [];\n  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));\n  return out;\n};\n\nconst items = [];\nif (!DRY_RUN) {\n  for (const chunk of chunks(toRemove, CHUNK_REMOVE)) items.push({ json: { ...base, op: 'remove', chunk, stats } });\n  for (const chunk of chunks(toAdd, CHUNK_ADD)) items.push({ json: { ...base, op: 'add', chunk, stats } });\n}\nif (items.length === 0) items.push({ json: { ...base, op: 'noop', chunk: [], stats } });\n\nreturn items;"
+      },
+      "id": "2cf265ba-7657-431e-b26c-ca1e07cac619",
+      "name": "Diff berechnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3088,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "343aabdf-97ee-4411-a0de-f3752670df96",
+              "leftValue": "={{ $json.op }}",
+              "rightValue": "noop",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7bdfcbb7-3b12-46cf-9dd0-a3de8693c7fa",
+      "name": "Änderungen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3328,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "={{ $json.op === 'remove' ? 'DELETE' : 'POST' }}",
+        "url": "={{ $json.op === 'remove' ? 'https://a.klaviyo.com/api/lists/' + $json.listId + '/relationships/profiles' : 'https://a.klaviyo.com/api/profile-bulk-import-jobs' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Klaviyo-API-Key ' + $vars[$json.klaviyoVar] }}"
+            },
+            {
+              "name": "revision",
+              "value": "2026-07-15"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.op === 'remove' ? { data: $json.chunk.map(id => ({ type: 'profile', id })) } : { data: { type: 'profile-bulk-import-job', attributes: { profiles: { data: $json.chunk.map(email => ({ type: 'profile', attributes: { email } })) } }, relationships: { lists: { data: [{ type: 'list', id: $json.listId }] } } } }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "id": "d498f400-da4b-41d5-b50f-8711e73e7875",
+      "name": "Klaviyo schreiben",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3568,
+        720
+      ],
+      "retryOnFail": true,
+      "notes": "op=remove: DELETE /lists/{id}/relationships/profiles (max. 1000 Profil-IDs). op=add: POST /profile-bulk-import-jobs mit list-Relationship (max. 10.000 Profile, aendert keinen Consent). Klaviyo-Limit Schreib-Calls: 10/s, 150/min -> 1 Call/s."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Laeuft nach dem Schreiben (oder direkt bei \"keine Aenderungen\") -> genau 1 Item zurueck in die Schleife\nconst s = $('Diff berechnen').first().json.stats;\nreturn [{ json: s }];"
+      },
+      "id": "84d2a3c0-13af-4b59-add0-15af58305565",
+      "name": "Ergebnis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "08ee4dcf-5f93-433b-88d7-3f902b3d001b",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        944,
+        832
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/lists",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Klaviyo-API-Key ' + $vars[$('Ziel-E-Mails sammeln').first().json.klaviyoVar] }}"
+            },
+            {
+              "name": "revision",
+              "value": "2026-07-15"
+            },
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: { type: 'list', attributes: { name: $('Ziel-E-Mails sammeln').first().json.listName } } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fbb8cee1-8c41-4dea-bcbb-1979352523b5",
+      "name": "Klaviyo Liste anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2384,
+        864
+      ],
+      "retryOnFail": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1408,
+        832
+      ],
+      "id": "0168603d-1fc5-4115-857e-0679e252cec5",
+      "name": "Wait",
+      "webhookId": "89373874-8c70-432c-b252-48efb1a82508"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Selling Plans Bücherbüchse",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Selling Plans LEAF",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Selling Plans CINNA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selling Plans Bücherbüchse": {
+      "main": [
+        [
+          {
+            "node": "Kombinationen Bücherbüchse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kombinationen Bücherbüchse": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selling Plans LEAF": {
+      "main": [
+        [
+          {
+            "node": "Kombinationen LEAF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selling Plans CINNA": {
+      "main": [
+        [
+          {
+            "node": "Kombinationen CINNA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zusammenfassung": {
+      "main": [
+        [
+          {
+            "node": "Summary Mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary Mail": {
+      "main": [
+        [
+          {
+            "node": "Guard-Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appstle E-Mails abrufen": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ziel-E-Mails sammeln": {
+      "main": [
+        [
+          {
+            "node": "Klaviyo Liste suchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo Liste suchen": {
+      "main": [
+        [
+          {
+            "node": "Suchergebnis auswerten1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suchergebnis auswerten1": {
+      "main": [
+        [
+          {
+            "node": "Liste vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Liste vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "Listen-ID festlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Klaviyo Liste anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listen-ID festlegen": {
+      "main": [
+        [
+          {
+            "node": "Klaviyo Mitglieder laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo Mitglieder laden": {
+      "main": [
+        [
+          {
+            "node": "Diff berechnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diff berechnen": {
+      "main": [
+        [
+          {
+            "node": "Änderungen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Änderungen?": {
+      "main": [
+        [
+          {
+            "node": "Klaviyo schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo schreiben": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Zusammenfassung",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Appstle E-Mails abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Klaviyo Liste anlegen": {
+      "main": [
+        [
+          {
+            "node": "Listen-ID festlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Ziel-E-Mails sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q5DzCEjzYL4DBhox",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 15
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        "hours:6"
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "b0DYjS01FHT86V9r",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-09-20T20:48:26.502Z",
+      "updatedAt": "2026-09-20T20:48:26.502Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "5df4faa0-e4f0-4c8d-8550-08e6e5f0039b",
+    "workflowId": "b0DYjS01FHT86V9r",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "hours",
+                "hoursInterval": 6
+              }
+            ]
+          }
+        },
+        "id": "b08a353e-867e-43cf-a716-847fdfb56faf",
+        "name": "Schedule Trigger",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          0,
+          832
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars.BB_APPSTLE_API_KEY }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "35b5bdc9-c87e-4aee-998d-a7d1e0d3fb9b",
+        "name": "Selling Plans Bücherbüchse",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          240,
+          528
+        ],
+        "notes": "GET all-selling-plans - flache Liste aller Selling Plans, ohne Pagination"
+      },
+      {
+        "parameters": {
+          "jsCode": "// ---- Konfiguration (pro Marke pflegen) ----\nconst BRAND = { name: 'Bücherbüchse', appstleVar: 'BB_APPSTLE_API_KEY', klaviyoVar: 'BB_KLAVIYO_API_KEY' };\n\n// Numerische Selling-Plan-IDs, die NICHT synchronisiert werden.\n// ACHTUNG: Selling-Plan-IDs sind pro Shop verschieden - fuer diese Marke pruefen!\nconst EXCLUDE_SELLING_PLAN_IDS = [\n  '3156017267', // Update Payment Method\n  '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (exakter Name, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// Status, fuer die je Selling Plan eine Klaviyo-Liste gepflegt wird\nconst STATUSES = ['ACTIVE', 'PAUSED', 'CANCELLED'];\n// ---- Ende Konfiguration ----\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\nconst esc = s => String(s).replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"');\n\nconst seen = new Set();\nconst result = [];\n\nfor (const item of $input.all()) {\n  const plan = item.json;\n  if (!plan || plan.id === undefined || plan.id === null) continue;\n\n  // Appstle liefert die Plan-ID als Shopify-GID (gid://shopify/SellingPlan/123)\n  const sellingPlanId = String(plan.id).split('/').pop();\n  if (excludeIds.has(sellingPlanId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of STATUSES) {\n    const key = sellingPlanId + '|' + status;\n    if (seen.has(key)) continue;\n    seen.add(key);\n\n    // Listenname: Marke | Selling-Plan-Name | STATUS (Lookup per equals(name, ...))\n    // Setzt voraus, dass der Selling-Plan-Name innerhalb einer Marke eindeutig ist (mit dem Nutzer abgestimmt).\n    // Falls sich ein Name doch einmal wiederholt, wuerden zwei Selling-Plan-IDs in dieselbe Liste\n    // schreiben und sich beim Abgleich gegenseitig Kontakte entfernen -> im Zweifel Namen in Appstle eindeutig halten.\n    const listName = `${BRAND.name} | ${plan.groupName || '-'} | ${status}`;\n\n    result.push({\n      json: {\n        brand: BRAND.name,\n        appstleVar: BRAND.appstleVar,\n        klaviyoVar: BRAND.klaviyoVar,\n        sellingPlanId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status,\n        listName,\n        listFilter: `equals(name,\"${esc(listName)}\")`\n      }\n    });\n  }\n}\n\nreturn result;"
+        },
+        "id": "427c0436-d92f-4c90-a920-ded97b89be1c",
+        "name": "Kombinationen Bücherbüchse",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          528
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars.LEAF_APPSTLE_API_KEY }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "991fb182-b052-46df-965f-9ced2bf4b4bf",
+        "name": "Selling Plans LEAF",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          240,
+          832
+        ],
+        "disabled": true,
+        "notes": "GET all-selling-plans - flache Liste aller Selling Plans, ohne Pagination"
+      },
+      {
+        "parameters": {
+          "jsCode": "// ---- Konfiguration (pro Marke pflegen) ----\nconst BRAND = { name: 'LEAF', appstleVar: 'LEAF_APPSTLE_API_KEY', klaviyoVar: 'LEAF_KLAVIYO_API_KEY' };\n\n// Numerische Selling-Plan-IDs, die NICHT synchronisiert werden.\n// ACHTUNG: Selling-Plan-IDs sind pro Shop verschieden - fuer diese Marke pruefen!\nconst EXCLUDE_SELLING_PLAN_IDS = [\n  '3156017267', // Update Payment Method\n  '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (exakter Name, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// Status, fuer die je Selling Plan eine Klaviyo-Liste gepflegt wird\nconst STATUSES = ['ACTIVE', 'PAUSED', 'CANCELLED'];\n// ---- Ende Konfiguration ----\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\nconst esc = s => String(s).replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"');\n\nconst seen = new Set();\nconst result = [];\n\nfor (const item of $input.all()) {\n  const plan = item.json;\n  if (!plan || plan.id === undefined || plan.id === null) continue;\n\n  // Appstle liefert die Plan-ID als Shopify-GID (gid://shopify/SellingPlan/123)\n  const sellingPlanId = String(plan.id).split('/').pop();\n  if (excludeIds.has(sellingPlanId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of STATUSES) {\n    const key = sellingPlanId + '|' + status;\n    if (seen.has(key)) continue;\n    seen.add(key);\n\n    // Listenname: Marke | Selling-Plan-Name | STATUS (Lookup per equals(name, ...))\n    // Setzt voraus, dass der Selling-Plan-Name innerhalb einer Marke eindeutig ist (mit dem Nutzer abgestimmt).\n    // Falls sich ein Name doch einmal wiederholt, wuerden zwei Selling-Plan-IDs in dieselbe Liste\n    // schreiben und sich beim Abgleich gegenseitig Kontakte entfernen -> im Zweifel Namen in Appstle eindeutig halten.\n    const listName = `${BRAND.name} | ${plan.groupName || '-'} | ${status}`;\n\n    result.push({\n      json: {\n        brand: BRAND.name,\n        appstleVar: BRAND.appstleVar,\n        klaviyoVar: BRAND.klaviyoVar,\n        sellingPlanId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status,\n        listName,\n        listFilter: `equals(name,\"${esc(listName)}\")`\n      }\n    });\n  }\n}\n\nreturn result;"
+        },
+        "id": "cee34bcb-926a-45ca-9476-23ddeba6e676",
+        "name": "Kombinationen LEAF",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          832
+        ],
+        "disabled": true
+      },
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-groups/all-selling-plans",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars.CINNA_APPSTLE_API_KEY }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "14851e17-1ad1-4453-89e7-065c79514bff",
+        "name": "Selling Plans CINNA",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          240,
+          1120
+        ],
+        "disabled": true,
+        "notes": "GET all-selling-plans - flache Liste aller Selling Plans, ohne Pagination"
+      },
+      {
+        "parameters": {
+          "jsCode": "// ---- Konfiguration (pro Marke pflegen) ----\nconst BRAND = { name: 'CINNA', appstleVar: 'CINNA_APPSTLE_API_KEY', klaviyoVar: 'CINNA_KLAVIYO_API_KEY' };\n\n// Numerische Selling-Plan-IDs, die NICHT synchronisiert werden.\n// ACHTUNG: Selling-Plan-IDs sind pro Shop verschieden - fuer diese Marke pruefen!\nconst EXCLUDE_SELLING_PLAN_IDS = [\n  '3156017267', // Update Payment Method\n  '4016373875'  // Zahlungsmethode hinterlegen\n];\n// Ganze Subscription-Gruppen ausschliessen (exakter Name, case-insensitive)\nconst EXCLUDE_GROUP_NAMES = [\n  // 'Testgruppe',\n];\n// Status, fuer die je Selling Plan eine Klaviyo-Liste gepflegt wird\nconst STATUSES = ['ACTIVE', 'PAUSED', 'CANCELLED'];\n// ---- Ende Konfiguration ----\n\nconst excludeIds = new Set(EXCLUDE_SELLING_PLAN_IDS.map(String));\nconst excludeGroups = new Set(EXCLUDE_GROUP_NAMES.map(g => g.toLowerCase()));\nconst esc = s => String(s).replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"');\n\nconst seen = new Set();\nconst result = [];\n\nfor (const item of $input.all()) {\n  const plan = item.json;\n  if (!plan || plan.id === undefined || plan.id === null) continue;\n\n  // Appstle liefert die Plan-ID als Shopify-GID (gid://shopify/SellingPlan/123)\n  const sellingPlanId = String(plan.id).split('/').pop();\n  if (excludeIds.has(sellingPlanId)) continue;\n  if (plan.groupName && excludeGroups.has(String(plan.groupName).toLowerCase())) continue;\n\n  for (const status of STATUSES) {\n    const key = sellingPlanId + '|' + status;\n    if (seen.has(key)) continue;\n    seen.add(key);\n\n    // Listenname: Marke | Selling-Plan-Name | STATUS (Lookup per equals(name, ...))\n    // Setzt voraus, dass der Selling-Plan-Name innerhalb einer Marke eindeutig ist (mit dem Nutzer abgestimmt).\n    // Falls sich ein Name doch einmal wiederholt, wuerden zwei Selling-Plan-IDs in dieselbe Liste\n    // schreiben und sich beim Abgleich gegenseitig Kontakte entfernen -> im Zweifel Namen in Appstle eindeutig halten.\n    const listName = `${BRAND.name} | ${plan.groupName || '-'} | ${status}`;\n\n    result.push({\n      json: {\n        brand: BRAND.name,\n        appstleVar: BRAND.appstleVar,\n        klaviyoVar: BRAND.klaviyoVar,\n        sellingPlanId,\n        sellingPlanName: plan.frequencyName,\n        groupName: plan.groupName,\n        status,\n        listName,\n        listFilter: `equals(name,\"${esc(listName)}\")`\n      }\n    });\n  }\n}\n\nreturn result;"
+        },
+        "id": "10eff3ba-8325-4c19-9933-f036de9570de",
+        "name": "Kombinationen CINNA",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          1120
+        ],
+        "disabled": true
+      },
+      {
+        "parameters": {
+          "content": "## Setup\n\n**n8n Variables** (je Marke):\n- `BB_APPSTLE_API_KEY`, `LEAF_APPSTLE_API_KEY`, `CINNA_APPSTLE_API_KEY` (bereits vorhanden)\n- `BB_KLAVIYO_API_KEY`, `LEAF_KLAVIYO_API_KEY`, `CINNA_KLAVIYO_API_KEY` (neu, Klaviyo **Private API Key**)\n\n**Klaviyo-Scopes:** `lists:read`, `lists:write`, `profiles:read`, `profiles:write`\n\n**Wichtig:**\n- In Node *Diff berechnen* steht `DRY_RUN = true` → erst manuell testen, dann auf `false` stellen und aktivieren.\n- Je Selling Plan × Status wird eine Liste `Marke | Selling-Plan-Name | STATUS` angelegt und per Diff gepflegt (setzt eindeutige Plan-Namen je Marke voraus).\n- Listenmitgliedschaft ändert **keinen** Marketing-Consent.\n- Nutzen alle Marken *einen* Klaviyo-Account, dieselbe Variable in den drei Code-Nodes `Kombinationen …` eintragen.",
+          "height": 420,
+          "width": 560,
+          "color": 5
+        },
+        "id": "d33e1658-574b-4923-9803-f3e74e7edb1a",
+        "name": "Sticky Note Setup",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "content": "Sync je Selling Plan × Status:\nAppstle-Vertraege → E-Mails → Klaviyo-Liste finden/anlegen → aktuelle Mitglieder → Diff → Entfernen/Hinzufuegen",
+          "height": 340,
+          "width": 2788,
+          "color": 4
+        },
+        "id": "5f93ea28-69e2-46f9-8646-1e57c04acc4a",
+        "name": "Sticky Note Sync",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1136,
+          656
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Nach dem Loop: Gesamtzusammenfassung + Detailaufstellung pro Klaviyo-Liste.\n// Baut zusaetzlich einen HTML-Report fuer die Summary-Mail.\n// WICHTIG: Hier NICHT mehr werfen - der Guard-Fehler wird erst NACH der Mail\n// im Node \"Guard-Check\" geworfen, damit die Summary-Mail immer rausgeht.\nconst rows = $input.all()\n  .map(i => i.json)\n  .filter(r => r && r.list); // leere Items ueberspringen\n\nconst guarded = rows.filter(r => r.guardTriggered);\n\n// Pro Liste aufschluesseln (addPlanned = hinzugefuegt, removePlanned = entfernt)\nconst details = rows.map(r => ({\n  brand: r.brand,\n  list: r.list,\n  listId: r.listId,\n  listCreated: !!r.listCreated,\n  targetEmails: r.targetEmails || 0,\n  currentMembers: r.currentMembers || 0,\n  added: r.addPlanned || 0,\n  removed: r.guardTriggered ? 0 : (r.removePlanned || 0),\n  guardTriggered: !!r.guardTriggered,\n  dryRun: !!r.dryRun\n})).sort((a, b) => (b.added + b.removed) - (a.added + a.removed));\n\nconst summary = {\n  lists: rows.length,\n  created: rows.filter(r => r.listCreated).length,\n  added: details.reduce((a, r) => a + r.added, 0),\n  removed: details.reduce((a, r) => a + r.removed, 0),\n  guarded: guarded.length,\n  dryRun: rows.some(r => r.dryRun)\n};\n\nconst WARN = String.fromCharCode(9888) + String.fromCharCode(65039); // Warn-Emoji\nconst ranAt = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });\nconst esc = s => String(s == null ? '' : s)\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst td = (v, extra) => '<td style=\"padding:6px 10px;border:1px solid #e4e7ec;' + (extra || '') + '\">' + v + '</td>';\nconst th = (v, extra) => '<th style=\"padding:6px 10px;border:1px solid #e4e7ec;' + (extra || '') + '\">' + v + '</th>';\n\n// Nur Listen mit tatsaechlichen Aenderungen (oder Guard) in der Tabelle zeigen\nconst changed = details.filter(d => d.added > 0 || d.removed > 0 || d.guardTriggered);\nconst shown = changed.length ? changed : details;\n\nconst rowsHtml = shown.map(d => {\n  const flags = [];\n  if (d.listCreated) flags.push('neu angelegt');\n  if (d.guardTriggered) flags.push(WARN + ' Entfernen uebersprungen (Sicherheitsnetz)');\n  return '<tr>'\n    + td(esc(d.list))\n    + td('+' + d.added, 'text-align:right;color:#0a7d33;font-weight:600;')\n    + td('-' + d.removed, 'text-align:right;color:#b42318;font-weight:600;')\n    + td(d.currentMembers, 'text-align:right;')\n    + td(esc(flags.join(', ')), 'color:#8a919b;font-size:12px;')\n    + '</tr>';\n}).join('');\n\nconst subject = '[Klaviyo-Sync'\n  + (summary.dryRun ? ' | DRY-RUN' : '')\n  + (summary.guarded ? ' | ' + WARN + ' Guard' : '')\n  + '] +' + summary.added + ' / -' + summary.removed + ' ueber ' + summary.lists + ' Listen';\n\nconst guardBanner = summary.guarded\n  ? '<p style=\"padding:10px 14px;background:#fff4ed;border:1px solid #f9c9a8;border-radius:8px;color:#93370d;\">'\n    + WARN + ' Sicherheitsnetz bei ' + summary.guarded + ' Liste(n) ausgeloest – Entfernen wurde uebersprungen. Details siehe Tabelle.</p>'\n  : '';\n\nconst LF = String.fromCharCode(10);\nconst html = [\n  '<div style=\"font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#16191d;\">',\n  '<h2 style=\"margin:0 0 4px;\">Appstle → Klaviyo Listen-Sync</h2>',\n  '<p style=\"margin:0 0 16px;color:#545b66;\">Lauf: ' + esc(ranAt) + ' (Europe/Berlin)'\n    + (summary.dryRun ? ' &middot; <strong>DRY-RUN (keine Schreibvorgaenge)</strong>' : '') + '</p>',\n  '<table style=\"border-collapse:collapse;margin-bottom:20px;\">',\n  '<tr>' + td('Listen gesamt') + td(summary.lists, 'text-align:right;font-weight:600;')\n    + td('neu angelegt') + td(summary.created, 'text-align:right;font-weight:600;') + '</tr>',\n  '<tr>' + td('Mitglieder hinzugefuegt') + td('+' + summary.added, 'text-align:right;font-weight:600;color:#0a7d33;')\n    + td('Mitglieder entfernt') + td('-' + summary.removed, 'text-align:right;font-weight:600;color:#b42318;') + '</tr>',\n  '</table>',\n  guardBanner,\n  '<h3 style=\"margin:0 0 8px;\">' + (changed.length ? 'Geaenderte Listen' : 'Alle Listen (keine Aenderungen)') + '</h3>',\n  '<table style=\"border-collapse:collapse;font-size:13px;\">',\n  '<thead><tr style=\"background:#f5f6f8;\">'\n    + th('Liste', 'text-align:left;') + th('Hinzugefuegt', 'text-align:right;') + th('Entfernt', 'text-align:right;')\n    + th('Mitglieder aktuell', 'text-align:right;') + th('Hinweis', 'text-align:left;') + '</tr></thead>',\n  '<tbody>' + (rowsHtml || '<tr>' + td('Keine Listen verarbeitet.', 'color:#8a919b;') + '</tr>') + '</tbody>',\n  '</table>',\n  '</div>'\n].join(LF);\n\nreturn [{ json: { ...summary, ranAt, subject, html, details } }];"
+        },
+        "id": "593dccf7-d455-46e9-ad97-f24890b12bfe",
+        "name": "Zusammenfassung",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1184,
+          1152
+        ]
+      },
+      {
+        "parameters": {
+          "fromEmail": "automations@buecherbuechse.de",
+          "toEmail": "christoph@buecherbuechse.de",
+          "subject": "={{ $json.subject }}",
+          "html": "={{ $json.html }}",
+          "options": {}
+        },
+        "id": "af2601ec-4d38-446a-baca-46c7b9fee002",
+        "name": "Summary Mail",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          1440,
+          1168
+        ],
+        "webhookId": "6800686b-1313-473d-b8ac-cb6b40d85dea",
+        "credentials": {
+          "smtp": {
+            "id": "ZzNsJGHozTJiS4R6",
+            "name": "SMTP account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Laeuft NACH der Summary-Mail: bei ausgeloestem Sicherheitsnetz Fehler werfen,\n// damit der Error-Workflow benachrichtigt (die Mail ist zu diesem Zeitpunkt bereits versendet).\nconst s = $json || {};\nif (s.guarded > 0) {\n  const list = (s.details || [])\n    .filter(d => d.guardTriggered)\n    .map(d => `${d.list} (${d.removed === 0 ? 'uebersprungen' : d.removed})`)\n    .join('; ');\n  throw new Error('Klaviyo-Sync: Sicherheitsnetz hat Entfernen uebersprungen bei ' + s.guarded + ' Liste(n): ' + list);\n}\nreturn [{ json: s }];"
+        },
+        "id": "8e8821a9-321c-439d-97f3-b0a2b38c2b69",
+        "name": "Guard-Check",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1712,
+          1200
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://subscription-admin.appstle.com/api/external/v2/subscription-contract-details",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "sellingPlanId",
+                "value": "={{ $json.sellingPlanId }}"
+              },
+              {
+                "name": "status",
+                "value": "={{ $json.status }}"
+              },
+              {
+                "name": "size",
+                "value": "1000"
+              },
+              {
+                "name": "sort",
+                "value": "id,asc"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-API-Key",
+                "value": "={{ $vars[$json.appstleVar] }}"
+              }
+            ]
+          },
+          "options": {
+            "pagination": {
+              "pagination": {
+                "parameters": {
+                  "parameters": [
+                    {
+                      "name": "page",
+                      "value": "={{ $pageCount }}"
+                    }
+                  ]
+                },
+                "paginationCompleteWhen": "other",
+                "completeExpression": "={{ !Array.isArray($response.body) || $response.body.length < 1000 }}",
+                "limitPagesFetched": true,
+                "maxRequests": 200,
+                "requestInterval": 250
+              }
+            }
+          }
+        },
+        "id": "3a9c6054-7ee9-4e82-b9d8-684d6f97365a",
+        "name": "Appstle E-Mails abrufen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1184,
+          832
+        ],
+        "retryOnFail": true,
+        "alwaysOutputData": true,
+        "notes": "Alle Vertraege je Selling Plan x Status, seitenweise (size=1000, max. 2000). Liefert customerEmail je Vertrag. Bei Fehler bricht der Flow bewusst ab (sonst wuerde der Diff Kontakte entfernen)."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Alle Vertraege (alle Seiten) dieses Plan x Status -> eindeutige E-Mail-Menge\nconst ctx = $('Loop Over Items').first().json;\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n\nconst emails = new Set();\nlet contracts = 0;\nlet withoutEmail = 0;\nlet invalid = 0;\n\nfor (const item of $input.all()) {\n  const c = item.json;\n  // leeres Item (alwaysOutputData bei 0 Treffern) ueberspringen\n  if (!c || (c.subscriptionContractId ?? c.id) === undefined) continue;\n  contracts++;\n\n  const raw = c.customerEmail;\n  if (!raw) { withoutEmail++; continue; }\n\n  const email = String(raw).trim().toLowerCase();\n  if (!EMAIL_RE.test(email)) { invalid++; continue; }\n  emails.add(email);\n}\n\nreturn [{\n  json: {\n    ...ctx,\n    targetEmails: [...emails],\n    contracts,\n    withoutEmail,\n    invalid\n  }\n}];"
+        },
+        "id": "e8428f45-ad39-4f90-b6ab-ad5583322fc4",
+        "name": "Ziel-E-Mails sammeln",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1696,
+          832
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://a.klaviyo.com/api/lists",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "filter",
+                "value": "={{ $json.listFilter }}"
+              },
+              {
+                "name": "fields[list]",
+                "value": "name"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ 'Klaviyo-API-Key ' + $vars[$json.klaviyoVar] }}"
+              },
+              {
+                "name": "revision",
+                "value": "2026-07-15"
+              },
+              {
+                "name": "accept",
+                "value": "application/vnd.api+json"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "id": "37666766-0288-45b0-96e4-59590f2b738d",
+        "name": "Klaviyo Liste suchen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1888,
+          832
+        ],
+        "retryOnFail": true
+      },
+      {
+        "parameters": {
+          "jsCode": "// Wertet die Klaviyo-Listensuche eindeutig zu einem Boolean aus.\n// (Ein direkter Zahlenvergleich \"data.length > 0\" in der IF-Node ist unzuverlaessig,\n// da n8n bei 0 als Ergebnis manche numerischen Bedingungen faelschlich als erfuellt behandelt -\n// daher hier explizit im Code auswerten statt in der IF-Node vergleichen zu lassen.)\nconst ctx = $('Ziel-E-Mails sammeln').first().json;\nconst body = $json || {};\nconst matches = Array.isArray(body.data) ? body.data : [];\n\nreturn [{\n  json: {\n    ...ctx,\n    listExists: matches.length > 0,\n    existingListId: matches.length > 0 ? matches[0].id : null\n  }\n}];"
+        },
+        "id": "8b6fd8aa-caeb-4e48-b2d9-7cde2f0e52cf",
+        "name": "Suchergebnis auswerten1",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2016,
+          736
+        ],
+        "notes": "Wandelt die rohe Klaviyo-Antwort in ein eindeutiges listExists (boolean) um, statt data.length direkt in der IF-Node mit 0 zu vergleichen."
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "32cda9bb-c97c-4aa9-9d3b-b2f8cd1f1928",
+                "leftValue": "={{ $json.listExists }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "99d0e768-edc8-4f03-a9bc-3aacd7a53832",
+        "name": "Liste vorhanden?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          2224,
+          736
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "// Wird nach \"Liste vorhanden?\" (Treffer, $json = Suchergebnis-Kontext von \"Suchergebnis auswerten1\")\n// ODER nach \"Klaviyo Liste anlegen\" (neu angelegt, $json = rohe Create-Response von POST /api/lists) ausgefuehrt.\nconst ctx = $('Suchergebnis auswerten1').first().json;\n\nlet listId = ctx.existingListId || null;\nlet listCreated = false;\n\nif (!listId) {\n  // Kein Treffer bei der Suche -> dieser Durchlauf kommt aus dem Anlegen-Zweig,\n  // $json ist dann direkt die Antwort von POST /api/lists ({ data: { id, ... } })\n  const body = $json || {};\n  listId = body.data && body.data.id;\n  listCreated = true;\n}\n\nif (!listId) {\n  throw new Error('Klaviyo-Liste konnte nicht ermittelt werden: ' + ctx.listName);\n}\n\nreturn { json: { ...ctx, listId, listCreated } };"
+        },
+        "id": "bbf08e0c-b33a-4d53-9b4d-8849b7ed4b72",
+        "name": "Listen-ID festlegen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2672,
+          832
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ 'https://a.klaviyo.com/api/lists/' + $json.listId + '/profiles' }}",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "fields[profile]",
+                "value": "email"
+              },
+              {
+                "name": "page[size]",
+                "value": "100"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ 'Klaviyo-API-Key ' + $vars[$json.klaviyoVar] }}"
+              },
+              {
+                "name": "revision",
+                "value": "2026-07-15"
+              },
+              {
+                "name": "accept",
+                "value": "application/vnd.api+json"
+              }
+            ]
+          },
+          "options": {
+            "batching": {
+              "batch": {}
+            },
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            },
+            "pagination": {
+              "pagination": {
+                "paginationMode": "responseContainsNextURL",
+                "nextURL": "={{ $response.body.links.next }}",
+                "paginationCompleteWhen": "other",
+                "completeExpression": "={{ !$response.body.links || !$response.body.links.next }}",
+                "limitPagesFetched": true,
+                "maxRequests": 500,
+                "requestInterval": 100
+              }
+            }
+          }
+        },
+        "id": "1a3e1d8e-0ec7-4e47-88e9-7d149f9388ea",
+        "name": "Klaviyo Mitglieder laden",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2848,
+          832
+        ],
+        "retryOnFail": true,
+        "notes": "Aktuelle Listenmitglieder (id + email), 100 pro Seite. Fehler stoppen den Flow bewusst (kein Diff auf unvollstaendigen Daten)."
+      },
+      {
+        "parameters": {
+          "jsCode": "// ---- Konfiguration ----\nconst DRY_RUN = false;            // true = nur berechnen, NICHTS in Klaviyo schreiben\nconst CHUNK_REMOVE = 1000;       // Klaviyo: max. 1000 Profile pro Remove-Call\nconst CHUNK_ADD = 5000;          // Klaviyo: max. 10.000 Profile pro Bulk-Import-Job\nconst GUARD_MIN_REMOVALS = 50;   // Sicherheitsnetz: Entfernen ueberspringen, wenn ...\nconst GUARD_MAX_SHARE = 0.5;     // ... mehr als 50 % der Liste (und >= 50 Profile) entfernt wuerden\n// ---- Ende Konfiguration ----\n\nconst ctx = $('Listen-ID festlegen').first().json;\nconst target = new Set(ctx.targetEmails);\n\n// Aktuelle Listenmitglieder aus allen Seiten: email -> [profileIds]\nconst current = new Map();\nlet withoutEmail = 0;\nfor (const page of $input.all()) {\n  const data = (page.json && page.json.data) || [];\n  for (const p of data) {\n    const email = String((p.attributes && p.attributes.email) || '').trim().toLowerCase();\n    if (!email) { withoutEmail++; continue; } // nicht zuordenbar -> nicht anfassen\n    if (!current.has(email)) current.set(email, []);\n    current.get(email).push(p.id);\n  }\n}\n\nconst toAdd = [...target].filter(e => !current.has(e));\nlet toRemove = [];\nfor (const [email, ids] of current) {\n  if (!target.has(email)) toRemove.push(...ids);\n}\n\n// Sicherheitsnetz gegen Massenentfernung (z.B. bei fehlerhaften/leeren Appstle-Antworten)\nconst currentCount = current.size;\nconst removePlanned = toRemove.length;\nlet guardTriggered = false;\nif (removePlanned >= GUARD_MIN_REMOVALS && removePlanned > currentCount * GUARD_MAX_SHARE) {\n  guardTriggered = true;\n  toRemove = [];\n}\n\nconst stats = {\n  brand: ctx.brand,\n  list: ctx.listName,\n  listId: ctx.listId,\n  listCreated: ctx.listCreated,\n  contracts: ctx.contracts,\n  targetEmails: target.size,\n  currentMembers: currentCount,\n  addPlanned: toAdd.length,\n  removePlanned,\n  guardTriggered,\n  dryRun: DRY_RUN\n};\n\nconst base = { brand: ctx.brand, klaviyoVar: ctx.klaviyoVar, listId: ctx.listId, listName: ctx.listName };\nconst chunks = (arr, n) => {\n  const out = [];\n  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));\n  return out;\n};\n\nconst items = [];\nif (!DRY_RUN) {\n  for (const chunk of chunks(toRemove, CHUNK_REMOVE)) items.push({ json: { ...base, op: 'remove', chunk, stats } });\n  for (const chunk of chunks(toAdd, CHUNK_ADD)) items.push({ json: { ...base, op: 'add', chunk, stats } });\n}\nif (items.length === 0) items.push({ json: { ...base, op: 'noop', chunk: [], stats } });\n\nreturn items;"
+        },
+        "id": "2cf265ba-7657-431e-b26c-ca1e07cac619",
+        "name": "Diff berechnen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3088,
+          832
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "343aabdf-97ee-4411-a0de-f3752670df96",
+                "leftValue": "={{ $json.op }}",
+                "rightValue": "noop",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEquals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "7bdfcbb7-3b12-46cf-9dd0-a3de8693c7fa",
+        "name": "Änderungen?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          3328,
+          832
+        ]
+      },
+      {
+        "parameters": {
+          "method": "={{ $json.op === 'remove' ? 'DELETE' : 'POST' }}",
+          "url": "={{ $json.op === 'remove' ? 'https://a.klaviyo.com/api/lists/' + $json.listId + '/relationships/profiles' : 'https://a.klaviyo.com/api/profile-bulk-import-jobs' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ 'Klaviyo-API-Key ' + $vars[$json.klaviyoVar] }}"
+              },
+              {
+                "name": "revision",
+                "value": "2026-07-15"
+              },
+              {
+                "name": "accept",
+                "value": "application/vnd.api+json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.op === 'remove' ? { data: $json.chunk.map(id => ({ type: 'profile', id })) } : { data: { type: 'profile-bulk-import-job', attributes: { profiles: { data: $json.chunk.map(email => ({ type: 'profile', attributes: { email } })) } }, relationships: { lists: { data: [{ type: 'list', id: $json.listId }] } } } }) }}",
+          "options": {
+            "batching": {
+              "batch": {
+                "batchSize": 1
+              }
+            }
+          }
+        },
+        "id": "d498f400-da4b-41d5-b50f-8711e73e7875",
+        "name": "Klaviyo schreiben",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3568,
+          720
+        ],
+        "retryOnFail": true,
+        "notes": "op=remove: DELETE /lists/{id}/relationships/profiles (max. 1000 Profil-IDs). op=add: POST /profile-bulk-import-jobs mit list-Relationship (max. 10.000 Profile, aendert keinen Consent). Klaviyo-Limit Schreib-Calls: 10/s, 150/min -> 1 Call/s."
+      },
+      {
+        "parameters": {
+          "jsCode": "// Laeuft nach dem Schreiben (oder direkt bei \"keine Aenderungen\") -> genau 1 Item zurueck in die Schleife\nconst s = $('Diff berechnen').first().json.stats;\nreturn [{ json: s }];"
+        },
+        "id": "84d2a3c0-13af-4b59-add0-15af58305565",
+        "name": "Ergebnis",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3808,
+          832
+        ]
+      },
+      {
+        "parameters": {
+          "options": {}
+        },
+        "id": "08ee4dcf-5f93-433b-88d7-3f902b3d001b",
+        "name": "Loop Over Items",
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          944,
+          832
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://a.klaviyo.com/api/lists",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ 'Klaviyo-API-Key ' + $vars[$('Ziel-E-Mails sammeln').first().json.klaviyoVar] }}"
+              },
+              {
+                "name": "revision",
+                "value": "2026-07-15"
+              },
+              {
+                "name": "accept",
+                "value": "application/vnd.api+json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ data: { type: 'list', attributes: { name: $('Ziel-E-Mails sammeln').first().json.listName } } }) }}",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "id": "fbb8cee1-8c41-4dea-bcbb-1979352523b5",
+        "name": "Klaviyo Liste anlegen",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2384,
+          864
+        ],
+        "retryOnFail": true
+      },
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          1408,
+          832
+        ],
+        "id": "0168603d-1fc5-4115-857e-0679e252cec5",
+        "name": "Wait",
+        "webhookId": "89373874-8c70-432c-b252-48efb1a82508"
+      }
+    ],
+    "connections": {
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "Selling Plans Bücherbüchse",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Selling Plans LEAF",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Selling Plans CINNA",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Selling Plans Bücherbüchse": {
+        "main": [
+          [
+            {
+              "node": "Kombinationen Bücherbüchse",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Kombinationen Bücherbüchse": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Selling Plans LEAF": {
+        "main": [
+          [
+            {
+              "node": "Kombinationen LEAF",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Selling Plans CINNA": {
+        "main": [
+          [
+            {
+              "node": "Kombinationen CINNA",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Zusammenfassung": {
+        "main": [
+          [
+            {
+              "node": "Summary Mail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Summary Mail": {
+        "main": [
+          [
+            {
+              "node": "Guard-Check",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Appstle E-Mails abrufen": {
+        "main": [
+          [
+            {
+              "node": "Wait",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ziel-E-Mails sammeln": {
+        "main": [
+          [
+            {
+              "node": "Klaviyo Liste suchen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Klaviyo Liste suchen": {
+        "main": [
+          [
+            {
+              "node": "Suchergebnis auswerten1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Suchergebnis auswerten1": {
+        "main": [
+          [
+            {
+              "node": "Liste vorhanden?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Liste vorhanden?": {
+        "main": [
+          [
+            {
+              "node": "Listen-ID festlegen",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Klaviyo Liste anlegen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Listen-ID festlegen": {
+        "main": [
+          [
+            {
+              "node": "Klaviyo Mitglieder laden",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Klaviyo Mitglieder laden": {
+        "main": [
+          [
+            {
+              "node": "Diff berechnen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Diff berechnen": {
+        "main": [
+          [
+            {
+              "node": "Änderungen?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Änderungen?": {
+        "main": [
+          [
+            {
+              "node": "Klaviyo schreiben",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Ergebnis",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Klaviyo schreiben": {
+        "main": [
+          [
+            {
+              "node": "Ergebnis",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ergebnis": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Loop Over Items": {
+        "main": [
+          [
+            {
+              "node": "Zusammenfassung",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Appstle E-Mails abrufen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Klaviyo Liste anlegen": {
+        "main": [
+          [
+            {
+              "node": "Listen-ID festlegen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait": {
+        "main": [
+          [
+            {
+              "node": "Ziel-E-Mails sammeln",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Christoph Strauss",
+    "name": "Version 5df4faa0",
+    "description": "",
+    "autosaved": true,
+    "createdAt": "2026-09-28T12:26:18.902Z",
+    "updatedAt": "2026-09-28T12:55:54.000Z"
+  }
+}

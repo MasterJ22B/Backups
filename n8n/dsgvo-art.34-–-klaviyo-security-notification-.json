@@ -1,10 +1,13 @@
 {
-  "updatedAt": "2026-06-17T22:26:07.275Z",
-  "createdAt": "2026-06-17T19:28:23.423Z",
   "id": "q3TYuoNhkxPoCoE0",
   "name": "DSGVO Art.34 – Klaviyo Security Notification",
   "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-06-17T19:28:23.423Z",
+  "updatedAt": "2026-06-17T22:26:07.275Z",
   "isArchived": false,
+  "versionId": "71273f4b-1f44-45ea-ad5f-ae7311b80d00",
+  "triggerCount": 0,
   "nodes": [
     {
       "parameters": {
@@ -444,6 +447,7 @@
       ]
     }
   },
+  "nodeGroups": [],
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
@@ -454,21 +458,17 @@
     "callerPolicy": "workflowsFromSameOwner"
   },
   "staticData": null,
-  "meta": null,
-  "nodeGroups": [],
   "pinData": {},
-  "versionId": "71273f4b-1f44-45ea-ad5f-ae7311b80d00",
-  "activeVersionId": null,
-  "triggerCount": 0,
+  "meta": null,
+  "tags": [],
   "shared": [
     {
-      "updatedAt": "2026-06-17T19:28:23.435Z",
-      "createdAt": "2026-06-17T19:28:23.435Z",
       "role": "workflow:owner",
       "workflowId": "q3TYuoNhkxPoCoE0",
-      "projectId": "fpJ6gOBBO4AzTt5B"
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-06-17T19:28:23.435Z",
+      "updatedAt": "2026-06-17T19:28:23.435Z"
     }
   ],
-  "activeVersion": null,
-  "tags": []
+  "activeVersion": null
 }

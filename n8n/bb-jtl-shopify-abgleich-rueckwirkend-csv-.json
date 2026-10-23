@@ -1,0 +1,1031 @@
+{
+  "id": "zz9NwQYFuf2QkZFy",
+  "name": "BB-JTL-Shopify-Abgleich-rueckwirkend-csv",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-07-30T09:03:53.929Z",
+  "updatedAt": "2026-09-01T08:52:42.173Z",
+  "isArchived": false,
+  "versionId": "9f56dbc3-4ef9-4e2a-96f2-053ff4f25bdd",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "ed4ae3dd-5cc8-417e-b5c0-0f88a362e58b",
+        "formTitle": "JTL-Positionsabgleich - rueckwirkend (monatsweise)",
+        "formDescription": "Matrixify-Orders-Export der Auftraege des Monats hochladen. Soll-Daten und Preise kommen aus JTL.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Matrixify-CSV",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Monat",
+              "placeholder": "2024-01",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Dry-Run",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "ja"
+                  },
+                  {
+                    "option": "nein"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Limit",
+              "fieldType": "number",
+              "placeholder": "0 = alle Bestellungen"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        832
+      ],
+      "id": "06c4ac4e-ffab-4dd1-ae21-be95a8c70fe5",
+      "name": "CSV hochladen (Formular)",
+      "webhookId": "ed4ae3dd-5cc8-417e-b5c0-0f88a362e58b"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === ZENTRALE CONFIG ===\n// Alle nachgelagerten Nodes lesen die Config ueber:\n//   $('Config').first().json.cfg\nconst CONFIG = {\n  // 'brutto' = Shop fuehrt Preise inkl. Steuer  |  'netto' = exkl. Steuer\n  // Einmalig verifizieren:  { shop { taxesIncluded } }\n  PREIS_MODUS: 'brutto',\n\n  // JTL-Positionstypen (tBestellPos.nType), die ergaenzt werden duerfen\n  // 0 = Artikel | 1 = Versand | 2 = Rabatt | 3 = Zuschlag | 4 = Gutschein | 9 = Text\n  JTL_TYPEN_ERLAUBT: [0],\n\n  // SKUs, die nie ergaenzt werden\n  SKIP_SKUS: [],\n\n  // Auftragsnummern pro SQL-Batch (IN-Liste)\n  SQL_BATCH: 500,\n\n  // Custom Items haben kein SKU-Feld -> SKU MUSS in den Titel,\n  // sonst erkennt ein erneuter Lauf die Position nicht wieder.\n  TITEL_SUFFIX: ' [SKU: {sku}]',\n  SKU_REGEX: '\\\\[SKU:\\\\s*([^\\\\]]+)\\\\]',\n\n  // Spalten-Mapping: erster nicht-leerer Treffer gewinnt\n  COLS: {\n    matrixify: {\n      orderId:   ['ID', 'Order ID', 'Id'],\n      orderName: ['Name', 'Order Name'],\n      lineType:  ['Line: Type', 'Line Type'],\n      sku:       ['Line: SKU', 'Line: Variant SKU', 'Line SKU'],\n      titel:     ['Line: Title', 'Line: Name'],\n      menge:     ['Line: Quantity', 'Line Quantity'],\n      tags:      ['Tags'],\n      currency:  ['Currency', 'Presentment Currency']\n    }\n  },\n  MATRIXIFY_LINE_TYPE: 'line item'\n};\n\n// CSV-Binaries unveraendert durchreichen, Config an das erste Item haengen\nconst items = $input.all();\nitems[0].json = { ...items[0].json, cfg: CONFIG };\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        832
+      ],
+      "id": "b8ef96a0-093f-4066-ab52-35afb5b528c4",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "Matrixify-CSV",
+        "options": {
+          "delimiter": ","
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        2576,
+        832
+      ],
+      "id": "10c6a566-98b4-4f2f-8327-441cdd640a59",
+      "name": "Matrixify parsen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Phase A: Matrixify -> Ist-Zustand in Shopify UND Nummernliste fuer die\n// SQL-Abfrage. Kein API-Call, kein zweiter Upload.\nconst cfg = $('Config').first().json.cfg;\nconst sd = $getWorkflowStaticData('global');\n\n// staticData ueberlebt Executions -> bei jedem Lauf hart zuruecksetzen\nsd.shopify = {};\nsd.jtl = {};\nsd.report = [];\n\nconst pick = (row, cands) => {\n  for (const c of cands) {\n    const v = row[c];\n    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();\n  }\n  return '';\n};\nconst normSku = s => String(s || '').trim().toUpperCase();\nconst normName = s => {\n  const t = String(s || '').trim();\n  if (!t) return '';\n  return t.startsWith('#') ? t : '#' + t;\n};\nconst num = s => Number(String(s || '').replace(/\\s/g, '').replace(',', '.')) || 0;\n\nconst rows = $('Matrixify parsen').all().map(i => i.json);\nif (!rows.length) throw new Error('Matrixify-CSV ist leer oder wurde nicht geparst (Delimiter pruefen).');\n\nconst skuRe = new RegExp(cfg.SKU_REGEX, 'i');\nconst shopify = {};\nconst reihenfolge = [];\n\nfor (const row of rows) {\n  const name = normName(pick(row, cfg.COLS.matrixify.orderName));\n  if (!name) continue;\n  if (!shopify[name]) {\n    shopify[name] = { orderId: '', tags: '', currency: '', positionen: {} };\n    reihenfolge.push(name);\n  }\n  const rec = shopify[name];\n\n  const oid = pick(row, cfg.COLS.matrixify.orderId);\n  if (oid) rec.orderId = oid.replace(/\\D/g, '');\n  const tg = pick(row, cfg.COLS.matrixify.tags);\n  if (tg) rec.tags = tg;\n  const cur = pick(row, cfg.COLS.matrixify.currency);\n  if (cur) rec.currency = cur;\n\n  // nur echte Line Items zaehlen (Shipping/Refund/Transaction-Zeilen ignorieren)\n  const lt = pick(row, cfg.COLS.matrixify.lineType).toLowerCase();\n  if (lt && lt !== cfg.MATRIXIFY_LINE_TYPE) continue;\n\n  let sku = normSku(pick(row, cfg.COLS.matrixify.sku));\n  if (!sku) {\n    // bereits durch diesen Flow ergaenzte Custom Items: SKU steht im Titel\n    const m = String(pick(row, cfg.COLS.matrixify.titel)).match(skuRe);\n    if (m) sku = normSku(m[1]);\n  }\n  if (!sku) continue;\n\n  const menge = num(pick(row, cfg.COLS.matrixify.menge));\n  if (menge <= 0) continue;\n  rec.positionen[sku] = (rec.positionen[sku] || 0) + menge;\n}\nsd.shopify = shopify;\n\nif (!reihenfolge.length) {\n  throw new Error('Keine Bestellnummern gefunden. Verfuegbare Spalten: ' + Object.keys(rows[0]).join(' | '));\n}\n\n// Nummernliste fuer SQL: ohne '#', da JTL die Nummer ohne Prefix speichert\nconst nummern = reihenfolge.map(n => n.replace(/^#/, ''));\n\nconst out = [];\nfor (let i = 0; i < nummern.length; i += cfg.SQL_BATCH) {\n  out.push({ json: {\n    chunk: Math.floor(i / cfg.SQL_BATCH) + 1,\n    nummern: nummern.slice(i, i + cfg.SQL_BATCH),\n    bestellungenGesamt: nummern.length\n  }});\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        832
+      ],
+      "id": "4970f033-7663-4b64-9c5e-541aa3d35b3e",
+      "name": "Ist-Zustand + Auftragsnummern"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        3072,
+        832
+      ],
+      "id": "2aa9a48b-5814-4e1b-aa8b-ba1889688ccc",
+      "name": "Loop SQL-Batches"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Whitelist gegen SQL-Injection: nur unkritische Zeichen bleiben stehen.\nconst item = $input.first().json;\nconst safe = (item.nummern || [])\n  .map(n => String(n).replace(/[^A-Za-z0-9#._\\-\\/]/g, ''))\n  .filter(Boolean);\nif (!safe.length) throw new Error('Leerer SQL-Batch (Chunk ' + item.chunk + ')');\n\nreturn [{ json: {\n  chunk: item.chunk,\n  anzahl: safe.length,\n  inList: safe.map(n => \"'\" + n + \"'\").join(',')\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3344,
+        896
+      ],
+      "id": "9990cfe6-27db-4afb-a7b5-a1061489ae2e",
+      "name": "IN-Liste bauen"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- JTL: alle Positionen der Auftraege dieses Batches, inkl. historischem Preis\nSELECT\n    b.kBestellung        AS jtlBestellungId,\n    b.cBestellNr         AS jtlAuftragsNr,\n    b.cInetBestellNr     AS shopBestellNr,\n    b.dErstellt          AS bestelldatum,\n    b.cWaehrung          AS waehrung,\n    p.kBestellPos        AS jtlPosId,\n    p.nSort              AS posSort,\n    p.nType              AS posTyp,\n    p.cArtNr             AS sku,\n    p.cName              AS titel,\n    p.nAnzahl            AS menge,\n    p.fVKNetto           AS vkNettoRoh,\n    p.fRabatt            AS rabattProzent,\n    p.fMwSt              AS mwstSatz,\n    CAST(p.fVKNetto * (1 - ISNULL(p.fRabatt, 0) / 100.0) AS DECIMAL(19,6))                                   AS einzelNetto,\n    CAST(p.fVKNetto * (1 - ISNULL(p.fRabatt, 0) / 100.0) * (1 + ISNULL(p.fMwSt, 0) / 100.0) AS DECIMAL(19,6)) AS einzelBrutto\nFROM dbo.tBestellung AS b\nJOIN dbo.tBestellPos AS p\n      ON p.tBestellung_kBestellung = b.kBestellung\nWHERE (b.cInetBestellNr IN ({{ $json.inList }}) OR b.cBestellNr IN ({{ $json.inList }}))\nORDER BY b.cBestellNr, p.nSort;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        3520,
+        896
+      ],
+      "id": "fa59d55a-0f02-4384-8a1d-0976f7e66668",
+      "name": "JTL: Positionen inkl. historischem Preis",
+      "alwaysOutputData": true,
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Positionen filtern (Typ/SKU) und je Bestellung aggregieren.\nconst cfg = $('Config').first().json.cfg;\nconst sd = $getWorkflowStaticData('global');\nif (!sd.jtl) sd.jtl = {};\n\nconst erlaubt = (cfg.JTL_TYPEN_ERLAUBT || []).map(Number);\nconst skipSkus = (cfg.SKIP_SKUS || []).map(s => String(s).toUpperCase());\nconst rows = $input.all().map(i => i.json).filter(r => r && r.jtlAuftragsNr !== undefined);\n\nlet uebernommen = 0, verworfen = 0;\nfor (const r of rows) {\n  if (!erlaubt.includes(Number(r.posTyp))) { verworfen++; continue; }\n  const sku = String(r.sku || '').trim().toUpperCase();\n  if (!sku || skipSkus.includes(sku)) { verworfen++; continue; }\n\n  const raw = String(r.shopBestellNr || '').trim() || String(r.jtlAuftragsNr || '').trim();\n  const orderName = raw.startsWith('#') ? raw : '#' + raw;\n\n  if (!sd.jtl[orderName]) {\n    sd.jtl[orderName] = {\n      jtlAuftragsNr: String(r.jtlAuftragsNr || '').trim(),\n      waehrung: String(r.waehrung || '').trim(),\n      bestelldatum: r.bestelldatum,\n      positionen: {}\n    };\n  }\n  const ziel = sd.jtl[orderName].positionen;\n  const netto = Number(r.einzelNetto);\n  const brutto = Number(r.einzelBrutto);\n\n  if (!ziel[sku]) {\n    ziel[sku] = {\n      titel: String(r.titel || '').trim(),\n      menge: 0,\n      einzelNetto: netto,\n      einzelBrutto: brutto,\n      mwst: Number(r.mwstSatz),\n      preisAbweichung: false\n    };\n  } else if (Math.abs(ziel[sku].einzelNetto - netto) > 0.005) {\n    // gleiche SKU mehrfach mit unterschiedlichem Preis -> im Report markieren\n    ziel[sku].preisAbweichung = true;\n  }\n  ziel[sku].menge += Number(r.menge) || 0;\n  uebernommen++;\n}\n\nreturn [{ json: {\n  chunk: $('IN-Liste bauen').first().json.chunk,\n  zeilen: rows.length,\n  uebernommen,\n  verworfen,\n  auftraegeGesamt: Object.keys(sd.jtl).length\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3744,
+        896
+      ],
+      "id": "197340d9-ecdd-42c0-8bcc-9bc7b541af17",
+      "name": "JTL-Positionen sammeln"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Soll (JTL) gegen Ist (Matrixify). Nur positive Deltas werden ergaenzt.\nconst cfg = $('Config').first().json.cfg;\nconst sd = $getWorkflowStaticData('global');\nconst jtl = sd.jtl || {};\nconst shop = sd.shopify || {};\nif (!Array.isArray(sd.report)) sd.report = [];\n\nconst brutto = cfg.PREIS_MODUS === 'brutto';\nconst auftraege = [];\n\nfor (const [orderName, j] of Object.entries(jtl)) {\n  const s = shop[orderName];\n\n  if (!s) {\n    sd.report.push({ status: 'NICHT_IN_MATRIXIFY', orderName, jtlAuftragsNr: j.jtlAuftragsNr,\n      hinweis: 'Bestellung im Matrixify-Export nicht enthalten' });\n    continue;\n  }\n  if (!s.orderId) {\n    sd.report.push({ status: 'KEINE_ORDER_ID', orderName, jtlAuftragsNr: j.jtlAuftragsNr,\n      hinweis: 'ID-Spalte im Matrixify-Export fehlt oder leer' });\n    continue;\n  }\n\n  const fehlend = [];\n  for (const [sku, p] of Object.entries(j.positionen)) {\n    const ist = s.positionen[sku] || 0;\n    const delta = Number(p.menge) - ist;\n    if (delta <= 0) continue;\n\n    const pos = {\n      sku,\n      titel: p.titel,\n      menge: delta,\n      mengeJtl: p.menge,\n      mengeShopify: ist,\n      einzelNetto: Number(p.einzelNetto).toFixed(2),\n      einzelBrutto: Number(p.einzelBrutto).toFixed(2),\n      mwst: p.mwst,\n      preisAbweichung: !!p.preisAbweichung\n    };\n    fehlend.push(pos);\n    sd.report.push({ status: 'GEPLANT', orderName, jtlAuftragsNr: j.jtlAuftragsNr,\n      sku, titel: p.titel, menge: delta, mengeJtl: p.menge, mengeShopify: ist,\n      preis: brutto ? pos.einzelBrutto : pos.einzelNetto,\n      preisModus: cfg.PREIS_MODUS, mwst: p.mwst,\n      waehrung: s.currency || j.waehrung,\n      hinweis: p.preisAbweichung ? 'mehrere JTL-Preise fuer diese SKU - Preis der ersten Position verwendet' : '' });\n  }\n\n  // Ueberschuss: Shopify hat mehr als JTL -> Flow 1 loescht nicht, nur Report\n  for (const [sku, ist] of Object.entries(s.positionen)) {\n    const soll = j.positionen[sku] ? Number(j.positionen[sku].menge) : 0;\n    if (ist > soll) {\n      sd.report.push({ status: 'UEBERSCHUSS_IN_SHOPIFY', orderName, jtlAuftragsNr: j.jtlAuftragsNr,\n        sku, mengeJtl: soll, mengeShopify: ist, hinweis: 'manuell pruefen - wird nicht automatisch entfernt' });\n    }\n  }\n\n  if (fehlend.length) {\n    auftraege.push({\n      orderName,\n      orderGid: 'gid://shopify/Order/' + s.orderId,\n      jtlAuftragsNr: j.jtlAuftragsNr,\n      waehrung: s.currency || j.waehrung || 'EUR',\n      tags: s.tags,\n      positionen: fehlend\n    });\n  }\n}\n\n// Bestellung liegt in Shopify, aber SQL hat dazu nichts geliefert\n// -> Mapping-Problem (cInetBestellNr) oder Auftrag nicht in JTL\nfor (const orderName of Object.keys(shop)) {\n  if (!jtl[orderName]) {\n    sd.report.push({ status: 'NICHT_IN_JTL', orderName,\n      hinweis: 'kein JTL-Auftrag zu dieser Nummer gefunden - Mapping cInetBestellNr pruefen' });\n  }\n}\n\nif (!auftraege.length) {\n  return [{ json: { HINWEIS: 'Keine fehlenden Positionen gefunden', reportZeilen: sd.report.length } }];\n}\nreturn auftraege.map(a => ({ json: a }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3344,
+        752
+      ],
+      "id": "e3ebeda1-0f4a-493f-a7c4-b47a6a478e91",
+      "name": "Diff berechnen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Gate fuer kontrollierte Erstlaeufe. Limit = 0 -> alle Bestellungen.\nconst limit = Number($('CSV hochladen (Formular)').first().json['Limit']) || 0;\nconst items = $input.all();\nconst echte = items.filter(i => i.json.HINWEIS === undefined);\nif (!echte.length) return items;\nreturn limit > 0 ? echte.slice(0, limit) : echte;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        752
+      ],
+      "id": "c5c923e9-c280-461a-8b2e-08a9bfeff5c4",
+      "name": "Test-Limiter (Limit)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-dry",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "leftValue": "={{ $('CSV hochladen (Formular)').first().json['Dry-Run'] }}",
+              "rightValue": "ja"
+            },
+            {
+              "id": "c-empty",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.HINWEIS !== undefined }}",
+              "rightValue": ""
+            }
+          ],
+          "combinator": "or"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3744,
+        752
+      ],
+      "id": "1778f60e-a4f6-42c7-ab60-4f8a13c9332f",
+      "name": "Dry-Run?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/oauth/access_token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"grant_type\": \"client_credentials\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4032,
+        880
+      ],
+      "id": "e949c382-a832-49ac-b8b7-9172ece51818",
+      "name": "Token holen",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "E1iS7U1eVERYdFhQ",
+          "name": "BB-Shopify-Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        4080,
+        1232
+      ],
+      "id": "0b17338b-af29-42a4-b9bb-36870cd3e776",
+      "name": "Loop je Bestellung"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\nconst body = {\n  query: `mutation orderEditBegin($id: ID!) { orderEditBegin(id: $id) { calculatedOrder { id } userErrors { field message } } }`,\n  variables: { id: item.orderGid }\n};\nreturn { json: {\n  ...item,\n  accessToken: $('Token holen').first().json.access_token,\n  gqlBody: JSON.stringify(body)\n}};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4288,
+        1248
+      ],
+      "id": "c8d7d797-e960-4984-82da-475b4e396fdd",
+      "name": "Query bauen (orderEditBegin)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4496,
+        1248
+      ],
+      "id": "b41b3bba-5439-4624-ad7c-638d897c25d8",
+      "name": "orderEditBegin"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nif (resp.errors) throw new Error('orderEditBegin GraphQL errors: ' + JSON.stringify(resp.errors));\nconst begin = resp?.data?.orderEditBegin;\nconst errs = begin?.userErrors || [];\nif (errs.length) throw new Error('orderEditBegin userErrors: ' + JSON.stringify(errs));\nconst calcOrderId = begin?.calculatedOrder?.id;\nif (!calcOrderId) throw new Error('Keine calculatedOrder.id erhalten: ' + JSON.stringify(resp));\n\nconst src = $('Query bauen (orderEditBegin)').first().json;\nreturn { json: { ...src, calcOrderId } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4720,
+        1248
+      ],
+      "id": "90dc6333-27c8-4137-a1b7-7db7ab3adc73",
+      "name": "CalcOrder auslesen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ein GraphQL-Dokument mit einem aliasierten orderEditAddCustomItem pro\n// fehlender Position -> ein Edit-Zyklus je Bestellung.\n// Custom Item statt AddVariant, weil AddVariant zwingend den AKTUELLEN\n// Variantenpreis zieht. Preis kommt aus tBestellPos (historisch korrekt).\nconst cfg = $('Config').first().json.cfg;\nconst src = $input.first().json;\nconst brutto = cfg.PREIS_MODUS === 'brutto';\nconst cur = src.waehrung || 'EUR';\nconst pos = src.positionen || [];\nif (!pos.length) throw new Error('Keine Positionen fuer ' + src.orderName);\n\nconst defs = [];\nconst parts = [];\nconst vars = { id: src.calcOrderId };\n\npos.forEach((p, i) => {\n  vars['title' + i] = String(p.titel) + String(cfg.TITEL_SUFFIX).replace('{sku}', p.sku);\n  vars['price' + i] = { amount: String(brutto ? p.einzelBrutto : p.einzelNetto), currencyCode: cur };\n  vars['qty' + i] = Number(p.menge);\n  defs.push('$title' + i + ': String!, $price' + i + ': MoneyInput!, $qty' + i + ': Int!');\n  parts.push(\n    'p' + i + ': orderEditAddCustomItem(id: $id, title: $title' + i + ', price: $price' + i +\n    ', quantity: $qty' + i + ', taxable: true, requiresShipping: false) ' +\n    '{ calculatedLineItem { id title quantity } userErrors { field message } }'\n  );\n});\n\nconst query = 'mutation addCustomItems($id: ID!, ' + defs.join(', ') + ') {\\n  ' + parts.join('\\n  ') + '\\n}';\n\nreturn { json: { ...src, positionenAnzahl: pos.length, gqlBody: JSON.stringify({ query, variables: vars }) } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4944,
+        1248
+      ],
+      "id": "60fc392c-ec68-4c20-9802-3b6d95efc49c",
+      "name": "Query bauen (Custom Items)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.gqlBody }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4288,
+        1440
+      ],
+      "id": "e7a18fa4-aec5-4e77-9043-67958a5e3e0d",
+      "name": "Positionen hinzufuegen (Custom Items)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst src = $('Query bauen (Custom Items)').first().json;\nif (resp.errors) throw new Error('addCustomItem GraphQL errors (' + src.orderName + '): ' + JSON.stringify(resp.errors));\n\nconst data = resp?.data || {};\nconst errs = [];\nlet added = 0;\nfor (const [alias, val] of Object.entries(data)) {\n  if (val?.userErrors?.length) errs.push({ alias, userErrors: val.userErrors });\n  if (val?.calculatedLineItem?.id) added++;\n}\n// Abbruch VOR dem Commit -> unvollstaendige Edits werden nicht uebernommen\nif (errs.length) throw new Error('addCustomItem userErrors (' + src.orderName + '): ' + JSON.stringify(errs));\nif (added !== src.positionenAnzahl) {\n  throw new Error('Nur ' + added + ' von ' + src.positionenAnzahl + ' Positionen angelegt (' + src.orderName + ')');\n}\nreturn { json: { ...src, hinzugefuegt: added } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4496,
+        1440
+      ],
+      "id": "2b9671ac-bdf6-4c43-abc4-98affb7ca2bb",
+      "name": "Add-Ergebnis pruefen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation orderEditCommit($id: ID!, $notifyCustomer: Boolean, $staffNote: String) { orderEditCommit(id: $id, notifyCustomer: $notifyCustomer, staffNote: $staffNote) { order { id name displayFinancialStatus } userErrors { field message } } }`, variables: { id: $json.calcOrderId, notifyCustomer: false, staffNote: 'JTL-Abgleich ' + $('CSV hochladen (Formular)').first().json['Monat'] + ': fehlende Positionen aus JTL ergaenzt (JTL-Auftrag ' + $json.jtlAuftragsNr + ').' } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4720,
+        1440
+      ],
+      "id": "0c0e4d57-87ab-46b5-9ec0-8cd94252a7bc",
+      "name": "orderEditCommit: NotifyCustomer = FALSE"
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst src = $('Add-Ergebnis pruefen').first().json;\nif (resp.errors) throw new Error('orderEditCommit GraphQL errors (' + src.orderName + '): ' + JSON.stringify(resp.errors));\nconst c = resp?.data?.orderEditCommit;\nif (c?.userErrors?.length) throw new Error('orderEditCommit userErrors (' + src.orderName + '): ' + JSON.stringify(c.userErrors));\nconst order = c?.order;\nif (!order?.id) throw new Error('Kein Order-Objekt nach Commit (' + src.orderName + '): ' + JSON.stringify(resp));\n\nreturn { json: {\n  ...src,\n  committedOrderId: order.id,\n  orderNameShopify: order.name,\n  statusVorPaid: order.displayFinancialStatus\n}};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4944,
+        1440
+      ],
+      "id": "8d4705e6-8f30-4d9c-9164-6ee30a2a2929",
+      "name": "Commit-Ergebnis pruefen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation orderMarkAsPaid($input: OrderMarkAsPaidInput!) { orderMarkAsPaid(input: $input) { order { id displayFinancialStatus } userErrors { field message } } }`, variables: { input: { id: $json.committedOrderId } } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4288,
+        1648
+      ],
+      "id": "f0e3fc8e-b487-4a45-817b-9a346e27f187",
+      "name": "orderMarkAsPaid",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kein Abbruch: ein fehlgeschlagenes MarkAsPaid darf den Batch nicht stoppen.\nconst resp = $input.first().json;\nconst src = $('Commit-Ergebnis pruefen').first().json;\nconst p = resp?.data?.orderMarkAsPaid;\nconst errs = (p?.userErrors && p.userErrors.length ? p.userErrors : null) || resp?.errors || null;\n\nreturn { json: {\n  ...src,\n  paidStatus: p?.order?.displayFinancialStatus || 'FEHLER',\n  paidFehler: errs ? JSON.stringify(errs) : ''\n}};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4496,
+        1648
+      ],
+      "id": "62e7fca8-4f76-454f-80ed-c731353aa5d6",
+      "name": "Paid-Ergebnis pruefen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://vdzvc0-nd.myshopify.com/admin/api/2024-10/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $json.accessToken }}"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: `mutation tagsAdd($id: ID!, $tags: [String!]!) { tagsAdd(id: $id, tags: $tags) { userErrors { field message } } }`, variables: { id: $json.committedOrderId, tags: ['jtl-abgleich-' + $('CSV hochladen (Formular)').first().json['Monat']] } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4720,
+        1648
+      ],
+      "id": "f130a76d-bc5f-4b3a-8475-0803ea8ad31f",
+      "name": "Tag setzen",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.report)) sd.report = [];\nconst cfg = $('Config').first().json.cfg;\nconst src = $('Paid-Ergebnis pruefen').first().json;\nconst brutto = cfg.PREIS_MODUS === 'brutto';\n\nfor (const p of src.positionen) {\n  sd.report.push({\n    status: 'ERGAENZT',\n    orderName: src.orderName,\n    jtlAuftragsNr: src.jtlAuftragsNr,\n    sku: p.sku,\n    titel: p.titel,\n    menge: p.menge,\n    mengeJtl: p.mengeJtl,\n    mengeShopify: p.mengeShopify,\n    preis: brutto ? p.einzelBrutto : p.einzelNetto,\n    preisModus: cfg.PREIS_MODUS,\n    mwst: p.mwst,\n    waehrung: src.waehrung,\n    paidStatus: src.paidStatus,\n    hinweis: [src.paidFehler, p.preisAbweichung ? 'mehrere JTL-Preise fuer diese SKU' : ''].filter(Boolean).join(' | ')\n  });\n}\n\nreturn [{ json: {\n  orderName: src.orderName,\n  positionen: src.positionen.length,\n  paidStatus: src.paidStatus,\n  paidFehler: src.paidFehler\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4944,
+        1648
+      ],
+      "id": "60f0282a-9f41-45d4-984e-8a9678baa9e2",
+      "name": "Ergebnis protokollieren"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4288,
+        1840
+      ],
+      "id": "f140b2cd-b116-493e-bb5a-0566b9102c9c",
+      "name": "Wait (Rate-Limit)",
+      "webhookId": "9b1f4c22-0000-0000-0000-00000000000a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst form = $('CSV hochladen (Formular)').first().json;\nconst modus = form['Dry-Run'] === 'ja' ? 'DRY-RUN' : 'LIVE';\nconst monat = form['Monat'];\nconst rows = sd.report || [];\n\nif (!rows.length) {\n  return [{ json: { monat, modus, status: 'KEINE_ABWEICHUNGEN', hinweis: 'JTL und Shopify sind deckungsgleich' } }];\n}\nreturn rows.map(r => ({ json: { monat, modus, ...r } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4448,
+        848
+      ],
+      "id": "f01fed96-dee5-409f-8f7d-f701bee55aea",
+      "name": "Report bauen"
+    },
+    {
+      "parameters": {
+        "options": {
+          "fileName": "=jtl-abgleich-{{ $('CSV hochladen (Formular)').first().json['Monat'] }}.csv"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        4720,
+        848
+      ],
+      "id": "a58eb323-7423-49bd-8262-60156882ada8",
+      "name": "Report als CSV"
+    },
+    {
+      "parameters": {
+        "content": "## Phase B: Preise aus tBestellPos\nEin SQL-Call pro 500 Auftragsnummern (IN-Liste). Preis = `fVKNetto` abzueglich `fRabatt`, brutto ueber `fMwSt` - der zum Bestellzeitpunkt gueltige Satz.\n\nDas Matching laeuft gegen `cInetBestellNr` **oder** `cBestellNr`. Findet SQL nichts, erscheint die Bestellung im Report als `NICHT_IN_JTL`.\n\n**Zu verifizieren:**\n- Feldname der Shop-Bestellnummer (`cInetBestellNr`)\n- `nType`-Mapping deiner Wawi-Version\n- Waehrung der Positionspreise bei CH-Bestellungen",
+        "height": 412,
+        "width": 620,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3008,
+        1136
+      ],
+      "id": "5d0c86a4-bd86-4474-aa23-0db86b031af7",
+      "name": "Sticky Phase B"
+    },
+    {
+      "parameters": {
+        "content": "## Phase C: Order-Edit je Bestellung\n`orderEditAddCustomItem` statt `AddVariant` - AddVariant zieht zwingend den aktuellen Variantenpreis.\n\n**Wichtig:** Custom Items haben kein SKU-Feld. Die SKU wird per `TITEL_SUFFIX` in den Titel geschrieben (`Titel [SKU: XY]`) und beim naechsten Lauf aus dem Titel zurueckgelesen. Ohne das wuerde ein Wiederholungslauf Positionen doppelt anlegen.\n\n`requiresShipping: false` -> abgeschlossene Bestellungen werden nicht erneut unfulfilled.\n`taxable: true` -> Shopify splittet die Steuer nach Market/Order-Settings.\n\nEin Edit-Zyklus je Bestellung: alle fehlenden Positionen in EINEM aliasierten GraphQL-Dokument. Fehler in einem Alias -> Abbruch VOR dem Commit.\n\n`orderMarkAsPaid` und `Tag setzen` laufen mit *continueRegularOutput* - ein Fehlschlag stoppt den Batch nicht, landet aber im Report.",
+        "height": 420,
+        "width": 700,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5200,
+        1152
+      ],
+      "id": "8c2d4c4e-5902-4ef9-b7e9-1948e14dd8d2",
+      "name": "Sticky Phase C"
+    },
+    {
+      "parameters": {
+        "content": "## Phase D: Report\nCSV mit allen Zeilen:\n`GEPLANT` / `ERGAENZT` / `UEBERSCHUSS_IN_SHOPIFY` / `NICHT_IN_JTL` / `KEINE_ORDER_ID`\n\nUeberschuesse werden **nicht** automatisch entfernt.\n\nVorgehen pro Monat:\n1. Dry-Run -> CSV pruefen\n2. Live mit `Limit = 1`\n3. Vollauf\n4. Bei Wiederholung: Matrixify neu exportieren",
+        "height": 300,
+        "width": 480,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3968,
+        400
+      ],
+      "id": "d0a61e92-71a8-4f4f-8586-2efcf26ce953",
+      "name": "Sticky Phase D"
+    },
+    {
+      "parameters": {
+        "content": "## Upload der Matrixify CSV",
+        "height": 368,
+        "width": 896,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        736
+      ],
+      "id": "c480e5b7-3023-4597-9bea-2b869109efb0",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## SQL Aufruf: historische Preise \n",
+        "height": 368,
+        "width": 928,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3008,
+        736
+      ],
+      "id": "69343250-785c-40f4-876e-e7c55b01064d",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## GraphQL Korrektur Kette\n\n",
+        "height": 880,
+        "width": 1184,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3968,
+        1152
+      ],
+      "id": "be87e1a3-07e8-4156-a75c-3d49170dd00b",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 368,
+        "width": 1184,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3968,
+        736
+      ],
+      "id": "8ab62b2b-2dea-4b01-b98b-65fc77abe10f",
+      "name": "Sticky Note3"
+    }
+  ],
+  "connections": {
+    "CSV hochladen (Formular)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Matrixify parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Matrixify parsen": {
+      "main": [
+        [
+          {
+            "node": "Ist-Zustand + Auftragsnummern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ist-Zustand + Auftragsnummern": {
+      "main": [
+        [
+          {
+            "node": "Loop SQL-Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop SQL-Batches": {
+      "main": [
+        [
+          {
+            "node": "Diff berechnen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IN-Liste bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IN-Liste bauen": {
+      "main": [
+        [
+          {
+            "node": "JTL: Positionen inkl. historischem Preis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL: Positionen inkl. historischem Preis": {
+      "main": [
+        [
+          {
+            "node": "JTL-Positionen sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL-Positionen sammeln": {
+      "main": [
+        [
+          {
+            "node": "Loop SQL-Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diff berechnen": {
+      "main": [
+        [
+          {
+            "node": "Test-Limiter (Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test-Limiter (Limit)": {
+      "main": [
+        [
+          {
+            "node": "Dry-Run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry-Run?": {
+      "main": [
+        [
+          {
+            "node": "Report bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Token holen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token holen": {
+      "main": [
+        [
+          {
+            "node": "Loop je Bestellung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop je Bestellung": {
+      "main": [
+        [
+          {
+            "node": "Report bauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Query bauen (orderEditBegin)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (orderEditBegin)": {
+      "main": [
+        [
+          {
+            "node": "orderEditBegin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderEditBegin": {
+      "main": [
+        [
+          {
+            "node": "CalcOrder auslesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CalcOrder auslesen": {
+      "main": [
+        [
+          {
+            "node": "Query bauen (Custom Items)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query bauen (Custom Items)": {
+      "main": [
+        [
+          {
+            "node": "Positionen hinzufuegen (Custom Items)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Positionen hinzufuegen (Custom Items)": {
+      "main": [
+        [
+          {
+            "node": "Add-Ergebnis pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add-Ergebnis pruefen": {
+      "main": [
+        [
+          {
+            "node": "orderEditCommit: NotifyCustomer = FALSE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderEditCommit: NotifyCustomer = FALSE": {
+      "main": [
+        [
+          {
+            "node": "Commit-Ergebnis pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit-Ergebnis pruefen": {
+      "main": [
+        [
+          {
+            "node": "orderMarkAsPaid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "orderMarkAsPaid": {
+      "main": [
+        [
+          {
+            "node": "Paid-Ergebnis pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Paid-Ergebnis pruefen": {
+      "main": [
+        [
+          {
+            "node": "Tag setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag setzen": {
+      "main": [
+        [
+          {
+            "node": "Ergebnis protokollieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ergebnis protokollieren": {
+      "main": [
+        [
+          {
+            "node": "Wait (Rate-Limit)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait (Rate-Limit)": {
+      "main": [
+        [
+          {
+            "node": "Loop je Bestellung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report bauen": {
+      "main": [
+        [
+          {
+            "node": "Report als CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "zz9NwQYFuf2QkZFy",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-07-30T09:03:53.931Z",
+      "updatedAt": "2026-07-30T09:03:53.931Z"
+    }
+  ],
+  "activeVersion": null
+}

@@ -1,0 +1,165 @@
+{
+  "id": "JcdcVN47W6rI6ypK",
+  "name": "BB-JTL-Auftragsnummern-Zeitraum",
+  "active": false,
+  "activeVersionId": null,
+  "createdAt": "2026-09-01T09:05:54.897Z",
+  "updatedAt": "2026-09-01T09:33:46.621Z",
+  "isArchived": false,
+  "versionId": "873a36e9-c50a-45c1-b8f6-b3c2a4a4dc3b",
+  "triggerCount": 0,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "caa48862-05e6-4554-9174-6ae14a74b734",
+      "name": "Manuell starten",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// === CONFIG — nur hier etwas eintragen ===\nconst CONFIG = {\n  // Zeitraum. Bis-Datum ist EXKLUSIV -> fuer Januar 2026: 2026-01-01 / 2026-02-01\n  VON: '2026-01-01',\n  BIS: '2026-02-01',\n\n  // Shop in JTL. 3 = BB / Zauberbuechse\n  K_SHOP: 3,\n\n  // Nummernfeld. 'cInetBestellNr' = Shopify-Bestellnummer\n  NUMMERN_FELD: 'cInetBestellNr',\n\n  // Trennzeichen fuer die Matrixify-Filterliste\n  TRENNER: ', '\n};\n\n// Monatslabel fuer Dateinamen: 2026-01\nconst label = String(CONFIG.VON).slice(0, 7);\n\nreturn [{ json: { cfg: CONFIG, label } }];\n"
+      },
+      "id": "fecc6f40-bc72-4bc0-9741-5c45652f5e09",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Auftragsnummern des Zeitraums. Filterlogik identisch zum Positionsabgleich:\n-- nur kShop 3, keine Stornos, kein leeres Nummernfeld.\nSELECT  b.cInetBestellNr AS nummer\nFROM    [eazybusiness].[dbo].[tBestellung] AS b\nWHERE   b.kShop   = {{ $json.cfg.K_SHOP }}\n  AND   b.nStorno = 0\n  AND   b.dErstellt >= '{{ $json.cfg.VON }}'\n  AND   b.dErstellt <  '{{ $json.cfg.BIS }}'\n  AND   ISNULL(b.cInetBestellNr, '') <> ''\n  AND   NOT EXISTS (SELECT 1 FROM [eazybusiness].[Verkauf].[tAuftragStorno] AS s\n                    WHERE s.kAuftrag = b.kBestellung)\nORDER BY b.cInetBestellNr;",
+        "options": {}
+      },
+      "id": "f91ed5ea-6200-4a2f-aab9-1927748a30c3",
+      "name": "JTL: Auftragsnummern",
+      "type": "n8n-nodes-base.microsoftSql",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        0
+      ],
+      "credentials": {
+        "microsoftSql": {
+          "id": "a6mkpraM66kvytdS",
+          "name": "JTL Datenbank jessebalsam"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nummern einsammeln, deduplizieren, zwei Ausgabeformate bauen.\nconst cfg   = $('Config').first().json.cfg;\nconst label = $('Config').first().json.label;\n\nconst rows = $input.all().map(i => i.json);\nconst roh  = rows.map(r => String(r.nummer ?? '').trim()).filter(Boolean);\n\n// Dubletten koennen entstehen, wenn mehrere JTL-Auftraege dieselbe\n// Shopify-Nummer tragen (Abo-/Nachlieferungsfaelle).\nconst einzigartig = [...new Set(roh)];\n\nconst liste  = einzigartig.join(cfg.TRENNER);\nconst zeilen = einzigartig.join('\\n');\n\nreturn [{\n  json: {\n    label,\n    von: cfg.VON,\n    bis: cfg.BIS,\n    anzahl: einzigartig.length,\n    dubletten: roh.length - einzigartig.length,\n    zeichen: liste.length,\n    // Zum direkten Kopieren aus der n8n-Ausgabe:\n    matrixifyFilter: liste\n  },\n  binary: {}\n}, {\n  json: { _datei: true, inhalt: liste }\n}];\n"
+      },
+      "id": "beac98d4-1208-487c-a588-639088ca5617",
+      "name": "Nummern sammeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Zeilenweise Variante als Textdatei. Fuer Matrixify beides nutzbar.\nconst item  = $input.all().find(i => i.json._datei);\nconst label = $('Config').first().json.label;\nconst inhalt = String(item?.json?.inhalt ?? '');\n\nreturn [{\n  json: { dateiname: 'auftragsnummern-' + label + '.txt', zeilen: inhalt ? inhalt.split('\\n').length : 0 },\n  binary: {\n    data: {\n      data: Buffer.from(inhalt, 'utf8').toString('base64'),\n      mimeType: 'text/plain',\n      fileName: 'auftragsnummern-' + label + '.txt',\n      fileExtension: 'txt'\n    }\n  }\n}];\n"
+      },
+      "id": "90054046-c2a0-4ea1-a356-f7bfe34def78",
+      "name": "Als TXT ausgeben",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Ablauf\n\n1. **Config** — `VON` / `BIS` eintragen. `BIS` ist **exklusiv**: Januar 2026 = `2026-01-01` bis `2026-02-01`.\n2. Flow ausfuehren.\n3. **Nummern sammeln** — Feld `matrixifyFilter` enthaelt die komma-separierte Liste zum direkten Kopieren.\n4. **Als TXT ausgeben** — dieselbe Liste zeilenweise als Datei-Download, falls die Zelle zu lang zum Markieren ist.\n\nDie Liste geht in Matrixify als Filter `Name: equals to any of:`.\n\nFilterlogik ist identisch zum Positionsabgleich (`kShop = 3`, keine Stornos) — die Nummernliste und die spaetere Soll-Abfrage bleiben damit deckungsgleich.",
+        "height": 380,
+        "width": 460
+      },
+      "id": "ce69177f-be2a-4c79-ad7a-1c4c415762f4",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        144
+      ]
+    }
+  ],
+  "connections": {
+    "Manuell starten": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "JTL: Auftragsnummern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTL: Auftragsnummern": {
+      "main": [
+        [
+          {
+            "node": "Nummern sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nummern sammeln": {
+      "main": [
+        [
+          {
+            "node": "Als TXT ausgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "JcdcVN47W6rI6ypK",
+      "projectId": "fpJ6gOBBO4AzTt5B",
+      "createdAt": "2026-09-01T09:05:54.899Z",
+      "updatedAt": "2026-09-01T09:05:54.899Z"
+    }
+  ],
+  "activeVersion": null
+}
